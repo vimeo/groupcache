@@ -18,6 +18,7 @@ package groupcache
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,6 +29,8 @@ import (
 	"github.com/golang/groupcache/consistenthash"
 	pb "github.com/golang/groupcache/groupcachepb"
 	"github.com/golang/protobuf/proto"
+
+	"go.opencensus.io/stats"
 )
 
 const defaultBasePath = "/_groupcache/"
@@ -36,15 +39,15 @@ const defaultReplicas = 50
 
 // HTTPPool implements PeerPicker for a pool of HTTP peers.
 type HTTPPool struct {
-	// Context optionally specifies a context for the server to use when it
+	// context.Context optionally specifies a context for the server to use when it
 	// receives a request.
-	// If nil, the server uses a nil Context.
-	Context func(*http.Request) Context
+	// If nil, the server uses a nil context.Context.
+	Context func(*http.Request) context.Context
 
 	// Transport optionally specifies an http.RoundTripper for the client
 	// to use when it makes a request.
 	// If nil, the client uses http.DefaultTransport.
-	Transport func(Context) http.RoundTripper
+	Transport func(context.Context) http.RoundTripper
 
 	// this peer's base URL, e.g. "https://example.net:8000"
 	self string
@@ -157,12 +160,14 @@ func (p *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no such group: "+groupName, http.StatusNotFound)
 		return
 	}
-	var ctx Context
+	var ctx context.Context
 	if p.Context != nil {
 		ctx = p.Context(r)
 	}
 
+	// TODO: remove group.Stats from here
 	group.Stats.ServerRequests.Add(1)
+	stats.Record(ctx, MServerRequests.M(1))
 	var value []byte
 	err := group.Get(ctx, key, AllocatingByteSliceSink(&value))
 	if err != nil {
@@ -181,7 +186,7 @@ func (p *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type httpGetter struct {
-	transport func(Context) http.RoundTripper
+	transport func(context.Context) http.RoundTripper
 	baseURL   string
 }
 
@@ -189,7 +194,7 @@ var bufferPool = sync.Pool{
 	New: func() interface{} { return new(bytes.Buffer) },
 }
 
-func (h *httpGetter) Get(context Context, in *pb.GetRequest, out *pb.GetResponse) error {
+func (h *httpGetter) Get(ctx context.Context, in *pb.GetRequest, out *pb.GetResponse) error {
 	u := fmt.Sprintf(
 		"%v%v/%v",
 		h.baseURL,
@@ -202,7 +207,7 @@ func (h *httpGetter) Get(context Context, in *pb.GetRequest, out *pb.GetResponse
 	}
 	tr := http.DefaultTransport
 	if h.transport != nil {
-		tr = h.transport(context)
+		tr = h.transport(ctx)
 	}
 	res, err := tr.RoundTrip(req)
 	if err != nil {

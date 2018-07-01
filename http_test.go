@@ -17,6 +17,7 @@ limitations under the License.
 package groupcache
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"log"
@@ -29,6 +30,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"go.opencensus.io/plugin/ochttp"
+	"go.opencensus.io/stats/view"
 )
 
 var (
@@ -36,6 +40,12 @@ var (
 	peerIndex = flag.Int("test_peer_index", -1, "Index of which peer this child is; used by TestHTTPPool")
 	peerChild = flag.Bool("test_peer_child", false, "True if running as a child process; used by TestHTTPPool")
 )
+
+type testStatsExporter struct {
+	mu   sync.Mutex
+	data []*view.Data
+	t    *testing.T
+}
 
 func TestHTTPPool(t *testing.T) {
 	if *peerChild {
@@ -85,14 +95,14 @@ func TestHTTPPool(t *testing.T) {
 	// Dummy getter function. Gets should go to children only.
 	// The only time this process will handle a get is when the
 	// children can't be contacted for some reason.
-	getter := GetterFunc(func(ctx Context, key string, dest Sink) error {
+	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
 		return errors.New("parent getter called; something's wrong")
 	})
 	g := NewGroup("httpPoolTest", 1<<20, getter)
 
 	for _, key := range testKeys(nGets) {
 		var value string
-		if err := g.Get(nil, key, StringSink(&value)); err != nil {
+		if err := g.Get(dummyCtx, key, StringSink(&value)); err != nil {
 			t.Fatal(err)
 		}
 		if suffix := ":" + key; !strings.HasSuffix(value, suffix) {
@@ -116,13 +126,14 @@ func beChildForTestHTTPPool() {
 	p := NewHTTPPool("http://" + addrs[*peerIndex])
 	p.Set(addrToURL(addrs)...)
 
-	getter := GetterFunc(func(ctx Context, key string, dest Sink) error {
+	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
 		dest.SetString(strconv.Itoa(*peerIndex) + ":" + key)
 		return nil
 	})
 	NewGroup("httpPoolTest", 1<<20, getter)
 
-	log.Fatal(http.ListenAndServe(addrs[*peerIndex], p))
+	handler := &ochttp.Handler{Handler: p}
+	log.Fatal(http.ListenAndServe(addrs[*peerIndex], handler))
 }
 
 // This is racy. Another process could swoop in and steal the port between the

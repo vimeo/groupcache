@@ -25,6 +25,7 @@ limitations under the License.
 package groupcache
 
 import (
+	"context"
 	"errors"
 	"math/rand"
 	"strconv"
@@ -34,6 +35,9 @@ import (
 	pb "github.com/golang/groupcache/groupcachepb"
 	"github.com/golang/groupcache/lru"
 	"github.com/golang/groupcache/singleflight"
+
+	"go.opencensus.io/stats"
+	"go.opencensus.io/trace"
 )
 
 // A Getter loads data for a key.
@@ -44,13 +48,13 @@ type Getter interface {
 	// uniquely describe the loaded data, without an implicit
 	// current time, and without relying on cache expiration
 	// mechanisms.
-	Get(ctx Context, key string, dest Sink) error
+	Get(ctx context.Context, key string, dest Sink) error
 }
 
 // A GetterFunc implements Getter with a function.
-type GetterFunc func(ctx Context, key string, dest Sink) error
+type GetterFunc func(ctx context.Context, key string, dest Sink) error
 
-func (f GetterFunc) Get(ctx Context, key string, dest Sink) error {
+func (f GetterFunc) Get(ctx context.Context, key string, dest Sink) error {
 	return f(ctx, key, dest)
 }
 
@@ -204,19 +208,29 @@ func (g *Group) initPeers() {
 	}
 }
 
-func (g *Group) Get(ctx Context, key string, dest Sink) error {
+func (g *Group) Get(ctx context.Context, key string, dest Sink) error {
+	ctx, span := trace.StartSpan(ctx, "golang.org/groupcache.(*Group).Get")
+	defer span.End()
+
 	g.peersOnce.Do(g.initPeers)
+	// TODO: Remove .Stats
 	g.Stats.Gets.Add(1)
+	stats.Record(ctx, MGets.M(1))
 	if dest == nil {
+		span.SetStatus(trace.Status{Code: trace.StatusCodeInvalidArgument, Message: "nil dest sink"})
 		return errors.New("groupcache: nil dest Sink")
 	}
 	value, cacheHit := g.lookupCache(key)
+	stats.Record(ctx, MKeyLength.M(int64(len(key))))
 
 	if cacheHit {
+		// TODO: Remove .Stats
 		g.Stats.CacheHits.Add(1)
+		stats.Record(ctx, MCacheHits.M(1), MValueLength.M(int64(value.Len())))
 		return setSinkView(dest, value)
 	}
 
+	span.Annotatef(nil, "Cache miss")
 	// Optimization to avoid double unmarshalling or copying: keep
 	// track of whether the dest was already populated. One caller
 	// (if local) will set this; the losers will not. The common
@@ -224,8 +238,11 @@ func (g *Group) Get(ctx Context, key string, dest Sink) error {
 	destPopulated := false
 	value, destPopulated, err := g.load(ctx, key, dest)
 	if err != nil {
+		span.SetStatus(trace.Status{Code: trace.StatusCodeUnknown, Message: "nil dest sink"})
+		stats.Record(ctx, MLoadErrors.M(1))
 		return err
 	}
+	stats.Record(ctx, MValueLength.M(int64(value.Len())))
 	if destPopulated {
 		return nil
 	}
@@ -233,8 +250,11 @@ func (g *Group) Get(ctx Context, key string, dest Sink) error {
 }
 
 // load loads key either by invoking the getter locally or by sending it to another machine.
-func (g *Group) load(ctx Context, key string, dest Sink) (value ByteView, destPopulated bool, err error) {
+func (g *Group) load(ctx context.Context, key string, dest Sink) (value ByteView, destPopulated bool, err error) {
+	// TODO: Remove .Stats
 	g.Stats.Loads.Add(1)
+	stats.Record(ctx, MLoads.M(1))
+
 	viewi, err := g.loadGroup.Do(key, func() (interface{}, error) {
 		// Check the cache again because singleflight can only dedup calls
 		// that overlap concurrently.  It's possible for 2 concurrent
@@ -258,19 +278,28 @@ func (g *Group) load(ctx Context, key string, dest Sink) (value ByteView, destPo
 		// 2: loadGroup.Do("key", fn)
 		// 2: fn()
 		if value, cacheHit := g.lookupCache(key); cacheHit {
+			// TODO: Remove .Stats
 			g.Stats.CacheHits.Add(1)
+			stats.Record(ctx, MCacheHits.M(1))
 			return value, nil
 		}
+		// TODO: Remove .Stats
 		g.Stats.LoadsDeduped.Add(1)
+		stats.Record(ctx, MLoadsDeduped.M(1))
+
 		var value ByteView
 		var err error
 		if peer, ok := g.peers.PickPeer(key); ok {
 			value, err = g.getFromPeer(ctx, peer, key)
 			if err == nil {
+				// TODO: Remove .Stats
 				g.Stats.PeerLoads.Add(1)
+				stats.Record(ctx, MPeerLoads.M(1))
 				return value, nil
 			}
+			// TODO: Remove .Stats
 			g.Stats.PeerErrors.Add(1)
+			stats.Record(ctx, MPeerErrors.M(1))
 			// TODO(bradfitz): log the peer's error? keep
 			// log of the past few for /groupcachez?  It's
 			// probably boring (normal task movement), so not
@@ -278,10 +307,14 @@ func (g *Group) load(ctx Context, key string, dest Sink) (value ByteView, destPo
 		}
 		value, err = g.getLocally(ctx, key, dest)
 		if err != nil {
+			// TODO: Remove .Stats
 			g.Stats.LocalLoadErrs.Add(1)
+			stats.Record(ctx, MLocalLoadErrors.M(1))
 			return nil, err
 		}
+		// TODO: Remove .Stats
 		g.Stats.LocalLoads.Add(1)
+		stats.Record(ctx, MLocalLoads.M(1))
 		destPopulated = true // only one caller of load gets this return value
 		g.populateCache(key, value, &g.mainCache)
 		return value, nil
@@ -292,7 +325,7 @@ func (g *Group) load(ctx Context, key string, dest Sink) (value ByteView, destPo
 	return
 }
 
-func (g *Group) getLocally(ctx Context, key string, dest Sink) (ByteView, error) {
+func (g *Group) getLocally(ctx context.Context, key string, dest Sink) (ByteView, error) {
 	err := g.getter.Get(ctx, key, dest)
 	if err != nil {
 		return ByteView{}, err
@@ -300,7 +333,7 @@ func (g *Group) getLocally(ctx Context, key string, dest Sink) (ByteView, error)
 	return dest.view()
 }
 
-func (g *Group) getFromPeer(ctx Context, peer ProtoGetter, key string) (ByteView, error) {
+func (g *Group) getFromPeer(ctx context.Context, peer ProtoGetter, key string) (ByteView, error) {
 	req := &pb.GetRequest{
 		Group: &g.name,
 		Key:   &key,
