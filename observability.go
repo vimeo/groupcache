@@ -17,8 +17,11 @@ limitations under the License.
 package groupcache
 
 import (
+	"time"
+
 	"go.opencensus.io/stats"
 	"go.opencensus.io/stats/view"
+	"go.opencensus.io/tag"
 )
 
 const (
@@ -37,6 +40,7 @@ var (
 var (
 	MGets            = stats.Int64("gets", "The number of Get requests", unitDimensionless)
 	MCacheHits       = stats.Int64("cache_hits", "The number of times that either cache was good", unitDimensionless)
+	MCacheMisses     = stats.Int64("cache_misses", "The number of times that either cache was not good", unitDimensionless)
 	MPeerLoads       = stats.Int64("peer_loads", "The number of remote loads or remote cache hits", unitDimensionless)
 	MPeerErrors      = stats.Int64("peer_errors", "The number of remote errors", unitDimensionless)
 	MLoads           = stats.Int64("loads", "The number of gets/cacheHits", unitDimensionless)
@@ -47,11 +51,16 @@ var (
 	MServerRequests  = stats.Int64("server_requests", "The number of Gets that came over the network from peers", unitDimensionless)
 	MKeyLength       = stats.Int64("key_length", "The length of keys", unitBytes)
 	MValueLength     = stats.Int64("value_length", "The length of values", unitBytes)
+
+	MRoundtripLatencyMilliseconds = stats.Float64("roundtrip_latency", "Roundtrip latency in milliseconds", unitMillisecond)
 )
+
+var keyCommand, _ = tag.NewKey("command")
 
 var AllViews = []*view.View{
 	{Name: "groupcache/gets", Description: "The number of Get requests", Measure: MGets, Aggregation: view.Count()},
 	{Name: "groupcache/cache_hits", Description: "The number of times that either cache was good", Measure: MCacheHits, Aggregation: view.Count()},
+	{Name: "groupcache/cache_misses", Description: "The number of times that either cache was not good", Measure: MCacheMisses, Aggregation: view.Count()},
 	{Name: "groupcache/peer_loads", Description: "The number of remote loads or remote cache hits", Measure: MPeerLoads, Aggregation: view.Count()},
 	{Name: "groupcache/peer_errors", Description: "The number of remote errors", Measure: MPeerErrors, Aggregation: view.Count()},
 	{Name: "groupcache/loads", Description: "The number of loads after singleflight", Measure: MLoads, Aggregation: view.Count()},
@@ -61,4 +70,10 @@ var AllViews = []*view.View{
 	{Name: "groupcache/server_requests", Description: "The number of Gets that came over the network from peers", Measure: MServerRequests, Aggregation: view.Count()},
 	{Name: "groupcache/key_length", Description: "The distribution of the key lengths", Measure: MKeyLength, Aggregation: defaultBytesDistribution},
 	{Name: "groupcache/value_length", Description: "The distribution of the value lengths", Measure: MValueLength, Aggregation: defaultBytesDistribution},
+	{Name: "groupcache/roundtrip_latency", Description: "The roundtrip latency", Measure: MRoundtripLatencyMilliseconds, Aggregation: defaultMillisecondsDistribution},
+}
+
+func sinceInMilliseconds(start time.Time) float64 {
+	d := time.Since(start)
+	return float64(d.Nanoseconds()) / 1e6
 }

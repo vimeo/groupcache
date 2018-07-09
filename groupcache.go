@@ -31,12 +31,14 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	pb "github.com/golang/groupcache/groupcachepb"
 	"github.com/golang/groupcache/lru"
 	"github.com/golang/groupcache/singleflight"
 
 	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"go.opencensus.io/trace"
 )
 
@@ -209,11 +211,21 @@ func (g *Group) initPeers() {
 }
 
 func (g *Group) Get(ctx context.Context, key string, dest Sink) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	ctx, _ = tag.New(ctx, tag.Insert(keyCommand, "get"))
+
 	ctx, span := trace.StartSpan(ctx, "golang.org/groupcache.(*Group).Get")
-	defer span.End()
+	startTime := time.Now()
+	defer func() {
+		stats.Record(ctx, MRoundtripLatencyMilliseconds.M(sinceInMilliseconds(startTime)))
+		span.End()
+	}()
 
 	g.peersOnce.Do(g.initPeers)
-	// TODO: Remove .Stats
+	// TODO(@odeke-em): Remove .Stats
 	g.Stats.Gets.Add(1)
 	stats.Record(ctx, MGets.M(1))
 	if dest == nil {
@@ -224,12 +236,14 @@ func (g *Group) Get(ctx context.Context, key string, dest Sink) error {
 	stats.Record(ctx, MKeyLength.M(int64(len(key))))
 
 	if cacheHit {
-		// TODO: Remove .Stats
+		span.Annotatef(nil, "Cache hit")
+		// TODO(@odeke-em): Remove .Stats
 		g.Stats.CacheHits.Add(1)
 		stats.Record(ctx, MCacheHits.M(1), MValueLength.M(int64(value.Len())))
 		return setSinkView(dest, value)
 	}
 
+	stats.Record(ctx, MCacheMisses.M(1))
 	span.Annotatef(nil, "Cache miss")
 	// Optimization to avoid double unmarshalling or copying: keep
 	// track of whether the dest was already populated. One caller
@@ -251,7 +265,7 @@ func (g *Group) Get(ctx context.Context, key string, dest Sink) error {
 
 // load loads key either by invoking the getter locally or by sending it to another machine.
 func (g *Group) load(ctx context.Context, key string, dest Sink) (value ByteView, destPopulated bool, err error) {
-	// TODO: Remove .Stats
+	// TODO(@odeke-em): Remove .Stats
 	g.Stats.Loads.Add(1)
 	stats.Record(ctx, MLoads.M(1))
 
@@ -265,7 +279,7 @@ func (g *Group) load(ctx context.Context, key string, dest Sink) (value ByteView
 		// be only one entry for this key.
 		//
 		// Consider the following serialized event ordering for two
-		// goroutines in which this callback gets called twice for hte
+		// goroutines in which this callback gets called twice for the
 		// same key:
 		// 1: Get("key")
 		// 2: Get("key")
@@ -278,12 +292,12 @@ func (g *Group) load(ctx context.Context, key string, dest Sink) (value ByteView
 		// 2: loadGroup.Do("key", fn)
 		// 2: fn()
 		if value, cacheHit := g.lookupCache(key); cacheHit {
-			// TODO: Remove .Stats
+			// TODO(@odeke-em): Remove .Stats
 			g.Stats.CacheHits.Add(1)
-			stats.Record(ctx, MCacheHits.M(1))
+			stats.Record(ctx, MCacheHits.M(1), MLocalLoads.M(1))
 			return value, nil
 		}
-		// TODO: Remove .Stats
+		// TODO(@odeke-em): Remove .Stats
 		g.Stats.LoadsDeduped.Add(1)
 		stats.Record(ctx, MLoadsDeduped.M(1))
 
@@ -292,12 +306,12 @@ func (g *Group) load(ctx context.Context, key string, dest Sink) (value ByteView
 		if peer, ok := g.peers.PickPeer(key); ok {
 			value, err = g.getFromPeer(ctx, peer, key)
 			if err == nil {
-				// TODO: Remove .Stats
+				// TODO(@odeke-em): Remove .Stats
 				g.Stats.PeerLoads.Add(1)
 				stats.Record(ctx, MPeerLoads.M(1))
 				return value, nil
 			}
-			// TODO: Remove .Stats
+			// TODO(@odeke-em): Remove .Stats
 			g.Stats.PeerErrors.Add(1)
 			stats.Record(ctx, MPeerErrors.M(1))
 			// TODO(bradfitz): log the peer's error? keep
@@ -307,12 +321,12 @@ func (g *Group) load(ctx context.Context, key string, dest Sink) (value ByteView
 		}
 		value, err = g.getLocally(ctx, key, dest)
 		if err != nil {
-			// TODO: Remove .Stats
+			// TODO(@odeke-em): Remove .Stats
 			g.Stats.LocalLoadErrs.Add(1)
 			stats.Record(ctx, MLocalLoadErrors.M(1))
 			return nil, err
 		}
-		// TODO: Remove .Stats
+		// TODO(@odeke-em): Remove .Stats
 		g.Stats.LocalLoads.Add(1)
 		stats.Record(ctx, MLocalLoads.M(1))
 		destPopulated = true // only one caller of load gets this return value
