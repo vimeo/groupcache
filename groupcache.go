@@ -33,9 +33,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	pb "github.com/golang/groupcache/groupcachepb"
-	"github.com/golang/groupcache/lru"
-	"github.com/golang/groupcache/singleflight"
+	pb "github.com/vimeo/groupcache/groupcachepb"
+	"github.com/vimeo/groupcache/lru"
+	"github.com/vimeo/groupcache/singleflight"
 
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"

@@ -26,8 +26,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/golang/groupcache/consistenthash"
-	pb "github.com/golang/groupcache/groupcachepb"
+	"github.com/vimeo/groupcache/consistenthash"
+	pb "github.com/vimeo/groupcache/groupcachepb"
 	"github.com/golang/protobuf/proto"
 
 	"go.opencensus.io/stats"
