@@ -48,8 +48,6 @@ var (
 	// protoGroup's Getter have been called. Read using the
 	// cacheFills function.
 	cacheFills AtomicInt
-
-	groups *Groups
 )
 
 const (
@@ -61,6 +59,8 @@ const (
 )
 
 func testSetup() {
+	groups := &Groups{groups: make(map[string]*Group)}
+
 	stringGroup = groups.NewGroup(stringGroupName, cacheSize, GetterFunc(func(_ context.Context, key string, dest Sink) error {
 		if key == fromChan {
 			key = <-stringc
@@ -254,6 +254,7 @@ func (p fakePeers) PickPeer(key string) (peer ProtoGetter, ok bool) {
 
 // tests that peers (virtual, in-process) are hit, and how much.
 func TestPeers(t *testing.T) {
+	groups := &Groups{groups: make(map[string]*Group)}
 	once.Do(testSetup)
 	rand.Seed(123)
 	peer0 := &fakePeer{}
@@ -325,12 +326,17 @@ func TestPeers(t *testing.T) {
 }
 
 func TestTruncatingByteSliceTarget(t *testing.T) {
-	var buf [100]byte
+	once.Do(testSetup)
+	buf := make([]byte, 100)
 	s := buf[:]
+	sink := TruncatingByteSliceSink(&s)
+	println("sink: ", sink)
 	if err := stringGroup.Get(dummyCtx, "short", TruncatingByteSliceSink(&s)); err != nil {
+		fmt.Println("Err 1: ", err)
 		t.Fatal(err)
 	}
 	if want := "ECHO:short"; string(s) != want {
+		fmt.Println("Err 1: ")
 		t.Errorf("short key got %q; want %q", s, want)
 	}
 
@@ -388,6 +394,9 @@ func (g *orderedFlightGroup) Do(key string, fn func() (interface{}, error)) (int
 // TestNoDedup tests invariants on the cache size when singleflight is
 // unable to dedup calls.
 func TestNoDedup(t *testing.T) {
+	groups := &Groups{
+		groups: make(map[string]*Group),
+	}
 	const testkey = "testkey"
 	const testval = "testval"
 	g := groups.newGroup("testgroup", 1024, GetterFunc(func(_ context.Context, key string, dest Sink) error {
