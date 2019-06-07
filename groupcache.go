@@ -27,12 +27,12 @@ package groupcache
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/rand"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
-	"fmt"
 
 	pb "github.com/vimeo/groupcache/groupcachepb"
 	"github.com/vimeo/groupcache/lru"
@@ -62,19 +62,24 @@ func (f GetterFunc) Get(ctx context.Context, key string, dest Sink) error {
 }
 
 var (
-	mu     sync.RWMutex
-	groups = make(map[string]*Group)
+	// mu     sync.RWMutex
+	// groups = make(map[string]*Group)
 
 	initPeerServerOnce sync.Once
 	initPeerServer     func()
 )
 
+type Groups struct {
+	mu     sync.RWMutex
+	groups map[string]*Group
+}
+
 // GetGroup returns the named group previously created with NewGroup, or
 // nil if there's no such group.
-func GetGroup(name string) *Group {
-	mu.RLock()
-	g := groups[name]
-	mu.RUnlock()
+func (gs *Groups) GetGroup(name string) *Group {
+	gs.mu.RLock()
+	g := gs.groups[name]
+	gs.mu.RUnlock()
 	return g
 }
 
@@ -87,19 +92,19 @@ func GetGroup(name string) *Group {
 // completes.
 //
 // The group name must be unique for each getter.
-func NewGroup(name string, cacheBytes int64, getter Getter) *Group {
-	return newGroup(name, cacheBytes, getter, nil)
+func (gs *Groups) NewGroup(name string, cacheBytes int64, getter Getter) *Group {
+	return gs.newGroup(name, cacheBytes, getter, nil)
 }
 
 // If peers is nil, the peerPicker is called via a sync.Once to initialize it.
-func newGroup(name string, cacheBytes int64, getter Getter, peers PeerPicker) *Group {
+func (gs *Groups) newGroup(name string, cacheBytes int64, getter Getter, peers PeerPicker) *Group {
 	if getter == nil {
 		panic("nil Getter")
 	}
-	mu.Lock()
-	defer mu.Unlock()
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
 	initPeerServerOnce.Do(callInitPeerServer)
-	if _, dup := groups[name]; dup {
+	if _, dup := gs.groups[name]; dup {
 		panic("duplicate registration of group " + name)
 	}
 	g := &Group{
@@ -112,7 +117,7 @@ func newGroup(name string, cacheBytes int64, getter Getter, peers PeerPicker) *G
 	if fn := newGroupHook; fn != nil {
 		fn(g)
 	}
-	groups[name] = g
+	gs.groups[name] = g
 	return g
 }
 
@@ -353,8 +358,8 @@ func (g *Group) getLocally(ctx context.Context, key string, dest Sink) (ByteView
 
 func (g *Group) getFromPeer(ctx context.Context, peer ProtoGetter, key string) (ByteView, error) {
 	req := &pb.GetRequest{
-		Group: g.name,	// USED TO BE &g.name - had bug
-		Key:   key,		// USED TO BE &key - had bug
+		Group: g.name, // USED TO BE &g.name - had bug
+		Key:   key,    // USED TO BE &key - had bug
 	}
 	res := &pb.GetResponse{}
 	err := peer.Get(ctx, req, res)

@@ -26,9 +26,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/golang/protobuf/proto"
 	"github.com/vimeo/groupcache/consistenthash"
 	pb "github.com/vimeo/groupcache/groupcachepb"
-	"github.com/golang/protobuf/proto"
 
 	"go.opencensus.io/stats"
 )
@@ -58,6 +58,9 @@ type HTTPPool struct {
 	mu          sync.Mutex // guards peers and httpGetters
 	peers       *consistenthash.Map
 	httpGetters map[string]*httpGetter // keyed by e.g. "http://10.0.0.2:8008"
+
+	// the groups themselves, now contained to the HTTPPool rather than global
+	groups *Groups
 }
 
 // HTTPPoolOptions are the configurations of a HTTPPool.
@@ -155,7 +158,7 @@ func (p *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	key := parts[1]
 
 	// Fetch the value for this group/key.
-	group := GetGroup(groupName)
+	group := p.groups.GetGroup(groupName)
 	if group == nil {
 		http.Error(w, "no such group: "+groupName, http.StatusNotFound)
 		return
