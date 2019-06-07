@@ -48,8 +48,11 @@ type testStatsExporter struct {
 }
 
 func TestHTTPPool(t *testing.T) {
+	gs := &Groups{
+		groups: make(map[string]*Group),
+	}
 	if *peerChild {
-		beChildForTestHTTPPool()
+		gs.beChildForTestHTTPPool()
 		os.Exit(0)
 	}
 
@@ -98,7 +101,7 @@ func TestHTTPPool(t *testing.T) {
 	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
 		return errors.New("parent getter called; something's wrong")
 	})
-	g := NewGroup("httpPoolTest", 1<<20, getter)
+	g := gs.NewGroup("httpPoolTest", 1<<20, getter)
 
 	for _, key := range testKeys(nGets) {
 		var value string
@@ -120,7 +123,7 @@ func testKeys(n int) (keys []string) {
 	return
 }
 
-func beChildForTestHTTPPool() {
+func (gs *Groups) beChildForTestHTTPPool() {
 	addrs := strings.Split(*peerAddrs, ",")
 
 	p := NewHTTPPool("http://" + addrs[*peerIndex])
@@ -130,7 +133,7 @@ func beChildForTestHTTPPool() {
 		dest.SetString(strconv.Itoa(*peerIndex) + ":" + key)
 		return nil
 	})
-	NewGroup("httpPoolTest", 1<<20, getter)
+	gs.NewGroup("httpPoolTest", 1<<20, getter)
 
 	handler := &ochttp.Handler{Handler: p}
 	log.Fatal(http.ListenAndServe(addrs[*peerIndex], handler))

@@ -99,9 +99,14 @@ func NewHTTPPoolOpts(self string, o *HTTPPoolOptions) *HTTPPool {
 	}
 	httpPoolMade = true
 
+	newGroups := &Groups{
+		groups: make(map[string]*Group),
+	}
+
 	p := &HTTPPool{
 		self:        self,
 		httpGetters: make(map[string]*httpGetter),
+		groups:      newGroups,
 	}
 	if o != nil {
 		p.opts = *o
