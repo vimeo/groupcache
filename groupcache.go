@@ -32,6 +32,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"fmt"
 
 	pb "github.com/vimeo/groupcache/groupcachepb"
 	"github.com/vimeo/groupcache/lru"
@@ -311,6 +312,8 @@ func (g *Group) load(ctx context.Context, key string, dest Sink) (value ByteView
 				stats.Record(ctx, MPeerLoads.M(1))
 				return value, nil
 			}
+
+			fmt.Println("Error getFromPeer: ", err)
 			// TODO(@odeke-em): Remove .Stats
 			g.Stats.PeerErrors.Add(1)
 			stats.Record(ctx, MPeerErrors.M(1))
@@ -324,6 +327,7 @@ func (g *Group) load(ctx context.Context, key string, dest Sink) (value ByteView
 			// TODO(@odeke-em): Remove .Stats
 			g.Stats.LocalLoadErrs.Add(1)
 			stats.Record(ctx, MLocalLoadErrors.M(1))
+			fmt.Println("Error getLocally: ", err)
 			return nil, err
 		}
 		// TODO(@odeke-em): Remove .Stats
@@ -349,8 +353,8 @@ func (g *Group) getLocally(ctx context.Context, key string, dest Sink) (ByteView
 
 func (g *Group) getFromPeer(ctx context.Context, peer ProtoGetter, key string) (ByteView, error) {
 	req := &pb.GetRequest{
-		Group: &g.name,
-		Key:   &key,
+		Group: g.name,	// USED TO BE &g.name - had bug
+		Key:   key,		// USED TO BE &key - had bug
 	}
 	res := &pb.GetResponse{}
 	err := peer.Get(ctx, req, res)
