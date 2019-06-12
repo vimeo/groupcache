@@ -58,7 +58,7 @@ func (c *Cache) Add(key Key, value interface{}) {
 		c.cache = make(map[interface{}]*list.Element)
 		c.ll = list.New()
 	}
-	if ee, ok := c.cache[key]; ok {
+	if ee, ok := c.cache[key]; ok { // TODO (willgree): typo? ele vs ee; more consistency "ok" vs "hit"
 		c.ll.MoveToFront(ee)
 		ee.Value.(*entry).value = value
 		return
