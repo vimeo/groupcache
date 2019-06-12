@@ -318,7 +318,6 @@ func (g *Group) load(ctx context.Context, key string, dest Sink) (value ByteView
 				return value, nil
 			}
 
-			fmt.Println("Error getFromPeer: ", err)
 			// TODO(@odeke-em): Remove .Stats
 			g.Stats.PeerErrors.Add(1)
 			stats.Record(ctx, MPeerErrors.M(1))
