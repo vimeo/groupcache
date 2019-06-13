@@ -90,11 +90,13 @@ func NewHTTPPool(self string) *HTTPPool {
 
 // baseURLs keeps track of HTTPPools initialized with the given base URLs; panic if a base URL is used more than once (allows for multiple HTTPPools on the same process for testing)
 var baseURLs map[string]struct{}
+var mu sync.RWMutex
 
 // NewHTTPPoolOpts initializes an HTTP pool of peers with the given options.
 // Unlike NewHTTPPool, this function does not register the created pool as an HTTP handler.
 // The returned *HTTPPool implements http.Handler and must be registered using http.Handle.
 func NewHTTPPoolOpts(self string, o *HTTPPoolOptions) *HTTPPool {
+	mu.Lock()
 	if baseURLs == nil {
 		baseURLs = make(map[string]struct{})
 	}
@@ -102,6 +104,7 @@ func NewHTTPPoolOpts(self string, o *HTTPPoolOptions) *HTTPPool {
 		panic("Already initialized HTTPPool at this base URL")
 	}
 	baseURLs[self] = struct{}{}
+	mu.Unlock()
 
 	newGroups := &Groups{
 		groups: make(map[string]*Group),
