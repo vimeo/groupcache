@@ -61,17 +61,15 @@ func (f GetterFunc) Get(ctx context.Context, key string, dest Sink) error {
 	return f(ctx, key, dest)
 }
 
-var (
-	// mu     sync.RWMutex
-	// groups = make(map[string]*Group)
-
-	initPeerServerOnce sync.Once
-	initPeerServer     func()
-)
-
 type Groups struct {
 	mu     sync.RWMutex
 	groups map[string]*Group
+
+	initPeerServerOnce sync.Once
+	initPeerServer     func()
+
+	// newGroupHook, if non-nil, is called right after a new group is created.
+	newGroupHook func(*Group)
 }
 
 // GetGroup returns the named group previously created with NewGroup, or
@@ -103,7 +101,7 @@ func (gs *Groups) newGroup(name string, cacheBytes int64, getter Getter, peers P
 	}
 	gs.mu.Lock()
 	defer gs.mu.Unlock()
-	initPeerServerOnce.Do(callInitPeerServer)
+	gs.initPeerServerOnce.Do(gs.callInitPeerServer)
 	if _, dup := gs.groups[name]; dup {
 		panic("duplicate registration of group " + name)
 	}
@@ -114,37 +112,34 @@ func (gs *Groups) newGroup(name string, cacheBytes int64, getter Getter, peers P
 		cacheBytes: cacheBytes,
 		loadGroup:  &singleflight.Group{},
 	}
-	if fn := newGroupHook; fn != nil {
+	if fn := gs.newGroupHook; fn != nil {
 		fn(g)
 	}
 	gs.groups[name] = g
 	return g
 }
 
-// newGroupHook, if non-nil, is called right after a new group is created.
-var newGroupHook func(*Group)
-
 // RegisterNewGroupHook registers a hook that is run each time
 // a group is created.
-func RegisterNewGroupHook(fn func(*Group)) {
-	if newGroupHook != nil {
+func (gs *Groups) RegisterNewGroupHook(fn func(*Group)) {
+	if gs.newGroupHook != nil {
 		panic("RegisterNewGroupHook called more than once")
 	}
-	newGroupHook = fn
+	gs.newGroupHook = fn
 }
 
 // RegisterServerStart registers a hook that is run when the first
 // group is created.
-func RegisterServerStart(fn func()) {
-	if initPeerServer != nil {
+func (gs *Groups) RegisterServerStart(fn func()) {
+	if gs.initPeerServer != nil {
 		panic("RegisterServerStart called more than once")
 	}
-	initPeerServer = fn
+	gs.initPeerServer = fn
 }
 
-func callInitPeerServer() {
-	if initPeerServer != nil {
-		initPeerServer()
+func (gs *Groups) callInitPeerServer() {
+	if gs.initPeerServer != nil {
+		gs.initPeerServer()
 	}
 }
 
