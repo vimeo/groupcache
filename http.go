@@ -88,16 +88,20 @@ func NewHTTPPool(self string) *HTTPPool {
 	return p
 }
 
-var httpPoolMade bool
+// baseURLs keeps track of HTTPPools initialized with the given base URLs; panic if a base URL is used more than once (allows for multiple HTTPPools on the same process for testing)
+var baseURLs map[string]struct{}
 
 // NewHTTPPoolOpts initializes an HTTP pool of peers with the given options.
 // Unlike NewHTTPPool, this function does not register the created pool as an HTTP handler.
 // The returned *HTTPPool implements http.Handler and must be registered using http.Handle.
 func NewHTTPPoolOpts(self string, o *HTTPPoolOptions) *HTTPPool {
-	if httpPoolMade {
-		panic("groupcache: NewHTTPPool must be called only once")
+	if baseURLs == nil {
+		baseURLs = make(map[string]struct{})
 	}
-	httpPoolMade = true
+	if _, ok := baseURLs[self]; ok {
+		panic("Already initialized HTTPPool at this base URL")
+	}
+	baseURLs[self] = struct{}{}
 
 	newGroups := &Groups{
 		groups: make(map[string]*Group),
