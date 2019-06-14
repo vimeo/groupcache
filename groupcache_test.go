@@ -233,7 +233,7 @@ type fakePeer struct {
 	fail bool
 }
 
-func (p *fakePeer) Get(_ context.Context, in *pb.GetRequest, out *pb.GetResponse) error {
+func (p *fakePeer) Fetch(_ context.Context, in *pb.GetRequest, out *pb.GetResponse) error {
 	p.hits++
 	if p.fail {
 		return errors.New("simulated error from peer")
