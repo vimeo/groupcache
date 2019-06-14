@@ -38,14 +38,14 @@ import (
 
 var (
 	once                    sync.Once
-	stringGroup, protoGroup Getter
+	stringGroup, protoGroup BackendGetter
 
 	stringc = make(chan string)
 
 	dummyCtx = context.TODO()
 
 	// cacheFills is the number of times stringGroup or
-	// protoGroup's Getter have been called. Read using the
+	// protoGroup's BackendGetter have been called. Read using the
 	// cacheFills function.
 	cacheFills AtomicInt
 )
@@ -81,11 +81,11 @@ func testSetup() {
 	}))
 }
 
-// tests that a Getter's Get method is only called once with two
+// tests that a BackendGetter's Get method is only called once with two
 // outstanding callers.  This is the string variant.
 func TestGetDupSuppressString(t *testing.T) {
 	once.Do(testSetup)
-	// Start two getters. The first should block (waiting reading
+	// Start two BackendGetters. The first should block (waiting reading
 	// from stringc) and the second should latch on to the first
 	// one.
 	resc := make(chan string, 2)
@@ -242,9 +242,9 @@ func (p *fakePeer) Get(_ context.Context, in *pb.GetRequest, out *pb.GetResponse
 	return nil
 }
 
-type fakePeers []ProtoGetter
+type fakePeers []RemoteFetcher
 
-func (p fakePeers) PickPeer(key string) (peer ProtoGetter, ok bool) {
+func (p fakePeers) PickPeer(key string) (peer RemoteFetcher, ok bool) {
 	if len(p) == 0 {
 		return
 	}
@@ -260,7 +260,7 @@ func TestPeers(t *testing.T) {
 	peer0 := &fakePeer{}
 	peer1 := &fakePeer{}
 	peer2 := &fakePeer{}
-	peerList := fakePeers([]ProtoGetter{peer0, peer1, peer2, nil})
+	peerList := fakePeers([]RemoteFetcher{peer0, peer1, peer2, nil})
 	const cacheSize = 0 // disabled
 	localHits := 0
 	getter := func(_ context.Context, key string, dest Sink) error {

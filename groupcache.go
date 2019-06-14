@@ -43,8 +43,8 @@ import (
 	"go.opencensus.io/trace"
 )
 
-// A Getter loads data for a key.
-type Getter interface {
+// A BackendGetter loads data for a key.
+type BackendGetter interface {
 	// Get returns the value identified by key, populating dest.
 	//
 	// The returned data must be unversioned. That is, key must
@@ -91,12 +91,12 @@ func (c *Cacher) GetGroup(name string) *Group {
 // completes.
 //
 // The group name must be unique for each getter.
-func (c *Cacher) NewGroup(name string, cacheBytes int64, getter Getter) *Group {
+func (c *Cacher) NewGroup(name string, cacheBytes int64, getter BackendGetter) *Group {
 	return c.newGroup(name, cacheBytes, getter, nil)
 }
 
 // If peers is nil, the peerPicker is called via a sync.Once to initialize it.
-func (c *Cacher) newGroup(name string, cacheBytes int64, getter Getter, peers PeerPicker) *Group {
+func (c *Cacher) newGroup(name string, cacheBytes int64, getter BackendGetter, peers PeerPicker) *Group {
 	if getter == nil {
 		panic("nil Getter")
 	}
@@ -148,7 +148,7 @@ func (c *Cacher) callInitPeerServer() {
 // a group of 1 or more machines.
 type Group struct {
 	name       string
-	getter     Getter
+	getter     BackendGetter
 	peersOnce  sync.Once
 	peers      PeerPicker
 	cacheBytes int64 // limit for sum of mainCache and hotCache size
@@ -351,13 +351,13 @@ func (g *Group) getLocally(ctx context.Context, key string, dest Sink) (ByteView
 	return dest.view()
 }
 
-func (g *Group) getFromPeer(ctx context.Context, peer ProtoGetter, key string) (ByteView, error) {
+func (g *Group) getFromPeer(ctx context.Context, peer RemoteFetcher, key string) (ByteView, error) {
 	req := &pb.GetRequest{
 		Group: g.name, // USED TO BE &g.name - had bug
 		Key:   key,    // USED TO BE &key - had bug
 	}
 	res := &pb.GetResponse{}
-	err := peer.Get(ctx, req, res)
+	err := peer.Fetch(ctx, req, res)
 	if err != nil {
 		return ByteView{}, err
 	}
