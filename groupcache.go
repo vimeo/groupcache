@@ -54,7 +54,7 @@ type BackendGetter interface {
 	Get(ctx context.Context, key string, dest Sink) error
 }
 
-// A GetterFunc implements Getter with a function.
+// A GetterFunc implements BackendGetter with a function.
 type GetterFunc func(ctx context.Context, key string, dest Sink) error
 
 func (f GetterFunc) Get(ctx context.Context, key string, dest Sink) error {
@@ -63,6 +63,7 @@ func (f GetterFunc) Get(ctx context.Context, key string, dest Sink) error {
 
 // Cacher defines the primary container for all groupcache operations. It contains the groups, PeerPicker, and servers (HTTP and GRPC (soon))
 type Cacher struct {
+	self   string
 	mu     sync.RWMutex
 	groups map[string]*Group
 
@@ -71,6 +72,20 @@ type Cacher struct {
 
 	// newGroupHook, if non-nil, is called right after a new group is created.
 	newGroupHook func(*Group)
+	peerPicker   *new_PeerPicker
+}
+
+func NewCacher(protocol Protocol, self string) *Cacher {
+	return newCacherWithOpts(protocol, self, nil)
+}
+
+func newCacherWithOpts(protocol Protocol, self string, options *PeerPickerOptions) *Cacher {
+	c := &Cacher{
+		groups:     make(map[string]*Group),
+		peerPicker: newPeerPicker(protocol, self, options),
+	}
+
+	return c
 }
 
 // GetGroup returns the named group previously created with NewGroup, or
