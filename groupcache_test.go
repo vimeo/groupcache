@@ -59,9 +59,9 @@ const (
 )
 
 func testSetup() {
-	groups := &Groups{groups: make(map[string]*Group)}
+	c := &Cacher{groups: make(map[string]*Group)}
 
-	stringGroup = groups.NewGroup(stringGroupName, cacheSize, GetterFunc(func(_ context.Context, key string, dest Sink) error {
+	stringGroup = c.NewGroup(stringGroupName, cacheSize, GetterFunc(func(_ context.Context, key string, dest Sink) error {
 		if key == fromChan {
 			key = <-stringc
 		}
@@ -69,7 +69,7 @@ func testSetup() {
 		return dest.SetString("ECHO:" + key)
 	}))
 
-	protoGroup = groups.NewGroup(protoGroupName, cacheSize, GetterFunc(func(_ context.Context, key string, dest Sink) error {
+	protoGroup = c.NewGroup(protoGroupName, cacheSize, GetterFunc(func(_ context.Context, key string, dest Sink) error {
 		if key == fromChan {
 			key = <-stringc
 		}
@@ -254,7 +254,7 @@ func (p fakePeers) PickPeer(key string) (peer ProtoGetter, ok bool) {
 
 // tests that peers (virtual, in-process) are hit, and how much.
 func TestPeers(t *testing.T) {
-	groups := &Groups{groups: make(map[string]*Group)}
+	c := &Cacher{groups: make(map[string]*Group)}
 	once.Do(testSetup)
 	rand.Seed(123)
 	peer0 := &fakePeer{}
@@ -267,7 +267,7 @@ func TestPeers(t *testing.T) {
 		localHits++
 		return dest.SetString("got:" + key)
 	}
-	testGroup := groups.newGroup("TestPeers-group", cacheSize, GetterFunc(getter), peerList)
+	testGroup := c.newGroup("TestPeers-group", cacheSize, GetterFunc(getter), peerList)
 	run := func(name string, n int, wantSummary string) {
 		// Reset counters
 		localHits = 0
@@ -394,12 +394,12 @@ func (g *orderedFlightGroup) Do(key string, fn func() (interface{}, error)) (int
 // TestNoDedup tests invariants on the cache size when singleflight is
 // unable to dedup calls.
 func TestNoDedup(t *testing.T) {
-	groups := &Groups{
+	c := &Cacher{
 		groups: make(map[string]*Group),
 	}
 	const testkey = "testkey"
 	const testval = "testval"
-	g := groups.newGroup("testgroup", 1024, GetterFunc(func(_ context.Context, key string, dest Sink) error {
+	g := c.newGroup("testgroup", 1024, GetterFunc(func(_ context.Context, key string, dest Sink) error {
 		return dest.SetString(testval)
 	}), nil)
 

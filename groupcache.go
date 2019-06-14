@@ -61,7 +61,8 @@ func (f GetterFunc) Get(ctx context.Context, key string, dest Sink) error {
 	return f(ctx, key, dest)
 }
 
-type Groups struct {
+// Cacher defines the primary container for all groupcache operations. It contains the groups, PeerPicker, and servers (HTTP and GRPC (soon))
+type Cacher struct {
 	mu     sync.RWMutex
 	groups map[string]*Group
 
@@ -74,10 +75,10 @@ type Groups struct {
 
 // GetGroup returns the named group previously created with NewGroup, or
 // nil if there's no such group.
-func (gs *Groups) GetGroup(name string) *Group {
-	gs.mu.RLock()
-	g := gs.groups[name]
-	gs.mu.RUnlock()
+func (c *Cacher) GetGroup(name string) *Group {
+	c.mu.RLock()
+	g := c.groups[name]
+	c.mu.RUnlock()
 	return g
 }
 
@@ -90,19 +91,19 @@ func (gs *Groups) GetGroup(name string) *Group {
 // completes.
 //
 // The group name must be unique for each getter.
-func (gs *Groups) NewGroup(name string, cacheBytes int64, getter Getter) *Group {
-	return gs.newGroup(name, cacheBytes, getter, nil)
+func (c *Cacher) NewGroup(name string, cacheBytes int64, getter Getter) *Group {
+	return c.newGroup(name, cacheBytes, getter, nil)
 }
 
 // If peers is nil, the peerPicker is called via a sync.Once to initialize it.
-func (gs *Groups) newGroup(name string, cacheBytes int64, getter Getter, peers PeerPicker) *Group {
+func (c *Cacher) newGroup(name string, cacheBytes int64, getter Getter, peers PeerPicker) *Group {
 	if getter == nil {
 		panic("nil Getter")
 	}
-	gs.mu.Lock()
-	defer gs.mu.Unlock()
-	gs.initPeerServerOnce.Do(gs.callInitPeerServer)
-	if _, dup := gs.groups[name]; dup {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.initPeerServerOnce.Do(c.callInitPeerServer)
+	if _, dup := c.groups[name]; dup {
 		panic("duplicate registration of group " + name)
 	}
 	g := &Group{
@@ -112,34 +113,34 @@ func (gs *Groups) newGroup(name string, cacheBytes int64, getter Getter, peers P
 		cacheBytes: cacheBytes,
 		loadGroup:  &singleflight.Group{},
 	}
-	if fn := gs.newGroupHook; fn != nil {
+	if fn := c.newGroupHook; fn != nil {
 		fn(g)
 	}
-	gs.groups[name] = g
+	c.groups[name] = g
 	return g
 }
 
 // RegisterNewGroupHook registers a hook that is run each time
 // a group is created.
-func (gs *Groups) RegisterNewGroupHook(fn func(*Group)) {
-	if gs.newGroupHook != nil {
+func (c *Cacher) RegisterNewGroupHook(fn func(*Group)) {
+	if c.newGroupHook != nil {
 		panic("RegisterNewGroupHook called more than once")
 	}
-	gs.newGroupHook = fn
+	c.newGroupHook = fn
 }
 
 // RegisterServerStart registers a hook that is run when the first
 // group is created.
-func (gs *Groups) RegisterServerStart(fn func()) {
-	if gs.initPeerServer != nil {
+func (c *Cacher) RegisterServerStart(fn func()) {
+	if c.initPeerServer != nil {
 		panic("RegisterServerStart called more than once")
 	}
-	gs.initPeerServer = fn
+	c.initPeerServer = fn
 }
 
-func (gs *Groups) callInitPeerServer() {
-	if gs.initPeerServer != nil {
-		gs.initPeerServer()
+func (c *Cacher) callInitPeerServer() {
+	if c.initPeerServer != nil {
+		c.initPeerServer()
 	}
 }
 

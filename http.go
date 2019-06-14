@@ -60,7 +60,7 @@ type HTTPPool struct {
 	httpGetters map[string]*httpGetter // keyed by e.g. "http://10.0.0.2:8008"
 
 	// the groups themselves, now contained to the HTTPPool rather than global
-	groups *Groups
+	cacher *Cacher
 }
 
 // HTTPPoolOptions are the configurations of a HTTPPool.
@@ -106,14 +106,14 @@ func NewHTTPPoolOpts(self string, o *HTTPPoolOptions) *HTTPPool {
 	baseURLs[self] = struct{}{}
 	mu.Unlock()
 
-	newGroups := &Groups{
+	newCacher := &Cacher{
 		groups: make(map[string]*Group),
 	}
 
 	p := &HTTPPool{
 		self:        self,
 		httpGetters: make(map[string]*httpGetter),
-		groups:      newGroups,
+		cacher:      newCacher,
 	}
 	if o != nil {
 		p.opts = *o
@@ -170,7 +170,7 @@ func (p *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	key := parts[1]
 
 	// Fetch the value for this group/key.
-	group := p.groups.GetGroup(groupName)
+	group := p.cacher.GetGroup(groupName)
 	if group == nil {
 		http.Error(w, "no such group: "+groupName, http.StatusNotFound)
 		return
