@@ -20,7 +20,9 @@ package groupcache
 
 import (
 	"context"
+	"sync"
 
+	"github.com/vimeo/groupcache/consistenthash"
 	pb "github.com/vimeo/groupcache/groupcachepb"
 )
 
@@ -36,6 +38,82 @@ type PeerPicker interface {
 	// and true to indicate that a remote peer was nominated.
 	// It returns nil, false if the key owner is the current peer.
 	PickPeer(key string) (peer RemoteFetcher, ok bool)
+}
+
+type new_PeerPicker struct {
+	protocol Protocol
+	selfURL  string
+	peers    *consistenthash.Map
+	fetchers map[string]RemoteFetcher
+	mu       sync.RWMutex
+	opts     PeerPickerOptions
+}
+
+// PeerPickerOptions are the configurations of a PeerPicker.
+type PeerPickerOptions struct {
+	// BasePath specifies the HTTP path that will serve groupcache requests.
+	// If blank, it defaults to "/_groupcache/".
+	BasePath string
+
+	// Replicas specifies the number of key replicas on the consistent hash.
+	// If blank, it defaults to 50.
+	Replicas int
+
+	// HashFn specifies the hash function of the consistent hash.
+	// If blank, it defaults to crc32.ChecksumIEEE.
+	HashFn consistenthash.Hash
+}
+
+func newPeerPicker(proto Protocol, self string, options *PeerPickerOptions) *new_PeerPicker {
+	pp := &new_PeerPicker{
+		protocol: proto,
+		selfURL:  self,
+		fetchers: make(map[string]RemoteFetcher),
+	}
+	if options != nil {
+		pp.opts = *options
+	}
+	if pp.opts.BasePath == "" {
+		pp.opts.BasePath = defaultBasePath
+	}
+	if pp.opts.Replicas == 0 {
+		pp.opts.Replicas = defaultReplicas
+	}
+	pp.peers = consistenthash.New(pp.opts.Replicas, pp.opts.HashFn)
+	return pp
+}
+
+func (pp *new_PeerPicker) PickPeer(key string) (RemoteFetcher, bool) {
+	pp.mu.Lock()
+	defer pp.mu.Unlock()
+	if pp.peers.IsEmpty() {
+		return nil, false
+	}
+	if peer := pp.peers.Get(key); peer != pp.selfURL {
+		return pp.fetchers[peer], true
+	}
+	return nil, false
+}
+
+// Set updates the PeerPicker's list of peers.
+// Each peer value should be a valid base URL,
+// for example "http://example.net:8000".
+func (pp *new_PeerPicker) Set(peers ...string) {
+	pp.mu.Lock()
+	defer pp.mu.Unlock()
+	pp.peers = consistenthash.New(pp.opts.Replicas, pp.opts.HashFn)
+	pp.peers.Add(peers...)
+	pp.fetchers = make(map[string]RemoteFetcher, len(peers))
+	for _, peer := range peers {
+		newFetcher := pp.protocol.NewFetcher(peer, pp.opts.BasePath)
+		pp.fetchers[peer] = newFetcher
+	}
+}
+
+// Protocol defines the chosen connection protocol between peers (namely HTTP or GRPC) and implements the instantiation method for that connection
+type Protocol interface {
+	// NewFetcher instantiates the connection between peers and returns a RemoteFetcher to be used for fetching from peers
+	NewFetcher(url string, basePath string) RemoteFetcher
 }
 
 // NoPeers is an implementation of PeerPicker that never finds a peer.
