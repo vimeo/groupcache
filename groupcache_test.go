@@ -36,22 +36,6 @@ import (
 	testpb "github.com/vimeo/groupcache/testpb"
 )
 
-var (
-	once                    sync.Once
-	stringGroup, protoGroup BackendGetter
-
-	stringc = make(chan string)
-
-	dummyCtx = context.TODO()
-
-	// cacheFills is the number of times stringGroup or
-	// protoGroup's BackendGetter have been called. Read using the
-	// cacheFills function.
-	cacheFills AtomicInt
-
-	c = NewCacher(&TestProtocol{}, "test")
-)
-
 const (
 	stringGroupName = "string-group"
 	protoGroupName  = "proto-group"
@@ -60,16 +44,24 @@ const (
 	cacheSize       = 1 << 20
 )
 
-func testSetup() {
-	stringGroup = c.NewGroup(stringGroupName, cacheSize, GetterFunc(func(_ context.Context, key string, dest Sink) error {
+func testSetupStringGroup(c *Cacher, cacheFills *AtomicInt) (*Group, chan string) {
+	// cacheFills is the number of times stringGroup or
+	// protoGroup's BackendGetter have been called. Read using the
+	// cacheFills function.
+	stringc := make(chan string)
+	stringGroup := c.NewGroup(stringGroupName, cacheSize, GetterFunc(func(_ context.Context, key string, dest Sink) error {
 		if key == fromChan {
 			key = <-stringc
 		}
 		cacheFills.Add(1)
 		return dest.SetString("ECHO:" + key)
 	}))
+	return stringGroup, stringc
+}
 
-	protoGroup = c.NewGroup(protoGroupName, cacheSize, GetterFunc(func(_ context.Context, key string, dest Sink) error {
+func testSetupProtoGroup(c *Cacher, cacheFills *AtomicInt) (*Group, chan string) {
+	stringc := make(chan string)
+	protoGroup := c.NewGroup(protoGroupName, cacheSize, GetterFunc(func(_ context.Context, key string, dest Sink) error {
 		if key == fromChan {
 			key = <-stringc
 		}
@@ -79,12 +71,16 @@ func testSetup() {
 			City: proto.String("SOME-CITY"),
 		})
 	}))
+	return protoGroup, stringc
 }
 
 // tests that a BackendGetter's Get method is only called once with two
 // outstanding callers.  This is the string variant.
 func TestGetDupSuppressString(t *testing.T) {
-	once.Do(testSetup)
+	c := NewCacher(&TestProtocol{}, "test")
+	var cacheFills AtomicInt
+	dummyCtx := context.TODO()
+	stringGroup, stringc := testSetupStringGroup(c, &cacheFills)
 	// Start two BackendGetters. The first should block (waiting reading
 	// from stringc) and the second should latch on to the first
 	// one.
@@ -126,7 +122,10 @@ func TestGetDupSuppressString(t *testing.T) {
 // tests that a Getter's Get method is only called once with two
 // outstanding callers.  This is the proto variant.
 func TestGetDupSuppressProto(t *testing.T) {
-	once.Do(testSetup)
+	c := NewCacher(&TestProtocol{}, "test")
+	var cacheFills AtomicInt
+	dummyCtx := context.TODO()
+	protoGroup, stringc := testSetupProtoGroup(c, &cacheFills)
 	// Start two getters. The first should block (waiting reading
 	// from stringc) and the second should latch on to the first
 	// one.
@@ -167,14 +166,17 @@ func TestGetDupSuppressProto(t *testing.T) {
 	}
 }
 
-func countFills(f func()) int64 {
+func countFills(f func(), cacheFills AtomicInt) int64 {
 	fills0 := cacheFills.Get()
 	f()
 	return cacheFills.Get() - fills0
 }
 
 func TestCaching(t *testing.T) {
-	once.Do(testSetup)
+	c := NewCacher(&TestProtocol{}, "test")
+	var cacheFills AtomicInt
+	dummyCtx := context.TODO()
+	stringGroup, _ := testSetupStringGroup(c, &cacheFills)
 	fills := countFills(func() {
 		for i := 0; i < 10; i++ {
 			var s string
@@ -182,14 +184,17 @@ func TestCaching(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-	})
+	}, cacheFills)
 	if fills != 1 {
 		t.Errorf("expected 1 cache fill; got %d", fills)
 	}
 }
 
 func TestCacheEviction(t *testing.T) {
-	once.Do(testSetup)
+	c := NewCacher(&TestProtocol{}, "test")
+	var cacheFills AtomicInt
+	dummyCtx := context.TODO()
+	stringGroup, _ := testSetupStringGroup(c, &cacheFills)
 	testKey := "TestCacheEviction-key"
 	getTestKey := func() {
 		var res string
@@ -199,13 +204,12 @@ func TestCacheEviction(t *testing.T) {
 			}
 		}
 	}
-	fills := countFills(getTestKey)
+	fills := countFills(getTestKey, cacheFills)
 	if fills != 1 {
 		t.Fatalf("expected 1 cache fill; got %d", fills)
 	}
 
-	g := stringGroup.(*Group)
-	evict0 := g.mainCache.nevict
+	evict0 := stringGroup.mainCache.nevict
 
 	// Trash the cache with other keys.
 	var bytesFlooded int64
@@ -216,13 +220,13 @@ func TestCacheEviction(t *testing.T) {
 		stringGroup.Get(dummyCtx, key, StringSink(&res))
 		bytesFlooded += int64(len(key) + len(res))
 	}
-	evicts := g.mainCache.nevict - evict0
+	evicts := stringGroup.mainCache.nevict - evict0
 	if evicts <= 0 {
 		t.Errorf("evicts = %v; want more than 0", evicts)
 	}
 
 	// Test that the key is gone.
-	fills = countFills(getTestKey)
+	fills = countFills(getTestKey, cacheFills)
 	if fills != 1 {
 		t.Fatalf("expected 1 cache fill after cache trashing; got %d", fills)
 	}
@@ -268,18 +272,18 @@ func (proto *TestProtocol) NewFetcher(url string, basePath string) RemoteFetcher
 }
 
 func TestPeers(t *testing.T) {
-	once.Do(testSetup)
 	// instantiate test fetchers with the test protocol
-	cTestPeers := NewCacher(&TestProtocol{}, "TestPeers")
+	c := NewCacher(&TestProtocol{}, "test")
+	dummyCtx := context.TODO()
 	rand.Seed(123)
 	fetcher0 := &TestFetcher{}
 	fetcher1 := &TestFetcher{}
 	fetcher2 := &TestFetcher{}
 	fetcherList := testFetchers([]RemoteFetcher{fetcher0, fetcher1, fetcher2, nil})
 
-	cTestPeers.peerPicker.fetchers = map[string]RemoteFetcher{"fetcher0": fetcher0, "fetcher1": fetcher1, "fetcher2": fetcher2}
-	cTestPeers.peerPicker.Set("fetcher0", "fetcher1", "fetcher2")
-	cTestPeers.peerPicker.pickPeerFunc = func(key string, fetchers []RemoteFetcher) (RemoteFetcher, bool) {
+	c.peerPicker.fetchers = map[string]RemoteFetcher{"fetcher0": fetcher0, "fetcher1": fetcher1, "fetcher2": fetcher2}
+	c.peerPicker.Set("fetcher0", "fetcher1", "fetcher2")
+	c.peerPicker.pickPeerFunc = func(key string, fetchers []RemoteFetcher) (RemoteFetcher, bool) {
 		keyNum, err := strconv.Atoi(key)
 		if err != nil {
 			return &TestFetcher{}, false
@@ -299,7 +303,7 @@ func TestPeers(t *testing.T) {
 		return dest.SetString("got:" + key)
 	}
 
-	testGroup := cTestPeers.NewGroup("TestPeers-group", cacheSize, GetterFunc(getter))
+	testGroup := c.NewGroup("TestPeers-group", cacheSize, GetterFunc(getter))
 
 	run := func(name string, n int, wantSummary string) {
 		// Reset counters
@@ -443,7 +447,10 @@ func TestPeers(t *testing.T) {
 // }
 
 func TestTruncatingByteSliceTarget(t *testing.T) {
-	once.Do(testSetup)
+	c := NewCacher(&TestProtocol{}, "test")
+	var cacheFills AtomicInt
+	dummyCtx := context.TODO()
+	stringGroup, _ := testSetupStringGroup(c, &cacheFills)
 	buf := make([]byte, 100)
 	s := buf[:]
 	sink := TruncatingByteSliceSink(&s)
@@ -511,7 +518,8 @@ func (g *orderedFlightGroup) Do(key string, fn func() (interface{}, error)) (int
 // TestNoDedup tests invariants on the cache size when singleflight is
 // unable to dedup calls.
 func TestNoDedup(t *testing.T) {
-
+	c := NewCacher(&TestProtocol{}, "test")
+	dummyCtx := context.TODO()
 	const testkey = "testkey"
 	const testval = "testval"
 	g := c.newGroup("testgroup", 1024, GetterFunc(func(_ context.Context, key string, dest Sink) error {

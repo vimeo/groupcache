@@ -48,7 +48,7 @@ type testStatsExporter struct {
 }
 
 func TestHTTPPool(t *testing.T) {
-
+	dummyCtx := context.TODO()
 	if *peerChild {
 		beChildForTestHTTPPool()
 		os.Exit(0)
