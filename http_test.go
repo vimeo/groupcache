@@ -18,28 +18,23 @@ package groupcache
 
 import (
 	"context"
-	"errors"
-	"flag"
 	"log"
 	"net"
 	"net/http"
-	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"go.opencensus.io/plugin/ochttp"
 	"go.opencensus.io/stats/view"
 )
 
-var (
-	peerAddrs = flag.String("test_peer_addrs", "", "Comma-separated list of peer addresses; used by TestHTTPPool")
-	peerIndex = flag.Int("test_peer_index", -1, "Index of which peer this child is; used by TestHTTPPool")
-	peerChild = flag.Bool("test_peer_child", false, "True if running as a child process; used by TestHTTPPool")
-)
+// var (
+// 	peerAddrs = flag.String("test_peer_addrs", "", "Comma-separated list of peer addresses; used by TestHTTPPool")
+// 	peerIndex = flag.Int("test_peer_index", -1, "Index of which peer this child is; used by TestHTTPPool")
+// 	peerChild = flag.Bool("test_peer_child", false, "True if running as a child process; used by TestHTTPPool")
+// )
 
 type testStatsExporter struct {
 	mu   sync.Mutex
@@ -47,60 +42,31 @@ type testStatsExporter struct {
 	t    *testing.T
 }
 
-func TestHTTPPool(t *testing.T) {
+func TestHTTPServer(t *testing.T) {
 	dummyCtx := context.TODO()
-	if *peerChild {
-		beChildForTestHTTPPool()
-		os.Exit(0)
-	}
 
 	const (
-		nChild = 4
-		nGets  = 100
+		nRoutines = 10
+		nGets     = 1000
 	)
 
-	var childAddr []string
-	for i := 0; i < nChild; i++ {
-		childAddr = append(childAddr, pickFreeAddr(t))
+	var peerAddresses []string
+	for i := 0; i < nRoutines; i++ {
+		peerAddresses = append(peerAddresses, pickFreeAddr(t))
+		// fmt.Println("Addresses: ", peerAddresses)
 	}
 
-	var cmds []*exec.Cmd
-	var wg sync.WaitGroup
-	for i := 0; i < nChild; i++ {
-		cmd := exec.Command(os.Args[0],
-			"--test.run=TestHTTPPool",
-			"--test_peer_child",
-			"--test_peer_addrs="+strings.Join(childAddr, ","),
-			"--test_peer_index="+strconv.Itoa(i),
-		)
-		cmd.Stdout = os.Stdout
-		cmds = append(cmds, cmd)
-		wg.Add(1)
-		if err := cmd.Start(); err != nil {
-			t.Fatal("failed to start child process: ", err)
-		}
-		go awaitAddrReady(t, childAddr[i], &wg)
-	}
-	defer func() {
-		for i := 0; i < nChild; i++ {
-			if cmds[i].Process != nil {
-				cmds[i].Process.Kill()
-			}
-		}
-	}()
-	wg.Wait()
-
-	// Use a dummy self address so that we don't handle gets in-process.
-	p := NewHTTPPool("should-be-ignored")
-	p.Set(addrToURL(childAddr)...)
-
-	// Dummy getter function. Gets should go to children only.
-	// The only time this process will handle a get is when the
-	// children can't be contacted for some reason.
+	cacher := NewCacher(&HTTPProtocol{}, peerAddresses[0])
+	cacher.peerPicker.Set(addrToURL(peerAddresses)...)
 	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
-		return errors.New("parent getter called; something's wrong")
+		dest.SetString(":" + key)
+		return nil
 	})
-	g := p.cacher.NewGroup("httpPoolTest", 1<<20, getter)
+	g := cacher.NewGroup("peerGetsTest", 1<<20, getter)
+
+	for _, address := range peerAddresses {
+		go makeServerCacher(peerAddresses, address)
+	}
 
 	for _, key := range testKeys(nGets) {
 		var value string
@@ -112,7 +78,89 @@ func TestHTTPPool(t *testing.T) {
 		}
 		t.Logf("Get key=%q, value=%q (peer:key)", key, value)
 	}
+
 }
+
+func makeServerCacher(addresses []string, selfAddress string) {
+	cacher := NewCacher(&HTTPProtocol{}, "http://"+selfAddress)
+	cacher.peerPicker.Set(addrToURL(addresses)...)
+
+	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
+		dest.SetString(":" + key)
+		return nil
+	})
+	cacher.NewGroup("peerGetsTest", 1<<20, getter)
+
+	handler := &ochttp.Handler{Handler: cacher.httpServer}
+	log.Fatal(http.ListenAndServe(selfAddress, handler))
+}
+
+// func TestHTTPPool(t *testing.T) {
+// 	dummyCtx := context.TODO()
+// 	if *peerChild {
+// 		beChildForTestHTTPPool()
+// 		os.Exit(0)
+// 	}
+
+// 	const (
+// 		nChild = 4
+// 		nGets  = 100
+// 	)
+
+// 	var childAddr []string
+// 	for i := 0; i < nChild; i++ {
+// 		childAddr = append(childAddr, pickFreeAddr(t))
+// 	}
+
+// 	var cmds []*exec.Cmd
+// 	var wg sync.WaitGroup
+// 	for i := 0; i < nChild; i++ {
+// 		cmd := exec.Command(os.Args[0],
+// 			"--test.run=TestHTTPPool",
+// 			"--test_peer_child",
+// 			"--test_peer_addrs="+strings.Join(childAddr, ","),
+// 			"--test_peer_index="+strconv.Itoa(i),
+// 		)
+// 		cmd.Stdout = os.Stdout
+// 		cmds = append(cmds, cmd)
+// 		wg.Add(1)
+// 		if err := cmd.Start(); err != nil {
+// 			t.Fatal("failed to start child process: ", err)
+// 		}
+// 		go awaitAddrReady(t, childAddr[i], &wg)
+// 	}
+// 	defer func() {
+// 		for i := 0; i < nChild; i++ {
+// 			if cmds[i].Process != nil {
+// 				cmds[i].Process.Kill()
+// 			}
+// 		}
+// 	}()
+// 	wg.Wait()
+
+// 	// Use a dummy self address so that we don't handle gets in-process.
+// 	p := NewHTTPPool("should-be-ignored")
+// 	p.Set(addrToURL(childAddr)...)
+
+// 	// Dummy getter function. Gets should go to children only.
+// 	// The only time this process will handle a get is when the
+// 	// children can't be contacted for some reason.
+// 	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
+// 		return errors.New("parent getter called; something's wrong")
+// 	})
+// 	g := p.cacher.NewGroup("httpPoolTest", 1<<20, getter)
+
+// 	for _, key := range testKeys(nGets) {
+// 		var value string
+// 		if err := g.Get(dummyCtx, key, StringSink(&value)); err != nil {
+// 			t.Fatal(err)
+// 		}
+// 		if suffix := ":" + key; !strings.HasSuffix(value, suffix) {
+// 			t.Errorf("Get(%q) = %q, want value ending in %q", key, value, suffix)
+// 		}
+// 		t.Logf("Get key=%q, value=%q (peer:key)", key, value)
+// 	}
+// }
 
 func testKeys(n int) (keys []string) {
 	keys = make([]string, n)
@@ -122,21 +170,21 @@ func testKeys(n int) (keys []string) {
 	return
 }
 
-func beChildForTestHTTPPool() {
-	addrs := strings.Split(*peerAddrs, ",")
+// func beChildForTestHTTPPool() {
+// 	addrs := strings.Split(*peerAddrs, ",")
 
-	p := NewHTTPPool("http://" + addrs[*peerIndex])
-	p.Set(addrToURL(addrs)...)
+// 	p := NewHTTPPool("http://" + addrs[*peerIndex])
+// 	p.Set(addrToURL(addrs)...)
 
-	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
-		dest.SetString(strconv.Itoa(*peerIndex) + ":" + key)
-		return nil
-	})
-	p.cacher.NewGroup("httpPoolTest", 1<<20, getter)
+// 	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
+// 		dest.SetString(strconv.Itoa(*peerIndex) + ":" + key)
+// 		return nil
+// 	})
+// 	p.cacher.NewGroup("httpPoolTest", 1<<20, getter)
 
-	handler := &ochttp.Handler{Handler: p}
-	log.Fatal(http.ListenAndServe(addrs[*peerIndex], handler))
-}
+// 	handler := &ochttp.Handler{Handler: p}
+// 	log.Fatal(http.ListenAndServe(addrs[*peerIndex], handler))
+// }
 
 // This is racy. Another process could swoop in and steal the port between the
 // call to this function and the next listen call. Should be okay though.
@@ -159,21 +207,21 @@ func addrToURL(addr []string) []string {
 	return url
 }
 
-func awaitAddrReady(t *testing.T, addr string, wg *sync.WaitGroup) {
-	defer wg.Done()
-	const max = 1 * time.Second
-	tries := 0
-	for {
-		tries++
-		c, err := net.Dial("tcp", addr)
-		if err == nil {
-			c.Close()
-			return
-		}
-		delay := time.Duration(tries) * 25 * time.Millisecond
-		if delay > max {
-			delay = max
-		}
-		time.Sleep(delay)
-	}
-}
+// func awaitAddrReady(t *testing.T, addr string, wg *sync.WaitGroup) {
+// 	defer wg.Done()
+// 	const max = 1 * time.Second
+// 	tries := 0
+// 	for {
+// 		tries++
+// 		c, err := net.Dial("tcp", addr)
+// 		if err == nil {
+// 			c.Close()
+// 			return
+// 		}
+// 		delay := time.Duration(tries) * 25 * time.Millisecond
+// 		if delay > max {
+// 			delay = max
+// 		}
+// 		time.Sleep(delay)
+// 	}
+// }
