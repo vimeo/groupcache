@@ -105,8 +105,7 @@ func (pp *new_PeerPicker) Set(peers ...string) {
 	pp.peers.Add(peers...)
 	pp.fetchers = make(map[string]RemoteFetcher, len(peers))
 	for _, peer := range peers {
-		newFetcher := pp.protocol.NewFetcher(peer, pp.opts.BasePath)
-		pp.fetchers[peer] = newFetcher
+		pp.fetchers[peer] = pp.protocol.NewFetcher(peer, pp.opts.BasePath)
 	}
 }
 
