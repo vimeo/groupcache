@@ -27,7 +27,6 @@ package groupcache
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math/rand"
 	"strconv"
 	"sync"
@@ -73,6 +72,7 @@ type Cacher struct {
 	// newGroupHook, if non-nil, is called right after a new group is created.
 	newGroupHook func(*Group)
 	peerPicker   *new_PeerPicker // pointer?
+	httpServer   *HTTPServer
 }
 
 func NewCacher(protocol Protocol, self string) *Cacher {
@@ -84,6 +84,16 @@ func newCacherWithOpts(protocol Protocol, self string, options *PeerPickerOption
 		groups:     make(map[string]*Group),
 		peerPicker: newPeerPicker(protocol, self, options),
 	}
+	newHTTPServer := &HTTPServer{
+		parentCacher: c,
+	}
+	if options == nil {
+		newHTTPServer.BasePath = defaultBasePath
+	} else {
+		newHTTPServer.BasePath = options.BasePath
+	}
+
+	c.httpServer = newHTTPServer
 
 	return c
 }
@@ -325,6 +335,7 @@ func (g *Group) load(ctx context.Context, key string, dest Sink) (value ByteView
 		var value ByteView
 		var err error
 		if peer, ok := g.peerPicker.PickPeer(key); ok { // Cacher must be initialized for testing, else segfault
+			// fmt.Println("Found peer")
 			value, err = g.getFromPeer(ctx, peer, key)
 			if err == nil {
 				// TODO(@odeke-em): Remove .Stats
@@ -346,7 +357,7 @@ func (g *Group) load(ctx context.Context, key string, dest Sink) (value ByteView
 			// TODO(@odeke-em): Remove .Stats
 			g.Stats.LocalLoadErrs.Add(1)
 			stats.Record(ctx, MLocalLoadErrors.M(1))
-			fmt.Println("Error getLocally: ", err)
+			// fmt.Println("Error getLocally: ", err)
 			return nil, err
 		}
 		// TODO(@odeke-em): Remove .Stats
@@ -363,7 +374,7 @@ func (g *Group) load(ctx context.Context, key string, dest Sink) (value ByteView
 }
 
 func (g *Group) getLocally(ctx context.Context, key string, dest Sink) (ByteView, error) {
-	fmt.Println("Getting locally")
+	// fmt.Println("Getting locally")
 	err := g.getter.Get(ctx, key, dest)
 	if err != nil {
 		return ByteView{}, err

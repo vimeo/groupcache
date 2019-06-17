@@ -39,27 +39,32 @@ const defaultReplicas = 50
 
 // HTTPPool implements PeerPicker for a pool of HTTP peers.
 type HTTPPool struct {
+
+	// HTTPServer:
 	// context.Context optionally specifies a context for the server to use when it
 	// receives a request.
 	// If nil, the server uses a nil context.Context.
 	Context func(*http.Request) context.Context
 
+	// HTTPProtocol:
 	// Transport optionally specifies an http.RoundTripper for the client
 	// to use when it makes a request.
 	// If nil, the client uses http.DefaultTransport.
 	Transport func(context.Context) http.RoundTripper
 
-	// this peer's base URL, e.g. "https://example.net:8000"
-	self string
-
-	// opts specifies the options.
-	opts HTTPPoolOptions
-
+	// new_PeerPicker:
 	mu       sync.Mutex // guards peers and httpGetters
 	peers    *consistenthash.Map
 	fetchers map[string]RemoteFetcher // keyed by e.g. "http://10.0.0.2:8008"
+	// opts specifies the Pool options (now options elsewhere)
+	opts HTTPPoolOptions
 
-	// the groups themselves, now contained to the HTTPPool rather than global
+	// Both (through Cacher?):
+	// this peer's base URL, e.g. "https://example.net:8000"
+	self string
+
+	// Other:
+	// Old local containerization, now it's the other way around
 	cacher *Cacher
 }
 
@@ -130,6 +135,7 @@ func NewHTTPPoolOpts(self string, o *HTTPPoolOptions) *HTTPPool {
 	return p
 }
 
+// NEW_PEERPICKER:
 // Set updates the pool's list of peers.
 // Each peer value should be a valid base URL,
 // for example "http://example.net:8000".
@@ -157,6 +163,7 @@ func (hp *HTTPProtocol) NewFetcher(url string, basePath string) RemoteFetcher {
 	return &httpFetcher{transport: hp.Transport, baseURL: url + basePath}
 }
 
+// NEW_PEERPICKER
 func (p *HTTPPool) PickPeer(key string) (RemoteFetcher, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -167,6 +174,62 @@ func (p *HTTPPool) PickPeer(key string) (RemoteFetcher, bool) {
 		return p.fetchers[peer], true
 	}
 	return nil, false
+}
+
+// HTTPSERVER
+
+type HTTPServer struct {
+	// context.Context optionally specifies a context for the server to use when it
+	// receives a request.
+	// If nil, the server uses a nil context.Context.
+	Context      func(*http.Request) context.Context
+	parentCacher *Cacher
+	BasePath     string
+}
+
+func (server *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Parse request.
+	// fmt.Println("Serving request!")
+	if !strings.HasPrefix(r.URL.Path, server.BasePath) {
+		panic("HTTPPool serving unexpected path: " + r.URL.Path)
+	}
+	parts := strings.SplitN(r.URL.Path[len(server.BasePath):], "/", 2)
+	if len(parts) != 2 {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	groupName := parts[0]
+	key := parts[1]
+
+	// Fetch the value for this group/key.
+	group := server.parentCacher.GetGroup(groupName)
+	if group == nil {
+		http.Error(w, "no such group: "+groupName, http.StatusNotFound)
+		return
+	}
+	var ctx context.Context
+	if server.Context != nil {
+		ctx = server.Context(r)
+	}
+
+	// TODO: remove group.Stats from here
+	group.Stats.ServerRequests.Add(1)
+	stats.Record(ctx, MServerRequests.M(1))
+	var value []byte
+	err := group.Get(ctx, key, AllocatingByteSliceSink(&value))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Write the value to the response body as a proto message.
+	body, err := proto.Marshal(&pb.GetResponse{Value: value})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/x-protobuf")
+	w.Write(body)
 }
 
 func (p *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
