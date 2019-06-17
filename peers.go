@@ -47,6 +47,9 @@ type new_PeerPicker struct {
 	fetchers map[string]RemoteFetcher
 	mu       sync.RWMutex
 	opts     PeerPickerOptions
+
+	// testing for allowing alternate PickPeer()
+	pickPeerFunc func(key string, fetchers []RemoteFetcher) (RemoteFetcher, bool)
 }
 
 // PeerPickerOptions are the configurations of a PeerPicker.
@@ -84,15 +87,20 @@ func newPeerPicker(proto Protocol, self string, options *PeerPickerOptions) *new
 }
 
 func (pp *new_PeerPicker) PickPeer(key string) (RemoteFetcher, bool) {
-	pp.mu.Lock()
-	defer pp.mu.Unlock()
-	if pp.peers.IsEmpty() {
+	// can define alternate pickPeerFunc for testing
+	if pp.pickPeerFunc == nil {
+		pp.mu.Lock()
+		defer pp.mu.Unlock()
+		if pp.peers.IsEmpty() {
+			return nil, false
+		}
+		if peer := pp.peers.Get(key); peer != pp.selfURL {
+			// fmt.Println("peer:", peer)
+			return pp.fetchers[peer], true
+		}
 		return nil, false
 	}
-	if peer := pp.peers.Get(key); peer != pp.selfURL {
-		return pp.fetchers[peer], true
-	}
-	return nil, false
+	return pp.pickPeerFunc(key, nil)
 }
 
 // Set updates the PeerPicker's list of peers.
@@ -111,7 +119,7 @@ func (pp *new_PeerPicker) Set(peers ...string) {
 
 // Protocol defines the chosen connection protocol between peers (namely HTTP or GRPC) and implements the instantiation method for that connection
 type Protocol interface {
-	// NewFetcher instantiates the connection between peers and returns a RemoteFetcher to be used for fetching from peers
+	// NewFetcher instantiates the connection between peers and returns a RemoteFetcher to be used for fetching from a peer
 	NewFetcher(url string, basePath string) RemoteFetcher
 }
 

@@ -252,10 +252,12 @@ func (g *Group) Get(ctx context.Context, key string, dest Sink) error {
 		return errors.New("groupcache: nil dest Sink")
 	}
 	value, cacheHit := g.lookupCache(key)
+	// fmt.Println("CacheHit:", cacheHit)
 	stats.Record(ctx, MKeyLength.M(int64(len(key))))
 
 	if cacheHit {
 		span.Annotatef(nil, "Cache hit")
+		// fmt.Println("Found locally")
 		// TODO(@odeke-em): Remove .Stats
 		g.Stats.CacheHits.Add(1)
 		stats.Record(ctx, MCacheHits.M(1), MValueLength.M(int64(value.Len())))
@@ -361,6 +363,7 @@ func (g *Group) load(ctx context.Context, key string, dest Sink) (value ByteView
 }
 
 func (g *Group) getLocally(ctx context.Context, key string, dest Sink) (ByteView, error) {
+	fmt.Println("Getting locally")
 	err := g.getter.Get(ctx, key, dest)
 	if err != nil {
 		return ByteView{}, err
@@ -390,6 +393,7 @@ func (g *Group) getFromPeer(ctx context.Context, peer RemoteFetcher, key string)
 
 func (g *Group) lookupCache(key string) (value ByteView, ok bool) {
 	if g.cacheBytes <= 0 {
+		// fmt.Println("No go:", ok)
 		return
 	}
 	value, ok = g.mainCache.get(key)

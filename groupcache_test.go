@@ -22,7 +22,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"reflect"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -47,7 +49,7 @@ var (
 	// cacheFills function.
 	cacheFills AtomicInt
 
-	c = NewCacher(&HTTPProtocol{}, "test")
+	c = NewCacher(&TestProtocol{}, "test")
 )
 
 const (
@@ -226,18 +228,135 @@ func TestCacheEviction(t *testing.T) {
 	}
 }
 
-type fakePeer struct {
+// type fakePeer struct {
+// 	hits int
+// 	fail bool
+// }
+
+// func (p *fakePeer) Fetch(_ context.Context, in *pb.GetRequest, out *pb.GetResponse) error {
+// 	p.hits++
+// 	if p.fail {
+// 		return errors.New("simulated error from peer")
+// 	}
+// 	out.Value = []byte("got:" + in.GetKey())
+// 	return nil
+// }
+
+type TestProtocol struct{}
+type TestFetcher struct {
 	hits int
 	fail bool
 }
+type testFetchers []RemoteFetcher
 
-func (p *fakePeer) Fetch(_ context.Context, in *pb.GetRequest, out *pb.GetResponse) error {
-	p.hits++
-	if p.fail {
+func (fetcher *TestFetcher) Fetch(ctx context.Context, in *pb.GetRequest, out *pb.GetResponse) error {
+	// fmt.Println("Fetching!")
+	fetcher.hits++
+	fmt.Println("Hits for fetcher:", fetcher.hits)
+	if fetcher.fail {
 		return errors.New("simulated error from peer")
 	}
 	out.Value = []byte("got:" + in.GetKey())
 	return nil
+}
+
+func (proto *TestProtocol) NewFetcher(url string, basePath string) RemoteFetcher {
+	return &TestFetcher{
+		hits: 0,
+		fail: false,
+	}
+}
+
+func TestPeers(t *testing.T) {
+	once.Do(testSetup)
+	// instantiate test fetchers with the test protocol
+	cTestPeers := NewCacher(&TestProtocol{}, "TestPeers")
+	rand.Seed(123)
+	fetcher0 := &TestFetcher{}
+	fetcher1 := &TestFetcher{}
+	fetcher2 := &TestFetcher{}
+	fetcherList := testFetchers([]RemoteFetcher{fetcher0, fetcher1, fetcher2, nil})
+
+	cTestPeers.peerPicker.fetchers = map[string]RemoteFetcher{"fetcher0": fetcher0, "fetcher1": fetcher1, "fetcher2": fetcher2}
+	cTestPeers.peerPicker.Set("fetcher0", "fetcher1", "fetcher2")
+	cTestPeers.peerPicker.pickPeerFunc = func(key string, fetchers []RemoteFetcher) (RemoteFetcher, bool) {
+		keyNum, err := strconv.Atoi(key)
+		if err != nil {
+			return &TestFetcher{}, false
+		}
+		fetchers = fetcherList
+		keyIndex := keyNum % len(fetcherList)
+
+		return fetcherList[keyIndex], fetcherList[keyIndex] != nil
+
+	}
+
+	const cacheSize = 0 // empty to force gets from peers rather than local (?)
+	localHits := 0
+	getter := func(_ context.Context, key string, dest Sink) error {
+		localHits++
+		fmt.Println("localHits:", localHits)
+		return dest.SetString("got:" + key)
+	}
+
+	testGroup := cTestPeers.NewGroup("TestPeers-group", cacheSize, GetterFunc(getter))
+
+	run := func(name string, n int, wantSummary string) {
+		// Reset counters
+		localHits = 0
+		for _, p := range []*TestFetcher{fetcher0, fetcher1, fetcher2} {
+			p.hits = 0
+		}
+
+		for i := 0; i < n; i++ {
+			key := fmt.Sprintf("%d", i)
+			want := "got:" + key
+			var got string
+			err := testGroup.Get(dummyCtx, key, StringSink(&got))
+			if err != nil {
+				t.Errorf("%s: error on key %q: %v", name, key, err)
+				continue
+			}
+			if got != want {
+				t.Errorf("%s: for key %q, got %q; want %q", name, key, got, want)
+			}
+		}
+		summary := func() string {
+			return fmt.Sprintf("localHits = %d, peers = %d %d %d", localHits, fetcher0.hits, fetcher1.hits, fetcher2.hits)
+		}
+		if got := summary(); got != wantSummary {
+			t.Errorf("%s: got %q; want %q", name, got, wantSummary)
+		}
+	}
+
+	resetCacheSize := func(maxBytes int64) {
+		g := testGroup
+		g.cacheBytes = maxBytes
+		g.mainCache = cache{}
+		g.hotCache = cache{}
+	}
+
+	// Base case; peers all up, with no problems.
+	resetCacheSize(1 << 20)
+	run("base", 200, "localHits = 50, peers = 50 50 50")
+
+	// Verify cache was hit.  All localHits are gone, and some of
+	// the peer hits (the ones randomly selected to be maybe hot)
+	// run("cached_base", 200, "localHits = 0, peers = 49 47 48")
+	// resetCacheSize(0)
+
+	// // With one of the peers being down.
+	// // TODO(bradfitz): on a peer number being unavailable, the
+	// // consistent hashing should maybe keep trying others to
+	// // spread the load out. Currently it fails back to local
+	// // execution if the first consistent-hash slot is unavailable.
+	// fetcherList[0] = nil
+	// run("one_peer_down", 200, "localHits = 100, peers = 0 49 51")
+
+	// // Failing peer
+	// fetcherList[0] = fetcher0
+	// fetcher0.fail = true
+	// run("peer0_failing", 200, "localHits = 100, peers = 51 49 51")
 }
 
 // type fakePeers []RemoteFetcher
