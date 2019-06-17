@@ -55,9 +55,9 @@ type HTTPPool struct {
 	// opts specifies the options.
 	opts HTTPPoolOptions
 
-	mu          sync.Mutex // guards peers and httpGetters
-	peers       *consistenthash.Map
-	httpGetters map[string]*httpGetter // keyed by e.g. "http://10.0.0.2:8008"
+	mu       sync.Mutex // guards peers and httpGetters
+	peers    *consistenthash.Map
+	fetchers map[string]RemoteFetcher // keyed by e.g. "http://10.0.0.2:8008"
 
 	// the groups themselves, now contained to the HTTPPool rather than global
 	cacher *Cacher
@@ -111,9 +111,9 @@ func NewHTTPPoolOpts(self string, o *HTTPPoolOptions) *HTTPPool {
 	}
 
 	p := &HTTPPool{
-		self:        self,
-		httpGetters: make(map[string]*httpGetter),
-		cacher:      newCacher,
+		self:     self,
+		fetchers: make(map[string]RemoteFetcher),
+		cacher:   newCacher,
 	}
 	if o != nil {
 		p.opts = *o
@@ -138,10 +138,23 @@ func (p *HTTPPool) Set(peers ...string) {
 	defer p.mu.Unlock()
 	p.peers = consistenthash.New(p.opts.Replicas, p.opts.HashFn)
 	p.peers.Add(peers...)
-	p.httpGetters = make(map[string]*httpGetter, len(peers))
+	p.fetchers = make(map[string]RemoteFetcher, len(peers))
 	for _, peer := range peers {
-		p.httpGetters[peer] = &httpGetter{transport: p.Transport, baseURL: peer + p.opts.BasePath}
+		p.fetchers[peer] = &httpFetcher{transport: p.Transport, baseURL: peer + p.opts.BasePath}
 	}
+}
+
+// HTTPProtocol specifies HTTP specific options for HTTP-based peer communication
+type HTTPProtocol struct {
+	// Transport optionally specifies an http.RoundTripper for the client
+	// to use when it makes a request.
+	// If nil, the client uses http.DefaultTransport.
+	Transport func(context.Context) http.RoundTripper
+}
+
+// NewFetcher implements the Protocol interface for HTTPProtocol by constructing a new fetcher to fetch from peers via HTTP
+func (hp *HTTPProtocol) NewFetcher(url string, basePath string) RemoteFetcher {
+	return &httpFetcher{transport: hp.Transport, baseURL: url + basePath}
 }
 
 func (p *HTTPPool) PickPeer(key string) (RemoteFetcher, bool) {
@@ -151,7 +164,7 @@ func (p *HTTPPool) PickPeer(key string) (RemoteFetcher, bool) {
 		return nil, false
 	}
 	if peer := p.peers.Get(key); peer != p.self {
-		return p.httpGetters[peer], true
+		return p.fetchers[peer], true
 	}
 	return nil, false
 }
@@ -200,7 +213,7 @@ func (p *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Write(body)
 }
 
-type httpGetter struct {
+type httpFetcher struct {
 	transport func(context.Context) http.RoundTripper
 	baseURL   string
 }
@@ -209,7 +222,7 @@ var bufferPool = sync.Pool{
 	New: func() interface{} { return new(bytes.Buffer) },
 }
 
-func (h *httpGetter) Fetch(ctx context.Context, in *pb.GetRequest, out *pb.GetResponse) error {
+func (h *httpFetcher) Fetch(ctx context.Context, in *pb.GetRequest, out *pb.GetResponse) error {
 	u := fmt.Sprintf(
 		"%v%v/%v",
 		h.baseURL,
