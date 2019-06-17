@@ -166,7 +166,7 @@ func TestGetDupSuppressProto(t *testing.T) {
 	}
 }
 
-func countFills(f func(), cacheFills AtomicInt) int64 {
+func countFills(f func(), cacheFills *AtomicInt) int64 {
 	fills0 := cacheFills.Get()
 	f()
 	return cacheFills.Get() - fills0
@@ -184,7 +184,7 @@ func TestCaching(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-	}, cacheFills)
+	}, &cacheFills)
 	if fills != 1 {
 		t.Errorf("expected 1 cache fill; got %d", fills)
 	}
@@ -204,7 +204,7 @@ func TestCacheEviction(t *testing.T) {
 			}
 		}
 	}
-	fills := countFills(getTestKey, cacheFills)
+	fills := countFills(getTestKey, &cacheFills)
 	if fills != 1 {
 		t.Fatalf("expected 1 cache fill; got %d", fills)
 	}
@@ -226,7 +226,7 @@ func TestCacheEviction(t *testing.T) {
 	}
 
 	// Test that the key is gone.
-	fills = countFills(getTestKey, cacheFills)
+	fills = countFills(getTestKey, &cacheFills)
 	if fills != 1 {
 		t.Fatalf("expected 1 cache fill after cache trashing; got %d", fills)
 	}
@@ -256,7 +256,7 @@ type testFetchers []RemoteFetcher
 func (fetcher *TestFetcher) Fetch(ctx context.Context, in *pb.GetRequest, out *pb.GetResponse) error {
 	// fmt.Println("Fetching!")
 	fetcher.hits++
-	fmt.Println("Hits for fetcher:", fetcher.hits)
+	// fmt.Println("Hits for fetcher:", fetcher.hits)
 	if fetcher.fail {
 		return errors.New("simulated error from peer")
 	}
@@ -299,7 +299,6 @@ func TestPeers(t *testing.T) {
 	localHits := 0
 	getter := func(_ context.Context, key string, dest Sink) error {
 		localHits++
-		fmt.Println("localHits:", localHits)
 		return dest.SetString("got:" + key)
 	}
 
