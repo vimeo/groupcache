@@ -72,7 +72,7 @@ type Cacher struct {
 
 	// newGroupHook, if non-nil, is called right after a new group is created.
 	newGroupHook func(*Group)
-	peerPicker   *new_PeerPicker
+	peerPicker   *new_PeerPicker // pointer?
 }
 
 func NewCacher(protocol Protocol, self string) *Cacher {
@@ -124,7 +124,8 @@ func (c *Cacher) newGroup(name string, cacheBytes int64, getter BackendGetter, p
 	g := &Group{
 		name:       name,
 		getter:     getter,
-		peers:      peers,
+		peers:      peers, // soon deprecated...
+		peerPicker: c.peerPicker,
 		cacheBytes: cacheBytes,
 		loadGroup:  &singleflight.Group{},
 	}
@@ -166,6 +167,7 @@ type Group struct {
 	getter     BackendGetter
 	peersOnce  sync.Once
 	peers      PeerPicker
+	peerPicker *new_PeerPicker
 	cacheBytes int64 // limit for sum of mainCache and hotCache size
 
 	// mainCache is a cache of the keys for which this process
@@ -320,7 +322,7 @@ func (g *Group) load(ctx context.Context, key string, dest Sink) (value ByteView
 
 		var value ByteView
 		var err error
-		if peer, ok := g.peers.PickPeer(key); ok {
+		if peer, ok := g.peerPicker.PickPeer(key); ok { // Cacher must be initialized for testing, else segfault
 			value, err = g.getFromPeer(ctx, peer, key)
 			if err == nil {
 				// TODO(@odeke-em): Remove .Stats
