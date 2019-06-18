@@ -27,7 +27,6 @@ import (
 	"sync"
 
 	"github.com/golang/protobuf/proto"
-	"github.com/vimeo/groupcache/consistenthash"
 	pb "github.com/vimeo/groupcache/groupcachepb"
 
 	"go.opencensus.io/stats"
@@ -37,118 +36,9 @@ const defaultBasePath = "/_groupcache/"
 
 const defaultReplicas = 50
 
-// HTTPPool implements PeerPicker for a pool of HTTP peers.
-type HTTPPool struct {
-
-	// HTTPServer:
-	// context.Context optionally specifies a context for the server to use when it
-	// receives a request.
-	// If nil, the server uses a nil context.Context.
-	Context func(*http.Request) context.Context
-
-	// HTTPProtocol:
-	// Transport optionally specifies an http.RoundTripper for the client
-	// to use when it makes a request.
-	// If nil, the client uses http.DefaultTransport.
-	Transport func(context.Context) http.RoundTripper
-
-	// new_PeerPicker:
-	mu       sync.Mutex // guards peers and httpGetters
-	peers    *consistenthash.Map
-	fetchers map[string]RemoteFetcher // keyed by e.g. "http://10.0.0.2:8008"
-	// opts specifies the Pool options (now options elsewhere)
-	opts HTTPPoolOptions
-
-	// Both (through Cacher?):
-	// this peer's base URL, e.g. "https://example.net:8000"
-	self string
-
-	// Other:
-	// Old local containerization, now it's the other way around
-	cacher *Cacher
-}
-
-// HTTPPoolOptions are the configurations of a HTTPPool.
-type HTTPPoolOptions struct {
-	// BasePath specifies the HTTP path that will serve groupcache requests.
-	// If blank, it defaults to "/_groupcache/".
-	BasePath string
-
-	// Replicas specifies the number of key replicas on the consistent hash.
-	// If blank, it defaults to 50.
-	Replicas int
-
-	// HashFn specifies the hash function of the consistent hash.
-	// If blank, it defaults to crc32.ChecksumIEEE.
-	HashFn consistenthash.Hash
-}
-
-// NewHTTPPool initializes an HTTP pool of peers, and registers itself as a PeerPicker.
-// For convenience, it also registers itself as an http.Handler with http.DefaultServeMux.
-// The self argument should be a valid base URL that points to the current server,
-// for example "http://example.net:8000".
-func NewHTTPPool(self string) *HTTPPool {
-	p := NewHTTPPoolOpts(self, nil)
-	http.Handle(p.opts.BasePath, p)
-	return p
-}
-
 // baseURLs keeps track of HTTPPools initialized with the given base URLs; panic if a base URL is used more than once (allows for multiple HTTPPools on the same process for testing)
 var baseURLs map[string]struct{}
 var mu sync.RWMutex
-
-// NewHTTPPoolOpts initializes an HTTP pool of peers with the given options.
-// Unlike NewHTTPPool, this function does not register the created pool as an HTTP handler.
-// The returned *HTTPPool implements http.Handler and must be registered using http.Handle.
-func NewHTTPPoolOpts(self string, o *HTTPPoolOptions) *HTTPPool {
-	mu.Lock()
-	if baseURLs == nil {
-		baseURLs = make(map[string]struct{})
-	}
-	if _, ok := baseURLs[self]; ok {
-		panic("Already initialized HTTPPool at this base URL")
-	}
-	baseURLs[self] = struct{}{}
-	mu.Unlock()
-
-	newCacher := &Cacher{
-		groups: make(map[string]*Group),
-	}
-
-	p := &HTTPPool{
-		self:     self,
-		fetchers: make(map[string]RemoteFetcher),
-		cacher:   newCacher,
-	}
-	if o != nil {
-		p.opts = *o
-	}
-	if p.opts.BasePath == "" {
-		p.opts.BasePath = defaultBasePath
-	}
-	if p.opts.Replicas == 0 {
-		p.opts.Replicas = defaultReplicas
-	}
-	p.peers = consistenthash.New(p.opts.Replicas, p.opts.HashFn)
-
-	RegisterPeerPicker(func() PeerPicker { return p })
-	return p
-}
-
-// NEW_PEERPICKER:
-// Set updates the pool's list of peers.
-// Each peer value should be a valid base URL,
-// for example "http://example.net:8000".
-func (p *HTTPPool) Set(peers ...string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.peers = consistenthash.New(p.opts.Replicas, p.opts.HashFn)
-	p.peers.Add(peers...)
-	p.fetchers = make(map[string]RemoteFetcher, len(peers))
-	for _, peer := range peers {
-		p.fetchers[peer] = &httpFetcher{transport: p.Transport, baseURL: peer + p.opts.BasePath}
-	}
-}
 
 // HTTPProtocol specifies HTTP specific options for HTTP-based peer communication
 type HTTPProtocol struct {
@@ -163,21 +53,7 @@ func (hp *HTTPProtocol) NewFetcher(url string, basePath string) RemoteFetcher {
 	return &httpFetcher{transport: hp.Transport, baseURL: url + basePath}
 }
 
-// NEW_PEERPICKER
-func (p *HTTPPool) PickPeer(key string) (RemoteFetcher, bool) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.peers.IsEmpty() {
-		return nil, false
-	}
-	if peer := p.peers.Get(key); peer != p.self {
-		return p.fetchers[peer], true
-	}
-	return nil, false
-}
-
-// HTTPSERVER
-
+// HTTPServer implements the HTTP handler necessary to serve an HTTP request; it contains a pointer to its parent Cacher in order to access its Groups
 type HTTPServer struct {
 	// context.Context optionally specifies a context for the server to use when it
 	// receives a request.
@@ -210,50 +86,6 @@ func (server *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var ctx context.Context
 	if server.Context != nil {
 		ctx = server.Context(r)
-	}
-
-	// TODO: remove group.Stats from here
-	group.Stats.ServerRequests.Add(1)
-	stats.Record(ctx, MServerRequests.M(1))
-	var value []byte
-	err := group.Get(ctx, key, AllocatingByteSliceSink(&value))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Write the value to the response body as a proto message.
-	body, err := proto.Marshal(&pb.GetResponse{Value: value})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/x-protobuf")
-	w.Write(body)
-}
-
-func (p *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Parse request.
-	if !strings.HasPrefix(r.URL.Path, p.opts.BasePath) {
-		panic("HTTPPool serving unexpected path: " + r.URL.Path)
-	}
-	parts := strings.SplitN(r.URL.Path[len(p.opts.BasePath):], "/", 2)
-	if len(parts) != 2 {
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
-	}
-	groupName := parts[0]
-	key := parts[1]
-
-	// Fetch the value for this group/key.
-	group := p.cacher.GetGroup(groupName)
-	if group == nil {
-		http.Error(w, "no such group: "+groupName, http.StatusNotFound)
-		return
-	}
-	var ctx context.Context
-	if p.Context != nil {
-		ctx = p.Context(r)
 	}
 
 	// TODO: remove group.Stats from here

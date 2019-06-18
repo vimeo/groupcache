@@ -71,7 +71,7 @@ type Cacher struct {
 
 	// newGroupHook, if non-nil, is called right after a new group is created.
 	newGroupHook func(*Group)
-	peerPicker   *new_PeerPicker // pointer?
+	peerPicker   *PeerPicker // pointer?
 	httpServer   *HTTPServer
 }
 
@@ -117,11 +117,11 @@ func (c *Cacher) GetGroup(name string) *Group {
 //
 // The group name must be unique for each getter.
 func (c *Cacher) NewGroup(name string, cacheBytes int64, getter BackendGetter) *Group {
-	return c.newGroup(name, cacheBytes, getter, nil)
+	return c.newGroup(name, cacheBytes, getter)
 }
 
 // If peers is nil, the peerPicker is called via a sync.Once to initialize it.
-func (c *Cacher) newGroup(name string, cacheBytes int64, getter BackendGetter, peers PeerPicker) *Group {
+func (c *Cacher) newGroup(name string, cacheBytes int64, getter BackendGetter) *Group {
 	if getter == nil {
 		panic("nil Getter")
 	}
@@ -134,7 +134,6 @@ func (c *Cacher) newGroup(name string, cacheBytes int64, getter BackendGetter, p
 	g := &Group{
 		name:       name,
 		getter:     getter,
-		peers:      peers, // soon deprecated...
 		peerPicker: c.peerPicker,
 		cacheBytes: cacheBytes,
 		loadGroup:  &singleflight.Group{},
@@ -176,8 +175,7 @@ type Group struct {
 	name       string
 	getter     BackendGetter
 	peersOnce  sync.Once
-	peers      PeerPicker
-	peerPicker *new_PeerPicker
+	peerPicker *PeerPicker
 	cacheBytes int64 // limit for sum of mainCache and hotCache size
 
 	// mainCache is a cache of the keys for which this process
@@ -233,11 +231,11 @@ func (g *Group) Name() string {
 	return g.name
 }
 
-func (g *Group) initPeers() {
-	if g.peers == nil {
-		g.peers = getPeers(g.name)
-	}
-}
+// func (g *Group) initPeers() {
+// 	if g.peers == nil {
+// 		g.peers = getPeers(g.name)
+// 	}
+// }
 
 func (g *Group) Get(ctx context.Context, key string, dest Sink) error {
 	if ctx == nil {
@@ -253,7 +251,7 @@ func (g *Group) Get(ctx context.Context, key string, dest Sink) error {
 		span.End()
 	}()
 
-	g.peersOnce.Do(g.initPeers)
+	// g.peersOnce.Do(g.initPeers)
 	// TODO(@odeke-em): Remove .Stats
 	g.Stats.Gets.Add(1)
 	stats.Record(ctx, MGets.M(1))

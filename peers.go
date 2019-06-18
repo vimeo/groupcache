@@ -31,16 +31,7 @@ type RemoteFetcher interface {
 	Fetch(context context.Context, in *pb.GetRequest, out *pb.GetResponse) error
 }
 
-// PeerPicker is the interface that must be implemented to locate
-// the peer that owns a specific key.
-type PeerPicker interface {
-	// PickPeer returns the peer that owns the specific key
-	// and true to indicate that a remote peer was nominated.
-	// It returns nil, false if the key owner is the current peer.
-	PickPeer(key string) (peer RemoteFetcher, ok bool)
-}
-
-type new_PeerPicker struct {
+type PeerPicker struct {
 	protocol Protocol
 	selfURL  string
 	peers    *consistenthash.Map
@@ -67,8 +58,8 @@ type PeerPickerOptions struct {
 	HashFn consistenthash.Hash
 }
 
-func newPeerPicker(proto Protocol, self string, options *PeerPickerOptions) *new_PeerPicker {
-	pp := &new_PeerPicker{
+func newPeerPicker(proto Protocol, self string, options *PeerPickerOptions) *PeerPicker {
+	pp := &PeerPicker{
 		protocol: proto,
 		selfURL:  self,
 		fetchers: make(map[string]RemoteFetcher),
@@ -86,7 +77,7 @@ func newPeerPicker(proto Protocol, self string, options *PeerPickerOptions) *new
 	return pp
 }
 
-func (pp *new_PeerPicker) PickPeer(key string) (RemoteFetcher, bool) {
+func (pp *PeerPicker) PickPeer(key string) (RemoteFetcher, bool) {
 	// can define alternate pickPeerFunc for testing
 	if pp.pickPeerFunc == nil {
 		pp.mu.Lock()
@@ -106,7 +97,7 @@ func (pp *new_PeerPicker) PickPeer(key string) (RemoteFetcher, bool) {
 // Set updates the PeerPicker's list of peers.
 // Each peer value should be a valid base URL,
 // for example "http://example.net:8000".
-func (pp *new_PeerPicker) Set(peers ...string) {
+func (pp *PeerPicker) Set(peers ...string) {
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 	pp.peers = consistenthash.New(pp.opts.Replicas, pp.opts.HashFn)
@@ -121,47 +112,4 @@ func (pp *new_PeerPicker) Set(peers ...string) {
 type Protocol interface {
 	// NewFetcher instantiates the connection between peers and returns a RemoteFetcher to be used for fetching from a peer
 	NewFetcher(url string, basePath string) RemoteFetcher
-}
-
-// NoPeers is an implementation of PeerPicker that never finds a peer.
-type NoPeers struct{}
-
-func (NoPeers) PickPeer(key string) (peer RemoteFetcher, ok bool) { return }
-
-var (
-	portPicker func(groupName string) PeerPicker
-)
-
-// RegisterPeerPicker registers the peer initialization function.
-// It is called once, when the first group is created.
-// Either RegisterPeerPicker or RegisterPerGroupPeerPicker should be
-// called exactly once, but not both.
-func RegisterPeerPicker(fn func() PeerPicker) {
-	if portPicker != nil {
-		panic("RegisterPeerPicker called more than once")
-	}
-	portPicker = func(_ string) PeerPicker { return fn() }
-}
-
-// RegisterPerGroupPeerPicker registers the peer initialization function,
-// which takes the groupName, to be used in choosing a PeerPicker.
-// It is called once, when the first group is created.
-// Either RegisterPeerPicker or RegisterPerGroupPeerPicker should be
-// called exactly once, but not both.
-func RegisterPerGroupPeerPicker(fn func(groupName string) PeerPicker) {
-	if portPicker != nil {
-		panic("RegisterPeerPicker called more than once")
-	}
-	portPicker = fn
-}
-
-func getPeers(groupName string) PeerPicker {
-	if portPicker == nil {
-		return NoPeers{}
-	}
-	pk := portPicker(groupName)
-	if pk == nil {
-		pk = NoPeers{}
-	}
-	return pk
 }
