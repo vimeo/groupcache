@@ -78,7 +78,7 @@ func newPeerPicker(proto Protocol, self string, options *PeerPickerOptions) *Pee
 }
 
 func (pp *PeerPicker) PickPeer(key string) (RemoteFetcher, bool) {
-	// can define alternate pickPeerFunc for testing
+	// can define alternate pickPeerFunc for testing... a little messy
 	if pp.pickPeerFunc == nil {
 		pp.mu.Lock()
 		defer pp.mu.Unlock()
@@ -86,7 +86,6 @@ func (pp *PeerPicker) PickPeer(key string) (RemoteFetcher, bool) {
 			return nil, false
 		}
 		if peer := pp.peers.Get(key); peer != pp.selfURL {
-			// fmt.Println("peer:", peer)
 			return pp.fetchers[peer], true
 		}
 		return nil, false

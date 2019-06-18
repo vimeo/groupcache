@@ -232,20 +232,6 @@ func TestCacheEviction(t *testing.T) {
 	}
 }
 
-// type fakePeer struct {
-// 	hits int
-// 	fail bool
-// }
-
-// func (p *fakePeer) Fetch(_ context.Context, in *pb.GetRequest, out *pb.GetResponse) error {
-// 	p.hits++
-// 	if p.fail {
-// 		return errors.New("simulated error from peer")
-// 	}
-// 	out.Value = []byte("got:" + in.GetKey())
-// 	return nil
-// }
-
 type TestProtocol struct{}
 type TestFetcher struct {
 	hits int
@@ -254,9 +240,7 @@ type TestFetcher struct {
 type testFetchers []RemoteFetcher
 
 func (fetcher *TestFetcher) Fetch(ctx context.Context, in *pb.GetRequest, out *pb.GetResponse) error {
-	// fmt.Println("Fetching!")
 	fetcher.hits++
-	// fmt.Println("Hits for fetcher:", fetcher.hits)
 	if fetcher.fail {
 		return errors.New("simulated error from peer")
 	}
@@ -271,6 +255,7 @@ func (proto *TestProtocol) NewFetcher(url string, basePath string) RemoteFetcher
 	}
 }
 
+// TestPeers is a bit of a messy test that might be redundant with the current HTTPServer test, since the protocol there can simply be swapped for TestProtocol rather than HTTPProtocol
 func TestPeers(t *testing.T) {
 	// instantiate test fetchers with the test protocol
 	c := NewCacher(&TestProtocol{}, "test")

@@ -231,12 +231,6 @@ func (g *Group) Name() string {
 	return g.name
 }
 
-// func (g *Group) initPeers() {
-// 	if g.peers == nil {
-// 		g.peers = getPeers(g.name)
-// 	}
-// }
-
 func (g *Group) Get(ctx context.Context, key string, dest Sink) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -251,7 +245,6 @@ func (g *Group) Get(ctx context.Context, key string, dest Sink) error {
 		span.End()
 	}()
 
-	// g.peersOnce.Do(g.initPeers)
 	// TODO(@odeke-em): Remove .Stats
 	g.Stats.Gets.Add(1)
 	stats.Record(ctx, MGets.M(1))
@@ -260,12 +253,10 @@ func (g *Group) Get(ctx context.Context, key string, dest Sink) error {
 		return errors.New("groupcache: nil dest Sink")
 	}
 	value, cacheHit := g.lookupCache(key)
-	// fmt.Println("CacheHit:", cacheHit)
 	stats.Record(ctx, MKeyLength.M(int64(len(key))))
 
 	if cacheHit {
 		span.Annotatef(nil, "Cache hit")
-		// fmt.Println("Found locally")
 		// TODO(@odeke-em): Remove .Stats
 		g.Stats.CacheHits.Add(1)
 		stats.Record(ctx, MCacheHits.M(1), MValueLength.M(int64(value.Len())))
@@ -332,8 +323,7 @@ func (g *Group) load(ctx context.Context, key string, dest Sink) (value ByteView
 
 		var value ByteView
 		var err error
-		if peer, ok := g.peerPicker.PickPeer(key); ok { // Cacher must be initialized for testing, else segfault
-			// fmt.Println("Found peer")
+		if peer, ok := g.peerPicker.PickPeer(key); ok { // Cacher must be initialized for testing
 			value, err = g.getFromPeer(ctx, peer, key)
 			if err == nil {
 				// TODO(@odeke-em): Remove .Stats
@@ -355,7 +345,6 @@ func (g *Group) load(ctx context.Context, key string, dest Sink) (value ByteView
 			// TODO(@odeke-em): Remove .Stats
 			g.Stats.LocalLoadErrs.Add(1)
 			stats.Record(ctx, MLocalLoadErrors.M(1))
-			// fmt.Println("Error getLocally: ", err)
 			return nil, err
 		}
 		// TODO(@odeke-em): Remove .Stats
@@ -372,7 +361,6 @@ func (g *Group) load(ctx context.Context, key string, dest Sink) (value ByteView
 }
 
 func (g *Group) getLocally(ctx context.Context, key string, dest Sink) (ByteView, error) {
-	// fmt.Println("Getting locally")
 	err := g.getter.Get(ctx, key, dest)
 	if err != nil {
 		return ByteView{}, err
@@ -382,8 +370,8 @@ func (g *Group) getLocally(ctx context.Context, key string, dest Sink) (ByteView
 
 func (g *Group) getFromPeer(ctx context.Context, peer RemoteFetcher, key string) (ByteView, error) {
 	req := &pb.GetRequest{
-		Group: g.name, // USED TO BE &g.name - had bug
-		Key:   key,    // USED TO BE &key - had bug
+		Group: g.name,
+		Key:   key,
 	}
 	res := &pb.GetResponse{}
 	err := peer.Fetch(ctx, req, res)
@@ -402,7 +390,6 @@ func (g *Group) getFromPeer(ctx context.Context, peer RemoteFetcher, key string)
 
 func (g *Group) lookupCache(key string) (value ByteView, ok bool) {
 	if g.cacheBytes <= 0 {
-		// fmt.Println("No go:", ok)
 		return
 	}
 	value, ok = g.mainCache.get(key)
