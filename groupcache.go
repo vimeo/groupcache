@@ -57,6 +57,7 @@ type BackendGetter interface {
 // A GetterFunc implements BackendGetter with a function.
 type GetterFunc func(ctx context.Context, key string, dest Sink) error
 
+// Get here calls the chosen Getter when a peer is the owner of a key, getting the value from the database, for example
 func (f GetterFunc) Get(ctx context.Context, key string, dest Sink) error {
 	return f(ctx, key, dest)
 }
@@ -74,10 +75,12 @@ type Cacher struct {
 	peerPicker   *PeerPicker // pointer?
 }
 
+// NewCacher is the default constructor for the Cacher object
 func NewCacher(protocol FetchProtocol, self string) *Cacher {
 	return NewCacherWithOpts(protocol, self, nil)
 }
 
+// NewCacherWithOpts is the optional constructor for the Cacher object that defines a non-default hash function and number of replicas
 func NewCacherWithOpts(protocol FetchProtocol, self string, options *PeerPickerOptions) *Cacher {
 	c := &Cacher{
 		groups:     make(map[string]*Group),
@@ -226,6 +229,7 @@ func (g *Group) Name() string {
 	return g.name
 }
 
+// Get as defined here is the primary "get" called on a group to find the value for the given key. It will first try the local cache, then on a cache miss it will search which peer is the owner of the key based on the consistent hash, then try either fetching from them if remote or getting with the Getter (such as from a database) if the calling Cacher instance is the owner
 func (g *Group) Get(ctx context.Context, key string, dest Sink) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -424,11 +428,11 @@ func (g *Group) populateCache(key string, value ByteView, cache *cache) {
 type CacheType int
 
 const (
-	// The MainCache is the cache for items that this peer is the
+	// MainCache is the cache for items that this peer is the
 	// owner for.
 	MainCache CacheType = iota + 1
 
-	// The HotCache is the cache for items that seem popular
+	// HotCache is the cache for items that seem popular
 	// enough to replicate to this node, even though it's not the
 	// owner.
 	HotCache
