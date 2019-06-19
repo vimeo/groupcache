@@ -40,8 +40,8 @@ func TestHTTPHandler(t *testing.T) {
 	dummyCtx := context.TODO()
 
 	const (
-		nRoutines = 2
-		nGets     = 10
+		nRoutines = 5
+		nGets     = 100
 	)
 
 	var peerAddresses []string
@@ -52,7 +52,9 @@ func TestHTTPHandler(t *testing.T) {
 		peerAddresses = append(peerAddresses, newAddr)
 	}
 
-	cacher := NewCacher(&HTTPFetchProtocol{BasePath: defaultBasePath}, "http://"+peerAddresses[0])
+	cacher := NewCacher(NewHTTPFetchProtocol(nil), "http://"+peerAddresses[0])
+	// fmt.Println("Parent address:", peerAddresses[0])
+	RegisterHTTPHandler(cacher, nil, nil)
 	cacher.Set(addrToURL(peerAddresses)...)
 	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
 		dest.SetString(":" + key)
@@ -62,11 +64,12 @@ func TestHTTPHandler(t *testing.T) {
 
 	for i, address := range peerAddresses {
 		if i == 0 {
-			// continue
+			continue
 		}
 		go makeServerCacher(peerAddresses, address)
 	}
 
+	// TODO: find a way to check for expected peers to be holding the keys, else this test will nearly always pass
 	for _, key := range testKeys(nGets) {
 		var value string
 		if err := g.Get(dummyCtx, key, StringSink(&value)); err != nil {
@@ -81,7 +84,10 @@ func TestHTTPHandler(t *testing.T) {
 }
 
 func makeServerCacher(addresses []string, selfAddress string) {
-	cacher := NewCacher(&HTTPFetchProtocol{BasePath: defaultBasePath}, "http://"+selfAddress)
+	// fmt.Println("Handler address:", selfAddress)
+	cacher := NewCacher(NewHTTPFetchProtocol(nil), "http://"+selfAddress)
+	serveMux := http.NewServeMux()
+	RegisterHTTPHandler(cacher, nil, serveMux)
 	cacher.Set(addrToURL(addresses)...)
 
 	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
@@ -90,8 +96,8 @@ func makeServerCacher(addresses []string, selfAddress string) {
 	})
 	cacher.NewGroup("peerGetsTest", 1<<20, getter)
 
-	handler := &ochttp.Handler{Handler: cacher.httpHandler}
-	log.Fatal(http.ListenAndServe(selfAddress, handler))
+	wrappedHandler := &ochttp.Handler{Handler: serveMux}
+	log.Fatal(http.ListenAndServe(selfAddress, wrappedHandler))
 }
 
 func testKeys(n int) (keys []string) {

@@ -59,14 +59,14 @@ type HTTPOptions struct {
 // NewHTTPFetchProtocol creates an HTTP fetch protocol to be passed into a cacher constructor;
 // uses the default "/_groupcache/" base path.
 // *You must use the same base path for the HTTPFetchProtocol and the HTTPHandler on the same Cacher*.
-func NewHTTPFetchProtocol() *HTTPFetchProtocol {
-	return NewHTTPFetchProtocolWithOpts(nil)
-}
+// func NewHTTPFetchProtocol() *HTTPFetchProtocol {
+// 	return NewHTTPFetchProtocolWithOpts(nil)
+// }
 
-// NewHTTPFetchProtocolWithOpts creates an HTTP fetch protocol to be passed into a cacher constructor;
+// NewHTTPFetchProtocol creates an HTTP fetch protocol to be passed into a cacher constructor;
 // uses a user chosen base path specified in HTTPOptions.
 // *You must use the same base path for the HTTPFetchProtocol and the HTTPHandler on the same Cacher*.
-func NewHTTPFetchProtocolWithOpts(opts *HTTPOptions) *HTTPFetchProtocol {
+func NewHTTPFetchProtocol(opts *HTTPOptions) *HTTPFetchProtocol {
 	newProto := &HTTPFetchProtocol{
 		BasePath: defaultBasePath,
 	}
@@ -97,23 +97,18 @@ type HTTPHandler struct {
 	basePath     string
 }
 
-// RegisterHTTPHandler sets up an HTTPHandler with default base path and serveMux to handle requests to the given cacher.
+// RegisterHTTPHandler sets up an HTTPHandler with a user specified path and serveMux (if non nil) to handle requests to the given cacher. If both opts and serveMux are nil, defaultBasePath and DefaultServeMux will be used.
 // *You must use the same base path for the HTTPFetchProtocol and the HTTPHandler on the same Cacher*.
-func RegisterHTTPHandler(cacher *Cacher) {
-	RegisterHTTPHandlerWithOpts(cacher, nil, nil)
-}
-
-// RegisterHTTPHandlerWithOpts sets up an HTTPHandler with a user specified path and serveMux (if non nil) to handle requests. to the given cacher.
-// *You must use the same base path for the HTTPFetchProtocol and the HTTPHandler on the same Cacher*.
-func RegisterHTTPHandlerWithOpts(cacher *Cacher, opts *HTTPOptions, serveMux *http.ServeMux) {
+func RegisterHTTPHandler(cacher *Cacher, opts *HTTPOptions, serveMux *http.ServeMux) {
 	basePath := defaultBasePath
 	if opts != nil {
 		basePath = opts.basePath
 	}
+	newHTTPHandler := &HTTPHandler{basePath: basePath, parentCacher: cacher}
 	if serveMux == nil {
-		http.Handle(basePath, &HTTPHandler{basePath: basePath, parentCacher: cacher})
+		http.Handle(basePath, newHTTPHandler)
 	} else {
-		serveMux.Handle(basePath, &HTTPHandler{basePath: basePath, parentCacher: cacher})
+		serveMux.Handle(basePath, newHTTPHandler)
 	}
 }
 

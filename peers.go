@@ -69,9 +69,6 @@ func newPeerPicker(proto FetchProtocol, self string, options *PeerPickerOptions)
 	if options != nil {
 		pp.opts = *options
 	}
-	if pp.opts.BasePath == "" {
-		pp.opts.BasePath = defaultBasePath
-	}
 	if pp.opts.Replicas == 0 {
 		pp.opts.Replicas = defaultReplicas
 	}
