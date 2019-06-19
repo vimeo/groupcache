@@ -32,9 +32,9 @@ type RemoteFetcher interface {
 }
 
 // TODO: rip this apart and give it all to Cacher (selfURL -> selfAddress)
-// BasePath will be owned by HTTPFetchingProtocol (implementation of the new and improved FetchingProtocol interface)
+// BasePath will be owned by HTTPFetchProtocol (implementation of the new and improved FetchProtocol interface)
 type PeerPicker struct {
-	fetchingProtocol FetchingProtocol
+	fetchingProtocol FetchProtocol
 	selfURL          string
 	peers            *consistenthash.Map
 	fetchers         map[string]RemoteFetcher
@@ -60,7 +60,7 @@ type PeerPickerOptions struct {
 	HashFn consistenthash.Hash
 }
 
-func newPeerPicker(proto FetchingProtocol, self string, options *PeerPickerOptions) *PeerPicker {
+func newPeerPicker(proto FetchProtocol, self string, options *PeerPickerOptions) *PeerPicker {
 	pp := &PeerPicker{
 		fetchingProtocol: proto,
 		selfURL:          self,
@@ -109,8 +109,8 @@ func (pp *PeerPicker) Set(peers ...string) {
 	}
 }
 
-// FetchingProtocol defines the chosen fetching protocol to peers (namely HTTP or GRPC) and implements the instantiation method for that connection
-type FetchingProtocol interface {
+// FetchProtocol defines the chosen fetching protocol to peers (namely HTTP or GRPC) and implements the instantiation method for that connection
+type FetchProtocol interface {
 	// NewFetcher instantiates the connection between peers and returns a RemoteFetcher to be used for fetching from a peer
 	NewFetcher(url string) RemoteFetcher
 }

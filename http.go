@@ -40,8 +40,8 @@ const defaultReplicas = 50
 var baseURLs map[string]struct{}
 var mu sync.RWMutex
 
-// HTTPProtocol specifies HTTP specific options for HTTP-based peer communication
-type HTTPProtocol struct {
+// HTTPFetchProtocol specifies HTTP specific options for HTTP-based peer communication
+type HTTPFetchProtocol struct {
 	// Transport optionally specifies an http.RoundTripper for the client
 	// to use when it makes a request.
 	// If nil, the client uses http.DefaultTransport.
@@ -49,13 +49,38 @@ type HTTPProtocol struct {
 	BasePath  string
 }
 
+// HTTPOptions specifies a base path for serving and fetching;
+// *ONLY SPECIFY IF NOT USING THE DEFAULT "/_groupcache/" base path*
+type HTTPOptions struct {
+	basePath string
+}
+
+// NewHTTPFetchProtocol() creates an HTTP fetch protocol to be passed into a cacher constructor;
+// uses the default "/_groupcache/" base path
+func NewHTTPFetchProtocol() *HTTPFetchProtocol {
+	return NewHTTPFetchProtocolWithOpts(nil)
+}
+
+// NewHTTPFetchProtocol() creates an HTTP fetch protocol to be passed into a cacher constructor;
+// uses a user chosen base path specified in HTTPOptions.
+// *You must use the same base path for the HTTPFetchProtocol and the HTTPHandler*.
+func NewHTTPFetchProtocolWithOpts(opts *HTTPOptions) *HTTPFetchProtocol {
+	newProto := &HTTPFetchProtocol{}
+	if opts == nil {
+		newProto.BasePath = defaultBasePath
+	} else {
+		newProto.BasePath = opts.basePath
+	}
+	return newProto
+}
+
 // NewFetcher implements the Protocol interface for HTTPProtocol by constructing a new fetcher to fetch from peers via HTTP
-func (hp *HTTPProtocol) NewFetcher(url string) RemoteFetcher {
+func (hp *HTTPFetchProtocol) NewFetcher(url string) RemoteFetcher {
 	return &httpFetcher{transport: hp.Transport, baseURL: url + hp.BasePath}
 }
 
 // HTTPServer implements the HTTP handler necessary to serve an HTTP request; it contains a pointer to its parent Cacher in order to access its Groups
-type HTTPServer struct {
+type HTTPHandler struct {
 	// context.Context optionally specifies a context for the server to use when it
 	// receives a request.
 	// If nil, the server uses a nil context.Context.
@@ -64,7 +89,7 @@ type HTTPServer struct {
 	BasePath     string
 }
 
-func (server *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (server *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Parse request.
 	// fmt.Println("Serving request!")
 	if !strings.HasPrefix(r.URL.Path, server.BasePath) {

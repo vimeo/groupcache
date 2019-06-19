@@ -36,7 +36,7 @@ type testStatsExporter struct {
 	t    *testing.T
 }
 
-func TestHTTPServer(t *testing.T) {
+func TestHTTPHandler(t *testing.T) {
 	dummyCtx := context.TODO()
 
 	const (
@@ -52,7 +52,7 @@ func TestHTTPServer(t *testing.T) {
 		peerAddresses = append(peerAddresses, newAddr)
 	}
 
-	cacher := NewCacher(&HTTPProtocol{BasePath: defaultBasePath}, "http://"+peerAddresses[0])
+	cacher := NewCacher(&HTTPFetchProtocol{BasePath: defaultBasePath}, "http://"+peerAddresses[0])
 	cacher.Set(addrToURL(peerAddresses)...)
 	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
 		dest.SetString(":" + key)
@@ -81,7 +81,7 @@ func TestHTTPServer(t *testing.T) {
 }
 
 func makeServerCacher(addresses []string, selfAddress string) {
-	cacher := NewCacher(&HTTPProtocol{BasePath: defaultBasePath}, "http://"+selfAddress)
+	cacher := NewCacher(&HTTPFetchProtocol{BasePath: defaultBasePath}, "http://"+selfAddress)
 	cacher.Set(addrToURL(addresses)...)
 
 	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
@@ -90,7 +90,7 @@ func makeServerCacher(addresses []string, selfAddress string) {
 	})
 	cacher.NewGroup("peerGetsTest", 1<<20, getter)
 
-	handler := &ochttp.Handler{Handler: cacher.httpServer}
+	handler := &ochttp.Handler{Handler: cacher.httpHandler}
 	log.Fatal(http.ListenAndServe(selfAddress, handler))
 }
 
