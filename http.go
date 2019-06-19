@@ -49,27 +49,35 @@ type HTTPFetchProtocol struct {
 	BasePath  string
 }
 
-// HTTPOptions specifies a base path for serving and fetching;
-// *ONLY SPECIFY IF NOT USING THE DEFAULT "/_groupcache/" base path*
+// HTTPOptions specifies a base path for serving and fetching.
+// *ONLY SPECIFY IF NOT USING THE DEFAULT "/_groupcache/" BASE PATH*.
 type HTTPOptions struct {
-	basePath string
+	Transport func(context.Context) http.RoundTripper
+	basePath  string
 }
 
-// NewHTTPFetchProtocol() creates an HTTP fetch protocol to be passed into a cacher constructor;
-// uses the default "/_groupcache/" base path
+// NewHTTPFetchProtocol creates an HTTP fetch protocol to be passed into a cacher constructor;
+// uses the default "/_groupcache/" base path.
+// *You must use the same base path for the HTTPFetchProtocol and the HTTPHandler on the same Cacher*.
 func NewHTTPFetchProtocol() *HTTPFetchProtocol {
 	return NewHTTPFetchProtocolWithOpts(nil)
 }
 
-// NewHTTPFetchProtocol() creates an HTTP fetch protocol to be passed into a cacher constructor;
+// NewHTTPFetchProtocolWithOpts creates an HTTP fetch protocol to be passed into a cacher constructor;
 // uses a user chosen base path specified in HTTPOptions.
-// *You must use the same base path for the HTTPFetchProtocol and the HTTPHandler*.
+// *You must use the same base path for the HTTPFetchProtocol and the HTTPHandler on the same Cacher*.
 func NewHTTPFetchProtocolWithOpts(opts *HTTPOptions) *HTTPFetchProtocol {
-	newProto := &HTTPFetchProtocol{}
+	newProto := &HTTPFetchProtocol{
+		BasePath: defaultBasePath,
+	}
 	if opts == nil {
-		newProto.BasePath = defaultBasePath
-	} else {
+		return newProto
+	}
+	if opts.basePath != "" {
 		newProto.BasePath = opts.basePath
+	}
+	if opts.Transport != nil {
+		newProto.Transport = opts.Transport
 	}
 	return newProto
 }
@@ -79,23 +87,43 @@ func (hp *HTTPFetchProtocol) NewFetcher(url string) RemoteFetcher {
 	return &httpFetcher{transport: hp.Transport, baseURL: url + hp.BasePath}
 }
 
-// HTTPServer implements the HTTP handler necessary to serve an HTTP request; it contains a pointer to its parent Cacher in order to access its Groups
+// HTTPHandler implements the HTTP handler necessary to serve an HTTP request; it contains a pointer to its parent Cacher in order to access its Groups
 type HTTPHandler struct {
 	// context.Context optionally specifies a context for the server to use when it
 	// receives a request.
 	// If nil, the server uses a nil context.Context.
 	Context      func(*http.Request) context.Context
 	parentCacher *Cacher
-	BasePath     string
+	basePath     string
 }
 
-func (server *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+// RegisterHTTPHandler sets up an HTTPHandler with default base path and serveMux to handle requests to the given cacher.
+// *You must use the same base path for the HTTPFetchProtocol and the HTTPHandler on the same Cacher*.
+func RegisterHTTPHandler(cacher *Cacher) {
+	RegisterHTTPHandlerWithOpts(cacher, nil, nil)
+}
+
+// RegisterHTTPHandlerWithOpts sets up an HTTPHandler with a user specified path and serveMux (if non nil) to handle requests. to the given cacher.
+// *You must use the same base path for the HTTPFetchProtocol and the HTTPHandler on the same Cacher*.
+func RegisterHTTPHandlerWithOpts(cacher *Cacher, opts *HTTPOptions, serveMux *http.ServeMux) {
+	basePath := defaultBasePath
+	if opts != nil {
+		basePath = opts.basePath
+	}
+	if serveMux == nil {
+		http.Handle(basePath, &HTTPHandler{basePath: basePath, parentCacher: cacher})
+	} else {
+		serveMux.Handle(basePath, &HTTPHandler{basePath: basePath, parentCacher: cacher})
+	}
+}
+
+func (handler *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Parse request.
 	// fmt.Println("Serving request!")
-	if !strings.HasPrefix(r.URL.Path, server.BasePath) {
+	if !strings.HasPrefix(r.URL.Path, handler.basePath) {
 		panic("HTTPPool serving unexpected path: " + r.URL.Path)
 	}
-	parts := strings.SplitN(r.URL.Path[len(server.BasePath):], "/", 2)
+	parts := strings.SplitN(r.URL.Path[len(handler.basePath):], "/", 2)
 	if len(parts) != 2 {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
@@ -104,14 +132,14 @@ func (server *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	key := parts[1]
 
 	// Fetch the value for this group/key.
-	group := server.parentCacher.GetGroup(groupName)
+	group := handler.parentCacher.GetGroup(groupName)
 	if group == nil {
 		http.Error(w, "no such group: "+groupName, http.StatusNotFound)
 		return
 	}
 	var ctx context.Context
-	if server.Context != nil {
-		ctx = server.Context(r)
+	if handler.Context != nil {
+		ctx = handler.Context(r)
 	}
 
 	// TODO: remove group.Stats from here

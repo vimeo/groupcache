@@ -88,9 +88,9 @@ func NewCacherWithOpts(protocol FetchProtocol, self string, options *PeerPickerO
 		parentCacher: c,
 	}
 	if options == nil {
-		newHTTPHandler.BasePath = defaultBasePath
+		newHTTPHandler.basePath = defaultBasePath
 	} else {
-		newHTTPHandler.BasePath = options.BasePath
+		newHTTPHandler.basePath = options.BasePath
 	}
 
 	c.httpHandler = newHTTPHandler
