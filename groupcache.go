@@ -75,11 +75,11 @@ type Cacher struct {
 	httpServer   *HTTPServer
 }
 
-func NewCacher(protocol Protocol, self string) *Cacher {
+func NewCacher(protocol FetchingProtocol, self string) *Cacher {
 	return NewCacherWithOpts(protocol, self, nil)
 }
 
-func NewCacherWithOpts(protocol Protocol, self string, options *PeerPickerOptions) *Cacher {
+func NewCacherWithOpts(protocol FetchingProtocol, self string, options *PeerPickerOptions) *Cacher {
 	c := &Cacher{
 		groups:     make(map[string]*Group),
 		peerPicker: newPeerPicker(protocol, self, options),

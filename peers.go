@@ -32,14 +32,14 @@ type RemoteFetcher interface {
 }
 
 // TODO: rip this apart and give it all to Cacher (selfURL -> selfAddress)
-// BasePath will be owned by HTTPProtocol (implementation of the new and improved Protocol interface)
+// BasePath will be owned by HTTPFetchingProtocol (implementation of the new and improved FetchingProtocol interface)
 type PeerPicker struct {
-	protocol Protocol
-	selfURL  string
-	peers    *consistenthash.Map
-	fetchers map[string]RemoteFetcher
-	mu       sync.RWMutex
-	opts     PeerPickerOptions
+	fetchingProtocol FetchingProtocol
+	selfURL          string
+	peers            *consistenthash.Map
+	fetchers         map[string]RemoteFetcher
+	mu               sync.RWMutex
+	opts             PeerPickerOptions
 
 	// testing for allowing alternate PickPeer()
 	pickPeerFunc func(key string, fetchers []RemoteFetcher) (RemoteFetcher, bool)
@@ -60,11 +60,11 @@ type PeerPickerOptions struct {
 	HashFn consistenthash.Hash
 }
 
-func newPeerPicker(proto Protocol, self string, options *PeerPickerOptions) *PeerPicker {
+func newPeerPicker(proto FetchingProtocol, self string, options *PeerPickerOptions) *PeerPicker {
 	pp := &PeerPicker{
-		protocol: proto,
-		selfURL:  self,
-		fetchers: make(map[string]RemoteFetcher),
+		fetchingProtocol: proto,
+		selfURL:          self,
+		fetchers:         make(map[string]RemoteFetcher),
 	}
 	if options != nil {
 		pp.opts = *options
@@ -105,12 +105,12 @@ func (pp *PeerPicker) Set(peers ...string) {
 	pp.peers.Add(peers...)
 	pp.fetchers = make(map[string]RemoteFetcher, len(peers))
 	for _, peer := range peers {
-		pp.fetchers[peer] = pp.protocol.NewFetcher(peer)
+		pp.fetchers[peer] = pp.fetchingProtocol.NewFetcher(peer)
 	}
 }
 
-// Protocol defines the chosen connection protocol between peers (namely HTTP or GRPC) and implements the instantiation method for that connection
-type Protocol interface {
+// FetchingProtocol defines the chosen fetching protocol to peers (namely HTTP or GRPC) and implements the instantiation method for that connection
+type FetchingProtocol interface {
 	// NewFetcher instantiates the connection between peers and returns a RemoteFetcher to be used for fetching from a peer
 	NewFetcher(url string) RemoteFetcher
 }
