@@ -72,7 +72,6 @@ type Cacher struct {
 	// newGroupHook, if non-nil, is called right after a new group is created.
 	newGroupHook func(*Group)
 	peerPicker   *PeerPicker // pointer?
-	httpHandler  *HTTPHandler
 }
 
 func NewCacher(protocol FetchProtocol, self string) *Cacher {
@@ -84,16 +83,6 @@ func NewCacherWithOpts(protocol FetchProtocol, self string, options *PeerPickerO
 		groups:     make(map[string]*Group),
 		peerPicker: newPeerPicker(protocol, self, options),
 	}
-	newHTTPHandler := &HTTPHandler{
-		parentCacher: c,
-	}
-	if options == nil {
-		newHTTPHandler.basePath = defaultBasePath
-	} else {
-		newHTTPHandler.basePath = options.BasePath
-	}
-
-	c.httpHandler = newHTTPHandler
 
 	return c
 }
