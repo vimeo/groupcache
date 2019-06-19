@@ -27,6 +27,7 @@ package groupcache
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/rand"
 	"strconv"
 	"sync"
@@ -62,12 +63,11 @@ func (f GetterFunc) Get(ctx context.Context, key string, dest Sink) error {
 
 // Cacher defines the primary container for all groupcache operations. It contains the groups, PeerPicker, and servers (HTTP and GRPC (soon))
 type Cacher struct {
-	self   string
 	mu     sync.RWMutex
 	groups map[string]*Group
 
-	initPeerServerOnce sync.Once
-	initPeerServer     func()
+	// initPeerServerOnce sync.Once
+	// initPeerServer     func()
 
 	// newGroupHook, if non-nil, is called right after a new group is created.
 	newGroupHook func(*Group)
@@ -76,10 +76,10 @@ type Cacher struct {
 }
 
 func NewCacher(protocol Protocol, self string) *Cacher {
-	return newCacherWithOpts(protocol, self, nil)
+	return NewCacherWithOpts(protocol, self, nil)
 }
 
-func newCacherWithOpts(protocol Protocol, self string, options *PeerPickerOptions) *Cacher {
+func NewCacherWithOpts(protocol Protocol, self string, options *PeerPickerOptions) *Cacher {
 	c := &Cacher{
 		groups:     make(map[string]*Group),
 		peerPicker: newPeerPicker(protocol, self, options),
@@ -117,17 +117,16 @@ func (c *Cacher) GetGroup(name string) *Group {
 //
 // The group name must be unique for each getter.
 func (c *Cacher) NewGroup(name string, cacheBytes int64, getter BackendGetter) *Group {
-	return c.newGroup(name, cacheBytes, getter)
+	return c.newGroup(name, cacheBytes, getter) // redundant, same internal call without the PeerPicker interface arg
 }
 
-// If peers is nil, the peerPicker is called via a sync.Once to initialize it.
 func (c *Cacher) newGroup(name string, cacheBytes int64, getter BackendGetter) *Group {
 	if getter == nil {
 		panic("nil Getter")
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.initPeerServerOnce.Do(c.callInitPeerServer)
+	// c.initPeerServerOnce.Do(c.callInitPeerServer)
 	if _, dup := c.groups[name]; dup {
 		panic("duplicate registration of group " + name)
 	}
@@ -145,6 +144,13 @@ func (c *Cacher) newGroup(name string, cacheBytes int64, getter BackendGetter) *
 	return g
 }
 
+// Set updates the PeerPicker's list of peers through the Cacher.
+// Each peer value should be a valid base URL,
+// for example "http://example.net:8000".
+func (c *Cacher) Set(peers ...string) {
+	c.peerPicker.Set(peers...)
+}
+
 // RegisterNewGroupHook registers a hook that is run each time
 // a group is created.
 func (c *Cacher) RegisterNewGroupHook(fn func(*Group)) {
@@ -156,18 +162,18 @@ func (c *Cacher) RegisterNewGroupHook(fn func(*Group)) {
 
 // RegisterServerStart registers a hook that is run when the first
 // group is created.
-func (c *Cacher) RegisterServerStart(fn func()) {
-	if c.initPeerServer != nil {
-		panic("RegisterServerStart called more than once")
-	}
-	c.initPeerServer = fn
-}
+// func (c *Cacher) RegisterServerStart(fn func()) {
+// 	if c.initPeerServer != nil {
+// 		panic("RegisterServerStart called more than once")
+// 	}
+// 	c.initPeerServer = fn
+// }
 
-func (c *Cacher) callInitPeerServer() {
-	if c.initPeerServer != nil {
-		c.initPeerServer()
-	}
-}
+// func (c *Cacher) callInitPeerServer() {
+// 	if c.initPeerServer != nil {
+// 		c.initPeerServer()
+// 	}
+// }
 
 // A Group is a cache namespace and associated data loaded spread over
 // a group of 1 or more machines.
@@ -331,7 +337,7 @@ func (g *Group) load(ctx context.Context, key string, dest Sink) (value ByteView
 				stats.Record(ctx, MPeerLoads.M(1))
 				return value, nil
 			}
-
+			fmt.Println(err)
 			// TODO(@odeke-em): Remove .Stats
 			g.Stats.PeerErrors.Add(1)
 			stats.Record(ctx, MPeerErrors.M(1))
