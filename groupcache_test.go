@@ -232,7 +232,9 @@ func TestCacheEviction(t *testing.T) {
 	}
 }
 
-type TestProtocol struct{}
+type TestProtocol struct {
+	BasePath string
+}
 type TestFetcher struct {
 	hits int
 	fail bool
@@ -248,7 +250,7 @@ func (fetcher *TestFetcher) Fetch(ctx context.Context, in *pb.GetRequest, out *p
 	return nil
 }
 
-func (proto *TestProtocol) NewFetcher(url string, basePath string) RemoteFetcher {
+func (proto *TestProtocol) NewFetcher(url string) RemoteFetcher {
 	return &TestFetcher{
 		hits: 0,
 		fail: false,

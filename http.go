@@ -46,11 +46,12 @@ type HTTPProtocol struct {
 	// to use when it makes a request.
 	// If nil, the client uses http.DefaultTransport.
 	Transport func(context.Context) http.RoundTripper
+	BasePath  string
 }
 
 // NewFetcher implements the Protocol interface for HTTPProtocol by constructing a new fetcher to fetch from peers via HTTP
-func (hp *HTTPProtocol) NewFetcher(url string, basePath string) RemoteFetcher {
-	return &httpFetcher{transport: hp.Transport, baseURL: url + basePath}
+func (hp *HTTPProtocol) NewFetcher(url string) RemoteFetcher {
+	return &httpFetcher{transport: hp.Transport, baseURL: url + hp.BasePath}
 }
 
 // HTTPServer implements the HTTP handler necessary to serve an HTTP request; it contains a pointer to its parent Cacher in order to access its Groups
@@ -124,6 +125,7 @@ func (h *httpFetcher) Fetch(ctx context.Context, in *pb.GetRequest, out *pb.GetR
 		url.QueryEscape(in.GetGroup()),
 		url.QueryEscape(in.GetKey()),
 	)
+	// fmt.Println("Fetching from ", u)
 	req, err := http.NewRequest("GET", u, nil)
 	if err != nil {
 		return err

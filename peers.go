@@ -31,6 +31,8 @@ type RemoteFetcher interface {
 	Fetch(context context.Context, in *pb.GetRequest, out *pb.GetResponse) error
 }
 
+// TODO: rip this apart and give it all to Cacher (selfURL -> selfAddress)
+// BasePath will be owned by HTTPProtocol (implementation of the new and improved Protocol interface)
 type PeerPicker struct {
 	protocol Protocol
 	selfURL  string
@@ -103,12 +105,12 @@ func (pp *PeerPicker) Set(peers ...string) {
 	pp.peers.Add(peers...)
 	pp.fetchers = make(map[string]RemoteFetcher, len(peers))
 	for _, peer := range peers {
-		pp.fetchers[peer] = pp.protocol.NewFetcher(peer, pp.opts.BasePath)
+		pp.fetchers[peer] = pp.protocol.NewFetcher(peer)
 	}
 }
 
 // Protocol defines the chosen connection protocol between peers (namely HTTP or GRPC) and implements the instantiation method for that connection
 type Protocol interface {
 	// NewFetcher instantiates the connection between peers and returns a RemoteFetcher to be used for fetching from a peer
-	NewFetcher(url string, basePath string) RemoteFetcher
+	NewFetcher(url string) RemoteFetcher
 }

@@ -40,25 +40,30 @@ func TestHTTPServer(t *testing.T) {
 	dummyCtx := context.TODO()
 
 	const (
-		nRoutines = 10
-		nGets     = 1000
+		nRoutines = 2
+		nGets     = 10
 	)
 
 	var peerAddresses []string
+
+	// This appears to be succeeding with both the current and first server cacher having the same address...
 	for i := 0; i < nRoutines; i++ {
-		peerAddresses = append(peerAddresses, pickFreeAddr(t))
-		// fmt.Println("Addresses: ", peerAddresses)
+		newAddr := pickFreeAddr(t)
+		peerAddresses = append(peerAddresses, newAddr)
 	}
 
-	cacher := NewCacher(&HTTPProtocol{}, peerAddresses[0])
-	cacher.peerPicker.Set(addrToURL(peerAddresses)...)
+	cacher := NewCacher(&HTTPProtocol{BasePath: defaultBasePath}, "http://"+peerAddresses[0])
+	cacher.Set(addrToURL(peerAddresses)...)
 	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
 		dest.SetString(":" + key)
 		return nil
 	})
 	g := cacher.NewGroup("peerGetsTest", 1<<20, getter)
 
-	for _, address := range peerAddresses {
+	for i, address := range peerAddresses {
+		if i == 0 {
+			// continue
+		}
 		go makeServerCacher(peerAddresses, address)
 	}
 
@@ -76,8 +81,8 @@ func TestHTTPServer(t *testing.T) {
 }
 
 func makeServerCacher(addresses []string, selfAddress string) {
-	cacher := NewCacher(&HTTPProtocol{}, "http://"+selfAddress)
-	cacher.peerPicker.Set(addrToURL(addresses)...)
+	cacher := NewCacher(&HTTPProtocol{BasePath: defaultBasePath}, "http://"+selfAddress)
+	cacher.Set(addrToURL(addresses)...)
 
 	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
 		dest.SetString(":" + key)
