@@ -39,18 +39,14 @@ type PeerPicker struct {
 	peers            *consistenthash.Map
 	fetchers         map[string]RemoteFetcher
 	mu               sync.RWMutex
-	opts             PeerPickerOptions
+	opts             HashOptions
 
 	// testing for allowing alternate PickPeer()
 	pickPeerFunc func(key string, fetchers []RemoteFetcher) (RemoteFetcher, bool)
 }
 
-// PeerPickerOptions are the configurations of a PeerPicker.
-type PeerPickerOptions struct {
-	// BasePath specifies the HTTP path that will serve groupcache requests.
-	// If blank, it defaults to "/_groupcache/".
-	BasePath string
-
+// HashOptions are the configurations of a PeerPicker.
+type HashOptions struct {
 	// Replicas specifies the number of key replicas on the consistent hash.
 	// If blank, it defaults to 50.
 	Replicas int
@@ -60,7 +56,7 @@ type PeerPickerOptions struct {
 	HashFn consistenthash.Hash
 }
 
-func newPeerPicker(proto FetchProtocol, self string, options *PeerPickerOptions) *PeerPicker {
+func newPeerPicker(proto FetchProtocol, self string, options *HashOptions) *PeerPicker {
 	pp := &PeerPicker{
 		fetchingProtocol: proto,
 		selfURL:          self,

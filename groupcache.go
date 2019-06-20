@@ -81,7 +81,7 @@ func NewCacher(protocol FetchProtocol, self string) *Cacher {
 }
 
 // NewCacherWithOpts is the optional constructor for the Cacher object that defines a non-default hash function and number of replicas
-func NewCacherWithOpts(protocol FetchProtocol, self string, options *PeerPickerOptions) *Cacher {
+func NewCacherWithOpts(protocol FetchProtocol, self string, options *HashOptions) *Cacher {
 	c := &Cacher{
 		groups:     make(map[string]*Group),
 		peerPicker: newPeerPicker(protocol, self, options),
