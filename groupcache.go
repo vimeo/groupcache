@@ -72,7 +72,7 @@ type Cacher struct {
 
 	// newGroupHook, if non-nil, is called right after a new group is created.
 	newGroupHook func(*Group)
-	peerPicker   *PeerPicker // pointer?
+	peerPicker   *PeerPicker
 }
 
 // NewCacher is the default constructor for the Cacher object
@@ -140,7 +140,7 @@ func (c *Cacher) newGroup(name string, cacheBytes int64, getter BackendGetter) *
 // Each peer value should be a valid base URL,
 // for example "http://example.net:8000".
 func (c *Cacher) Set(peers ...string) {
-	c.peerPicker.Set(peers...)
+	c.peerPicker.set(peers...)
 }
 
 // RegisterNewGroupHook registers a hook that is run each time
@@ -151,21 +151,6 @@ func (c *Cacher) RegisterNewGroupHook(fn func(*Group)) {
 	}
 	c.newGroupHook = fn
 }
-
-// RegisterServerStart registers a hook that is run when the first
-// group is created.
-// func (c *Cacher) RegisterServerStart(fn func()) {
-// 	if c.initPeerServer != nil {
-// 		panic("RegisterServerStart called more than once")
-// 	}
-// 	c.initPeerServer = fn
-// }
-
-// func (c *Cacher) callInitPeerServer() {
-// 	if c.initPeerServer != nil {
-// 		c.initPeerServer()
-// 	}
-// }
 
 // A Group is a cache namespace and associated data loaded spread over
 // a group of 1 or more machines.
