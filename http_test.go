@@ -18,6 +18,7 @@ package groupcache
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -45,31 +46,31 @@ func TestHTTPHandler(t *testing.T) {
 	)
 
 	var peerAddresses []string
+	var peerListeners []net.Listener
 
-	// This appears to be succeeding with both the current and first server cacher having the same address...
 	for i := 0; i < nRoutines; i++ {
-		newAddr := pickFreeAddr(t)
-		peerAddresses = append(peerAddresses, newAddr)
+		newListener := pickFreeAddr(t)
+		peerAddresses = append(peerAddresses, newListener.Addr().String())
+		peerListeners = append(peerListeners, newListener)
 	}
 
-	cacher := NewCacher(NewHTTPFetchProtocol(nil), "http://"+peerAddresses[0])
-	// fmt.Println("Parent address:", peerAddresses[0])
-	RegisterHTTPHandler(cacher, nil, nil)
+	cacher := NewCacher(NewHTTPFetchProtocol(nil), "shouldBeIgnored")
+	serveMux := http.NewServeMux()
+	RegisterHTTPHandler(cacher, nil, serveMux)
 	cacher.Set(addrToURL(peerAddresses)...)
-	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
-		dest.SetString(":" + key)
-		return nil
-	})
-	g := cacher.NewGroup("peerGetsTest", 1<<20, getter)
 
-	for i, address := range peerAddresses {
-		if i == 0 {
-			continue
-		}
-		go makeServerCacher(peerAddresses, address)
+	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
+		return fmt.Errorf("oh no! Local get occurred")
+	})
+	g := cacher.NewGroup("peerFetchTest", 1<<20, getter)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	for _, listener := range peerListeners {
+		go makeServerCacher(ctx, peerAddresses, listener)
 	}
 
-	// TODO: find a way to check for expected peers to be holding the keys, else this test will nearly always pass
 	for _, key := range testKeys(nGets) {
 		var value string
 		if err := g.Get(dummyCtx, key, StringSink(&value)); err != nil {
@@ -83,10 +84,10 @@ func TestHTTPHandler(t *testing.T) {
 
 }
 
-func makeServerCacher(addresses []string, selfAddress string) {
-	// fmt.Println("Handler address:", selfAddress)
-	cacher := NewCacher(NewHTTPFetchProtocol(nil), "http://"+selfAddress)
+func makeServerCacher(ctx context.Context, addresses []string, listener net.Listener) {
+	cacher := NewCacher(NewHTTPFetchProtocol(nil), "http://"+listener.Addr().String())
 	serveMux := http.NewServeMux()
+	wrappedHandler := &ochttp.Handler{Handler: serveMux}
 	RegisterHTTPHandler(cacher, nil, serveMux)
 	cacher.Set(addrToURL(addresses)...)
 
@@ -94,10 +95,17 @@ func makeServerCacher(addresses []string, selfAddress string) {
 		dest.SetString(":" + key)
 		return nil
 	})
-	cacher.NewGroup("peerGetsTest", 1<<20, getter)
+	cacher.NewGroup("peerFetchTest", 1<<20, getter)
+	newServer := http.Server{Handler: wrappedHandler}
+	go func() {
+		err := newServer.Serve(listener)
+		if err != http.ErrServerClosed {
+			log.Fatal("serve failed:", err)
+		}
+	}()
 
-	wrappedHandler := &ochttp.Handler{Handler: serveMux}
-	log.Fatal(http.ListenAndServe(selfAddress, wrappedHandler))
+	<-ctx.Done()
+	newServer.Shutdown(ctx)
 }
 
 func testKeys(n int) (keys []string) {
@@ -108,17 +116,12 @@ func testKeys(n int) (keys []string) {
 	return
 }
 
-// This is racy. Another process could swoop in and steal the port between the
-// call to this function and the next listen call. Should be okay though.
-// The proper way would be to pass the l.File() as ExtraFiles to the child
-// process, and then close your copy once the child starts.
-func pickFreeAddr(t *testing.T) string {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+func pickFreeAddr(t *testing.T) net.Listener {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
-	return l.Addr().String()
+	return listener
 }
 
 func addrToURL(addr []string) []string {

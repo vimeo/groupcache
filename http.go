@@ -64,7 +64,7 @@ type HTTPOptions struct {
 // }
 
 // NewHTTPFetchProtocol creates an HTTP fetch protocol to be passed into a cacher constructor;
-// uses a user chosen base path specified in HTTPOptions.
+// uses a user chosen base path specified in HTTPOptions (or the default "/_groupcache/" base path if passed nil).
 // *You must use the same base path for the HTTPFetchProtocol and the HTTPHandler on the same Cacher*.
 func NewHTTPFetchProtocol(opts *HTTPOptions) *HTTPFetchProtocol {
 	newProto := &HTTPFetchProtocol{
