@@ -42,7 +42,7 @@ type PeerPicker struct {
 	opts             HashOptions
 
 	// testing for allowing alternate PickPeer()
-	pickPeerFunc func(key string, fetchers []RemoteFetcher) (RemoteFetcher, bool)
+	// pickPeerFunc func(key string, fetchers []RemoteFetcher) (RemoteFetcher, bool)
 }
 
 // HashOptions are the configurations of a PeerPicker.
@@ -74,24 +74,21 @@ func newPeerPicker(proto FetchProtocol, self string, options *HashOptions) *Peer
 
 func (pp *PeerPicker) PickPeer(key string) (RemoteFetcher, bool) {
 	// can define alternate pickPeerFunc for testing... a little messy
-	if pp.pickPeerFunc == nil {
-		pp.mu.Lock()
-		defer pp.mu.Unlock()
-		if pp.peers.IsEmpty() {
-			return nil, false
-		}
-		if peer := pp.peers.Get(key); peer != pp.selfURL {
-			return pp.fetchers[peer], true
-		}
+	// if pp.pickPeerFunc == nil {
+	pp.mu.Lock()
+	defer pp.mu.Unlock()
+	if pp.peers.IsEmpty() {
 		return nil, false
 	}
-	return pp.pickPeerFunc(key, nil)
+	if peer := pp.peers.Get(key); peer != pp.selfURL {
+		return pp.fetchers[peer], true
+	}
+	return nil, false
+	// }
+	// return pp.pickPeerFunc(key, nil)
 }
 
-// Set updates the PeerPicker's list of peers.
-// Each peer value should be a valid base URL,
-// for example "http://example.net:8000".
-func (pp *PeerPicker) Set(peers ...string) {
+func (pp *PeerPicker) set(peers ...string) {
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 	pp.peers = consistenthash.New(pp.opts.Replicas, pp.opts.HashFn)
