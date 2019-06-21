@@ -45,30 +45,30 @@ func TestHTTPHandler(t *testing.T) {
 		nGets     = 100
 	)
 
-	var peerAddresses []string
-	var peerListeners []net.Listener
+	var armAddresses []string
+	var armListeners []net.Listener
 
 	for i := 0; i < nRoutines; i++ {
 		newListener := pickFreeAddr(t)
-		peerAddresses = append(peerAddresses, newListener.Addr().String())
-		peerListeners = append(peerListeners, newListener)
+		armAddresses = append(armAddresses, newListener.Addr().String())
+		armListeners = append(armListeners, newListener)
 	}
 
 	universe := NewUniverse(NewHTTPFetchProtocol(nil), "shouldBeIgnored")
 	serveMux := http.NewServeMux()
 	RegisterHTTPHandler(universe, nil, serveMux)
-	universe.Set(addrToURL(peerAddresses)...)
+	universe.Set(addrToURL(armAddresses)...)
 
 	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
 		return fmt.Errorf("oh no! Local get occurred")
 	})
-	g := universe.NewGalaxy("peerFetchTest", 1<<20, getter)
+	g := universe.NewGalaxy("armFetchTest", 1<<20, getter)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	for _, listener := range peerListeners {
-		go makeServerUniverse(ctx, peerAddresses, listener)
+	for _, listener := range armListeners {
+		go makeServerUniverse(ctx, armAddresses, listener)
 	}
 
 	for _, key := range testKeys(nGets) {
@@ -79,7 +79,7 @@ func TestHTTPHandler(t *testing.T) {
 		if suffix := ":" + key; !strings.HasSuffix(value, suffix) {
 			t.Errorf("Get(%q) = %q, want value ending in %q", key, value, suffix)
 		}
-		t.Logf("Get key=%q, value=%q (peer:key)", key, value)
+		t.Logf("Get key=%q, value=%q (arm:key)", key, value)
 	}
 
 }
@@ -95,7 +95,7 @@ func makeServerUniverse(ctx context.Context, addresses []string, listener net.Li
 		dest.SetString(":" + key)
 		return nil
 	})
-	universe.NewGalaxy("peerFetchTest", 1<<20, getter)
+	universe.NewGalaxy("armFetchTest", 1<<20, getter)
 	newServer := http.Server{Handler: wrappedHandler}
 	go func() {
 		err := newServer.Serve(listener)

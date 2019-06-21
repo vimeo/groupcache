@@ -241,7 +241,7 @@ type testFetchers []RemoteFetcher
 
 func (fetcher *TestFetcher) Fetch(ctx context.Context, in *pb.GetRequest, out *pb.GetResponse) error {
 	if fetcher.fail {
-		return errors.New("simulated error from peer")
+		return errors.New("simulated error from arm")
 	}
 	fetcher.hits++
 	out.Value = []byte("got:" + in.GetKey())
@@ -257,8 +257,8 @@ func (proto *TestProtocol) NewFetcher(url string) RemoteFetcher {
 	return newTestFetcher
 }
 
-// TestPeers is a bit of a messy test that might be redundant with the current HTTPServer test, since the protocol there can simply be swapped for TestProtocol rather than HTTPProtocol
-func TestPeers(t *testing.T) {
+// TestSpiralArms is a bit of a messy test that might be redundant with the current HTTPServer test, since the protocol there can simply be swapped for TestProtocol rather than HTTPProtocol
+func TestSpiralArms(t *testing.T) {
 	// instantiate test fetchers with the test protocol
 	testproto := &TestProtocol{
 		TestFetchers: make(map[string]*TestFetcher),
@@ -286,7 +286,7 @@ func TestPeers(t *testing.T) {
 		return dest.SetString("got:" + key)
 	}
 
-	testGalaxy := universe.NewGalaxy("TestPeers-galaxy", cacheSize, GetterFunc(getter))
+	testGalaxy := universe.NewGalaxy("TestSpiralArms-galaxy", cacheSize, GetterFunc(getter))
 
 	run := func(name string, n int, wantSummary string) {
 		// Reset counters
@@ -309,7 +309,7 @@ func TestPeers(t *testing.T) {
 			}
 		}
 		summary := func() string {
-			return fmt.Sprintf("localHits = %d, peers = %d %d %d", localHits, testproto.TestFetchers["fetcher0"].hits, testproto.TestFetchers["fetcher1"].hits, testproto.TestFetchers["fetcher2"].hits)
+			return fmt.Sprintf("localHits = %d, arms = %d %d %d", localHits, testproto.TestFetchers["fetcher0"].hits, testproto.TestFetchers["fetcher1"].hits, testproto.TestFetchers["fetcher2"].hits)
 		}
 		if got := summary(); got != wantSummary {
 			t.Errorf("%s: got %q; want %q", name, got, wantSummary)
@@ -323,22 +323,22 @@ func TestPeers(t *testing.T) {
 		g.hotCache = cache{}
 	}
 
-	// Base case; peers all up, with no problems.
+	// Base case; arms all up, with no problems.
 	resetCacheSize(1 << 20)
-	run("base", 200, "localHits = 50, peers = 50 50 50")
+	run("base", 200, "localHits = 50, arms = 50 50 50")
 
 	// Verify cache was hit.  All localHits are gone, and some of
-	// the peer hits (the ones randomly selected to be maybe hot)
-	run("cached_base", 200, "localHits = 0, peers = 48 47 48")
+	// the arm hits (the ones randomly selected to be maybe hot)
+	run("cached_base", 200, "localHits = 0, arms = 48 47 48")
 	resetCacheSize(0)
 
-	// // With one of the peers being down.
-	// // TODO(bradfitz): on a peer number being unavailable, the
+	// // With one of the arms being down.
+	// // TODO(bradfitz): on a arm number being unavailable, the
 	// // consistent hashing should maybe keep trying others to
 	// // spread the load out. Currently it fails back to local
 	// // execution if the first consistent-hash slot is unavailable.
 	testproto.TestFetchers["fetcher1"].fail = true
-	run("one_peer_down", 200, "localHits = 100, peers = 50 0 50")
+	run("one_arm_down", 200, "localHits = 100, arms = 50 0 50")
 
 }
 

@@ -26,16 +26,16 @@ import (
 	pb "github.com/vimeo/groupcache/groupcachepb"
 )
 
-// RemoteFetcher is the interface that must be implemented to fetch from other peers; the PeerPicker contains a map of these fetchers corresponding to each peer address
+// RemoteFetcher is the interface that must be implemented to fetch from other arms; the SpiralArmPicker contains a map of these fetchers corresponding to each arm address
 type RemoteFetcher interface {
 	Fetch(context context.Context, in *pb.GetRequest, out *pb.GetResponse) error
 }
 
-// PeerPicker is in charge of dealing with peers: it contains the hashing options (hash function and number of replicas), consistent hash map of peers, and a map of RemoteFetchers to those peers
-type PeerPicker struct {
+// SpiralArmPicker is in charge of dealing with arms: it contains the hashing options (hash function and number of replicas), consistent hash map of arms, and a map of RemoteFetchers to those arms
+type SpiralArmPicker struct {
 	fetchingProtocol FetchProtocol
 	selfURL          string
-	peers            *consistenthash.Map
+	arms            *consistenthash.Map
 	fetchers         map[string]RemoteFetcher
 	mu               sync.RWMutex
 	opts             HashOptions
@@ -52,8 +52,8 @@ type HashOptions struct {
 	HashFn consistenthash.Hash
 }
 
-func newPeerPicker(proto FetchProtocol, self string, options *HashOptions) *PeerPicker {
-	pp := &PeerPicker{
+func newSpiralArmPicker(proto FetchProtocol, self string, options *HashOptions) *SpiralArmPicker {
+	pp := &SpiralArmPicker{
 		fetchingProtocol: proto,
 		selfURL:          self,
 		fetchers:         make(map[string]RemoteFetcher),
@@ -64,35 +64,35 @@ func newPeerPicker(proto FetchProtocol, self string, options *HashOptions) *Peer
 	if pp.opts.Replicas == 0 {
 		pp.opts.Replicas = defaultReplicas
 	}
-	pp.peers = consistenthash.New(pp.opts.Replicas, pp.opts.HashFn)
+	pp.arms = consistenthash.New(pp.opts.Replicas, pp.opts.HashFn)
 	return pp
 }
 
-func (pp *PeerPicker) pickPeer(key string) (RemoteFetcher, bool) {
+func (pp *SpiralArmPicker) pickSpiralArm(key string) (RemoteFetcher, bool) {
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
-	if pp.peers.IsEmpty() {
+	if pp.arms.IsEmpty() {
 		return nil, false
 	}
-	if peer := pp.peers.Get(key); peer != pp.selfURL {
-		return pp.fetchers[peer], true
+	if arm := pp.arms.Get(key); arm != pp.selfURL {
+		return pp.fetchers[arm], true
 	}
 	return nil, false
 }
 
-func (pp *PeerPicker) set(peers ...string) {
+func (pp *SpiralArmPicker) set(arms ...string) {
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
-	pp.peers = consistenthash.New(pp.opts.Replicas, pp.opts.HashFn)
-	pp.peers.Add(peers...)
-	pp.fetchers = make(map[string]RemoteFetcher, len(peers))
-	for _, peer := range peers {
-		pp.fetchers[peer] = pp.fetchingProtocol.NewFetcher(peer)
+	pp.arms = consistenthash.New(pp.opts.Replicas, pp.opts.HashFn)
+	pp.arms.Add(arms...)
+	pp.fetchers = make(map[string]RemoteFetcher, len(arms))
+	for _, arm := range arms {
+		pp.fetchers[arm] = pp.fetchingProtocol.NewFetcher(arm)
 	}
 }
 
-// FetchProtocol defines the chosen fetching protocol to peers (namely HTTP or GRPC) and implements the instantiation method for that connection (creating a new RemoteFetcher)
+// FetchProtocol defines the chosen fetching protocol to arms (namely HTTP or GRPC) and implements the instantiation method for that connection (creating a new RemoteFetcher)
 type FetchProtocol interface {
-	// NewFetcher instantiates the connection between peers and returns a RemoteFetcher to be used for fetching from a peer
+	// NewFetcher instantiates the connection between arms and returns a RemoteFetcher to be used for fetching from a arm
 	NewFetcher(url string) RemoteFetcher
 }
