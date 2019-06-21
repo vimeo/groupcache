@@ -41,14 +41,14 @@ var (
 	MGets            = stats.Int64("gets", "The number of Get requests", unitDimensionless)
 	MCacheHits       = stats.Int64("cache_hits", "The number of times that either cache was good", unitDimensionless)
 	MCacheMisses     = stats.Int64("cache_misses", "The number of times that either cache was not good", unitDimensionless)
-	MSpiralArmLoads       = stats.Int64("arm_loads", "The number of remote loads or remote cache hits", unitDimensionless)
-	MSpiralArmErrors      = stats.Int64("arm_errors", "The number of remote errors", unitDimensionless)
+	MArmAuthorityLoads       = stats.Int64("arm_loads", "The number of remote loads or remote cache hits", unitDimensionless)
+	MArmAuthorityErrors      = stats.Int64("arm_errors", "The number of remote errors", unitDimensionless)
 	MLoads           = stats.Int64("loads", "The number of gets/cacheHits", unitDimensionless)
 	MLoadErrors      = stats.Int64("loads_errors", "The number of errors encountered during Get", unitDimensionless)
 	MLoadsDeduped    = stats.Int64("loads_deduped", "The number of loads after singleflight", unitDimensionless)
 	MLocalLoads      = stats.Int64("local_loads", "The number of good local loads", unitDimensionless)
 	MLocalLoadErrors = stats.Int64("local_load_errors", "The number of bad local loads", unitDimensionless)
-	MServerRequests  = stats.Int64("server_requests", "The number of Gets that came over the network from arms", unitDimensionless)
+	MServerRequests  = stats.Int64("server_requests", "The number of Gets that came over the network from armAuthorities", unitDimensionless)
 	MKeyLength       = stats.Int64("key_length", "The length of keys", unitBytes)
 	MValueLength     = stats.Int64("value_length", "The length of values", unitBytes)
 
@@ -61,13 +61,13 @@ var AllViews = []*view.View{
 	{Name: "galaxycache/gets", Description: "The number of Get requests", Measure: MGets, Aggregation: view.Count()},
 	{Name: "galaxycache/cache_hits", Description: "The number of times that either cache was good", Measure: MCacheHits, Aggregation: view.Count()},
 	{Name: "galaxycache/cache_misses", Description: "The number of times that either cache was not good", Measure: MCacheMisses, Aggregation: view.Count()},
-	{Name: "galaxycache/arm_loads", Description: "The number of remote loads or remote cache hits", Measure: MSpiralArmLoads, Aggregation: view.Count()},
-	{Name: "galaxycache/arm_errors", Description: "The number of remote errors", Measure: MSpiralArmErrors, Aggregation: view.Count()},
+	{Name: "galaxycache/arm_loads", Description: "The number of remote loads or remote cache hits", Measure: MArmAuthorityLoads, Aggregation: view.Count()},
+	{Name: "galaxycache/arm_errors", Description: "The number of remote errors", Measure: MArmAuthorityErrors, Aggregation: view.Count()},
 	{Name: "galaxycache/loads", Description: "The number of loads after singleflight", Measure: MLoads, Aggregation: view.Count()},
 	{Name: "galaxycache/loads_deduped", Description: "The number of loads after singleflight", Measure: MLoadsDeduped, Aggregation: view.Count()},
 	{Name: "galaxycache/local_loads", Description: "The number of good local loads", Measure: MLocalLoads, Aggregation: view.Count()},
 	{Name: "galaxycache/local_load_errors", Description: "The number of bad local loads", Measure: MLocalLoadErrors, Aggregation: view.Count()},
-	{Name: "galaxycache/server_requests", Description: "The number of Gets that came over the network from arms", Measure: MServerRequests, Aggregation: view.Count()},
+	{Name: "galaxycache/server_requests", Description: "The number of Gets that came over the network from armAuthorities", Measure: MServerRequests, Aggregation: view.Count()},
 	{Name: "galaxycache/key_length", Description: "The distribution of the key lengths", Measure: MKeyLength, Aggregation: defaultBytesDistribution},
 	{Name: "galaxycache/value_length", Description: "The distribution of the value lengths", Measure: MValueLength, Aggregation: defaultBytesDistribution},
 	{Name: "galaxycache/roundtrip_latency", Description: "The roundtrip latency", Measure: MRoundtripLatencyMilliseconds, Aggregation: defaultMillisecondsDistribution},

@@ -15,12 +15,12 @@ limitations under the License.
 */
 
 // Package galaxycache provides a data loading mechanism with caching
-// and de-duplication that works across a set of arm processes.
+// and de-duplication that works across a set of armAuthority processes.
 //
 // Each data Get first consults its local cache, otherwise delegates
 // to the requested key's canonical owner, which then checks its cache
 // or finally gets the data.  In the common case, many concurrent
-// cache misses across a set of arms for the same key result in just
+// cache misses across a set of armAuthorities for the same key result in just
 // one cache fill.
 package galaxycache
 
@@ -56,16 +56,16 @@ type BackendGetter interface {
 // A GetterFunc implements BackendGetter with a function.
 type GetterFunc func(ctx context.Context, key string, dest Sink) error
 
-// Get here calls the chosen Getter when the current arm is the owner of a key, getting the value from the database, for example
+// Get here calls the chosen Getter when the current armAuthority is the owner of a key, getting the value from the database, for example
 func (f GetterFunc) Get(ctx context.Context, key string, dest Sink) error {
 	return f(ctx, key, dest)
 }
 
-// Universe defines the primary container for all galaxycache operations. It contains the galaxies and SpiralArmPicker
+// Universe defines the primary container for all galaxycache operations. It contains the galaxies and ArmAuthorityPicker
 type Universe struct {
-	mu        sync.RWMutex
-	galaxies  map[string]*Galaxy
-	armPicker *SpiralArmPicker
+	mu                 sync.RWMutex
+	galaxies           map[string]*Galaxy
+	armAuthorityPicker *ArmAuthorityPicker
 }
 
 // NewUniverse is the default constructor for the Universe object
@@ -76,8 +76,8 @@ func NewUniverse(protocol FetchProtocol, self string) *Universe {
 // NewUniverseWithOpts is the optional constructor for the Universe object that defines a non-default hash function and number of replicas
 func NewUniverseWithOpts(protocol FetchProtocol, self string, options *HashOptions) *Universe {
 	c := &Universe{
-		galaxies:  make(map[string]*Galaxy),
-		armPicker: newSpiralArmPicker(protocol, self, options),
+		galaxies:           make(map[string]*Galaxy),
+		armAuthorityPicker: newArmAuthorityPicker(protocol, self, options),
 	}
 
 	return c
@@ -95,14 +95,14 @@ func (universe *Universe) GetGalaxy(name string) *Galaxy {
 // NewGalaxy creates a coordinated galaxy-aware Getter from a Getter.
 //
 // The returned Getter tries (but does not guarantee) to run only one
-// Get call at once for a given key across an entire set of arm
+// Get call at once for a given key across an entire set of armAuthority
 // processes. Concurrent callers both in the local process and in
 // other processes receive copies of the answer once the original Get
 // completes.
 //
 // The galaxy name must be unique for each BackendGetter.
 func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter BackendGetter) *Galaxy {
-	return universe.newGalaxy(name, cacheBytes, getter) // redundant, same internal call without the SpiralArmPicker interface arg
+	return universe.newGalaxy(name, cacheBytes, getter) // redundant, same internal call without the ArmAuthorityPicker interface arg
 }
 
 func (universe *Universe) newGalaxy(name string, cacheBytes int64, getter BackendGetter) *Galaxy {
@@ -116,43 +116,43 @@ func (universe *Universe) newGalaxy(name string, cacheBytes int64, getter Backen
 		panic("duplicate registration of galaxy " + name)
 	}
 	g := &Galaxy{
-		name:       name,
-		getter:     getter,
-		armPicker:  universe.armPicker,
-		cacheBytes: cacheBytes,
-		loadGroup:  &singleflight.Group{},
+		name:               name,
+		getter:             getter,
+		armAuthorityPicker: universe.armAuthorityPicker,
+		cacheBytes:         cacheBytes,
+		loadGroup:          &singleflight.Group{},
 	}
 	universe.galaxies[name] = g
 	return g
 }
 
-// Set updates the Universe's list of arms (contained in the SpiralArmPicker).
-// Each arm value should be a valid base URL,
+// Set updates the Universe's list of armAuthorities (contained in the ArmAuthorityPicker).
+// Each armAuthorityURL value should be a valid base URL,
 // for example "http://example.net:8000".
-func (universe *Universe) Set(arms ...string) {
-	universe.armPicker.set(arms...)
+func (universe *Universe) Set(armAuthorityURLs ...string) {
+	universe.armAuthorityPicker.set(armAuthorityURLs...)
 }
 
 // A Galaxy is a cache namespace and associated data loaded spread over
 // a group of 1 or more machines.
 type Galaxy struct {
-	name       string
-	getter     BackendGetter
-	armsOnce   sync.Once
-	armPicker  *SpiralArmPicker
-	cacheBytes int64 // limit for sum of mainCache and hotCache size
+	name               string
+	getter             BackendGetter
+	armAuthoritiesOnce sync.Once
+	armAuthorityPicker *ArmAuthorityPicker
+	cacheBytes         int64 // limit for sum of mainCache and hotCache size
 
 	// mainCache is a cache of the keys for which this process
-	// (amongst its arms) is authoritative. That is, this cache
+	// (amongst its armAuthorities) is authoritative. That is, this cache
 	// contains keys which consistent hash on to this process's
-	// arm number.
+	// arm authority number.
 	mainCache cache
 
-	// hotCache contains keys/values for which this arm is not
+	// hotCache contains keys/values for which this arm authority is not
 	// authoritative (otherwise they would be in mainCache), but
 	// are popular enough to warrant mirroring in this process to
-	// avoid going over the network to fetch from a arm.  Having
-	// a hotCache avoids network hotspotting, where a arm's
+	// avoid going over the network to fetch from a arm authority.  Having
+	// a hotCache avoids network hotspotting, where a arm authority's
 	// network card could become the bottleneck on a popular key.
 	// This cache is used sparingly to maximize the total number
 	// of key/value pairs that can be stored globally.
@@ -179,15 +179,15 @@ type flightGroup interface {
 
 // Stats are per-galaxy statistics.
 type Stats struct {
-	Gets            AtomicInt // any Get request, including from arms
-	CacheHits       AtomicInt // either cache was good
-	SpiralArmLoads  AtomicInt // either remote load or remote cache hit (not an error)
-	SpiralArmErrors AtomicInt
-	Loads           AtomicInt // (gets - cacheHits)
-	LoadsDeduped    AtomicInt // after singleflight
-	LocalLoads      AtomicInt // total good local loads
-	LocalLoadErrs   AtomicInt // total bad local loads
-	ServerRequests  AtomicInt // gets that came over the network from arms
+	Gets               AtomicInt // any Get request, including from armAuthorities
+	CacheHits          AtomicInt // either cache was good
+	ArmAuthorityLoads  AtomicInt // either remote load or remote cache hit (not an error)
+	ArmAuthorityErrors AtomicInt
+	Loads              AtomicInt // (gets - cacheHits)
+	LoadsDeduped       AtomicInt // after singleflight
+	LocalLoads         AtomicInt // total good local loads
+	LocalLoadErrs      AtomicInt // total bad local loads
+	ServerRequests     AtomicInt // gets that came over the network from armAuthorities
 }
 
 // Name returns the name of the galaxy.
@@ -195,7 +195,7 @@ func (g *Galaxy) Name() string {
 	return g.name
 }
 
-// Get as defined here is the primary "get" called on a galaxy to find the value for the given key. It will first try the local cache, then on a cache miss it will search for which arm is the owner of the key based on the consistent hash, then try either fetching remotely or getting with the Getter (such as from a database) if the calling Universe instance is the owner
+// Get as defined here is the primary "get" called on a galaxy to find the value for the given key. It will first try the local cache, then on a cache miss it will search for which arm authority is the owner of the key based on the consistent hash, then try either fetching remotely or getting with the Getter (such as from a database) if the calling Universe instance is the owner
 func (g *Galaxy) Get(ctx context.Context, key string, dest Sink) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -288,18 +288,18 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Sink) (value ByteVie
 
 		var value ByteView
 		var err error
-		if arm, ok := g.armPicker.pickSpiralArm(key); ok {
-			value, err = g.getFromSpiralArm(ctx, arm, key)
+		if armAuth, ok := g.armAuthorityPicker.pickArmAuthority(key); ok {
+			value, err = g.getFromArmAuthority(ctx, armAuth, key)
 			if err == nil {
 				// TODO(@odeke-em): Remove .Stats
-				g.Stats.SpiralArmLoads.Add(1)
-				stats.Record(ctx, MSpiralArmLoads.M(1))
+				g.Stats.ArmAuthorityLoads.Add(1)
+				stats.Record(ctx, MArmAuthorityLoads.M(1))
 				return value, nil
 			}
 			// TODO(@odeke-em): Remove .Stats
-			g.Stats.SpiralArmErrors.Add(1)
-			stats.Record(ctx, MSpiralArmErrors.M(1))
-			// TODO(bradfitz): log the arm's error? keep
+			g.Stats.ArmAuthorityErrors.Add(1)
+			stats.Record(ctx, MArmAuthorityErrors.M(1))
+			// TODO(bradfitz): log the arm authority's error? keep
 			// log of the past few for /galaxycachez?  It's
 			// probably boring (normal task movement), so not
 			// worth logging I imagine.
@@ -332,13 +332,13 @@ func (g *Galaxy) getLocally(ctx context.Context, key string, dest Sink) (ByteVie
 	return dest.view()
 }
 
-func (g *Galaxy) getFromSpiralArm(ctx context.Context, arm RemoteFetcher, key string) (ByteView, error) {
+func (g *Galaxy) getFromArmAuthority(ctx context.Context, armAuth RemoteFetcher, key string) (ByteView, error) {
 	req := &pb.GetRequest{
 		Galaxy: g.name,
 		Key:    key,
 	}
 	res := &pb.GetResponse{}
-	err := arm.Fetch(ctx, req, res)
+	err := armAuth.Fetch(ctx, req, res)
 	if err != nil {
 		return ByteView{}, err
 	}
@@ -393,8 +393,8 @@ func (g *Galaxy) populateCache(key string, value ByteView, cache *cache) {
 type CacheType int
 
 const (
-	// MainCache is the cache for items that this arm is the
-	// owner for.
+	// MainCache is the cache for items that this arm authority is the
+	// owner of.
 	MainCache CacheType = iota + 1
 
 	// HotCache is the cache for items that seem popular

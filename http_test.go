@@ -79,7 +79,7 @@ func TestHTTPHandler(t *testing.T) {
 		if suffix := ":" + key; !strings.HasSuffix(value, suffix) {
 			t.Errorf("Get(%q) = %q, want value ending in %q", key, value, suffix)
 		}
-		t.Logf("Get key=%q, value=%q (arm:key)", key, value)
+		t.Logf("Get key=%q, value=%q (armAuth:key)", key, value)
 	}
 
 }

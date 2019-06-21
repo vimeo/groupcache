@@ -57,7 +57,7 @@ message StatsResponse {
 message Empty {}
 
 service GalaxyCacheTest {
-  rpc InitSpiralArms(Empty) returns (Empty) {};
+  rpc InitArmAuthorities(Empty) returns (Empty) {};
   rpc Get(TestRequest) returns (TestResponse) {};
   rpc GetStats(Empty) returns (StatsResponse) {};
 }

@@ -36,7 +36,7 @@ const defaultBasePath = "/_galaxycache/"
 
 const defaultReplicas = 50
 
-// HTTPFetchProtocol specifies HTTP specific options for HTTP-based arm communication
+// HTTPFetchProtocol specifies HTTP specific options for HTTP-based arm authority communication
 type HTTPFetchProtocol struct {
 	// Transport optionally specifies an http.RoundTripper for the client
 	// to use when it makes a request.
@@ -71,7 +71,7 @@ func NewHTTPFetchProtocol(opts *HTTPOptions) *HTTPFetchProtocol {
 	return newProto
 }
 
-// NewFetcher implements the Protocol interface for HTTPProtocol by constructing a new fetcher to fetch from arms via HTTP
+// NewFetcher implements the Protocol interface for HTTPProtocol by constructing a new fetcher to fetch from armAuthorities via HTTP
 func (hp *HTTPFetchProtocol) NewFetcher(url string) RemoteFetcher {
 	return &httpFetcher{transport: hp.Transport, baseURL: url + hp.BasePath}
 }
