@@ -26,16 +26,16 @@ import (
 	pb "github.com/vimeo/groupcache/groupcachepb"
 )
 
-// RemoteFetcher is the interface that must be implemented to fetch from other arm authorities; the ArmAuthorityPicker contains a map of these fetchers corresponding to each arm authority address
+// RemoteFetcher is the interface that must be implemented to fetch from other star authorities; the StarAuthorityPicker contains a map of these fetchers corresponding to each star authority address
 type RemoteFetcher interface {
 	Fetch(context context.Context, in *pb.GetRequest, out *pb.GetResponse) error
 }
 
-// ArmAuthorityPicker is in charge of dealing with arms: it contains the hashing options (hash function and number of replicas), consistent hash map of armAuthorities, and a map of RemoteFetchers to those armAuthorities
-type ArmAuthorityPicker struct {
+// StarAuthorityPicker is in charge of dealing with star authorities: it contains the hashing options (hash function and number of replicas), consistent hash map of star authorities, and a map of RemoteFetchers to those star authorities
+type StarAuthorityPicker struct {
 	fetchingProtocol FetchProtocol
 	selfURL          string
-	armAuthorities   *consistenthash.Map
+	starAuthorities  *consistenthash.Map
 	fetchers         map[string]RemoteFetcher
 	mu               sync.RWMutex
 	opts             HashOptions
@@ -52,8 +52,8 @@ type HashOptions struct {
 	HashFn consistenthash.Hash
 }
 
-func newArmAuthorityPicker(proto FetchProtocol, self string, options *HashOptions) *ArmAuthorityPicker {
-	pp := &ArmAuthorityPicker{
+func newStarAuthorityPicker(proto FetchProtocol, self string, options *HashOptions) *StarAuthorityPicker {
+	pp := &StarAuthorityPicker{
 		fetchingProtocol: proto,
 		selfURL:          self,
 		fetchers:         make(map[string]RemoteFetcher),
@@ -64,35 +64,35 @@ func newArmAuthorityPicker(proto FetchProtocol, self string, options *HashOption
 	if pp.opts.Replicas == 0 {
 		pp.opts.Replicas = defaultReplicas
 	}
-	pp.armAuthorities = consistenthash.New(pp.opts.Replicas, pp.opts.HashFn)
+	pp.starAuthorities = consistenthash.New(pp.opts.Replicas, pp.opts.HashFn)
 	return pp
 }
 
-func (pp *ArmAuthorityPicker) pickArmAuthority(key string) (RemoteFetcher, bool) {
+func (pp *StarAuthorityPicker) pickStarAuthority(star string) (RemoteFetcher, bool) {
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
-	if pp.armAuthorities.IsEmpty() {
+	if pp.starAuthorities.IsEmpty() {
 		return nil, false
 	}
-	if URL := pp.armAuthorities.Get(key); URL != pp.selfURL {
+	if URL := pp.starAuthorities.Get(star); URL != pp.selfURL {
 		return pp.fetchers[URL], true
 	}
 	return nil, false
 }
 
-func (pp *ArmAuthorityPicker) set(armAuthorityURLs ...string) {
+func (pp *StarAuthorityPicker) set(starAuthorityURLs ...string) {
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
-	pp.armAuthorities = consistenthash.New(pp.opts.Replicas, pp.opts.HashFn)
-	pp.armAuthorities.Add(armAuthorityURLs...)
-	pp.fetchers = make(map[string]RemoteFetcher, len(armAuthorityURLs))
-	for _, URL := range armAuthorityURLs {
+	pp.starAuthorities = consistenthash.New(pp.opts.Replicas, pp.opts.HashFn)
+	pp.starAuthorities.Add(starAuthorityURLs...)
+	pp.fetchers = make(map[string]RemoteFetcher, len(starAuthorityURLs))
+	for _, URL := range starAuthorityURLs {
 		pp.fetchers[URL] = pp.fetchingProtocol.NewFetcher(URL)
 	}
 }
 
-// FetchProtocol defines the chosen fetching protocol to arm authorities (namely HTTP or GRPC) and implements the instantiation method for that connection (creating a new RemoteFetcher)
+// FetchProtocol defines the chosen fetching protocol to star authorities (namely HTTP or GRPC) and implements the instantiation method for that connection (creating a new RemoteFetcher)
 type FetchProtocol interface {
-	// NewFetcher instantiates the connection between arm authorities and returns a RemoteFetcher to be used for fetching from an arm authority
+	// NewFetcher instantiates the connection between the current and a remote star authority and returns a RemoteFetcher to be used for fetching data from that authority
 	NewFetcher(url string) RemoteFetcher
 }

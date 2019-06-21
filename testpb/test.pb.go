@@ -235,8 +235,8 @@ type StatsResponse struct {
 	HotCache             *CacheStats `protobuf:"bytes,5,opt,name=hot_cache,json=hotCache" json:"hot_cache,omitempty"`
 	ServerIn             *int64      `protobuf:"varint,6,opt,name=server_in,json=serverIn" json:"server_in,omitempty"`
 	Loads                *int64      `protobuf:"varint,8,opt,name=loads" json:"loads,omitempty"`
-	ArmLoads             *int64      `protobuf:"varint,9,opt,name=arm_loads,json=armLoads" json:"arm_loads,omitempty"`
-	ArmErrors            *int64      `protobuf:"varint,10,opt,name=arm_errors,json=armErrors" json:"arm_errors,omitempty"`
+	ArmLoads             *int64      `protobuf:"varint,9,opt,name=star_loads,json=starLoads" json:"star_loads,omitempty"`
+	ArmErrors            *int64      `protobuf:"varint,10,opt,name=star_errors,json=starErrors" json:"star_errors,omitempty"`
 	LocalLoads           *int64      `protobuf:"varint,11,opt,name=local_loads,json=localLoads" json:"local_loads,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}    `json:"-"`
 	XXX_unrecognized     []byte      `json:"-"`

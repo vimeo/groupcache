@@ -241,7 +241,7 @@ type testFetchers []RemoteFetcher
 
 func (fetcher *TestFetcher) Fetch(ctx context.Context, in *pb.GetRequest, out *pb.GetResponse) error {
 	if fetcher.fail {
-		return errors.New("simulated error from armAuthority")
+		return errors.New("simulated error from star authority")
 	}
 	fetcher.hits++
 	out.Value = []byte("got:" + in.GetKey())
@@ -257,8 +257,8 @@ func (proto *TestProtocol) NewFetcher(url string) RemoteFetcher {
 	return newTestFetcher
 }
 
-// TestArmAuthoritys is a bit of a messy test that might be redundant with the current HTTPServer test, since the protocol there can simply be swapped for TestProtocol rather than HTTPProtocol
-func TestArmAuthoritys(t *testing.T) {
+// TestStarAuthorities is a bit of a messy test that might be redundant with the current HTTPServer test, since the protocol there can simply be swapped for TestProtocol rather than HTTPProtocol
+func TestStarAuthorities(t *testing.T) {
 	// instantiate test fetchers with the test protocol
 	testproto := &TestProtocol{
 		TestFetchers: make(map[string]*TestFetcher),
@@ -286,7 +286,7 @@ func TestArmAuthoritys(t *testing.T) {
 		return dest.SetString("got:" + key)
 	}
 
-	testGalaxy := universe.NewGalaxy("TestArmAuthorities-galaxy", cacheSize, GetterFunc(getter))
+	testGalaxy := universe.NewGalaxy("TestStarAuthorities-galaxy", cacheSize, GetterFunc(getter))
 
 	run := func(name string, n int, wantSummary string) {
 		// Reset counters
@@ -309,7 +309,7 @@ func TestArmAuthoritys(t *testing.T) {
 			}
 		}
 		summary := func() string {
-			return fmt.Sprintf("localHits = %d, armAuthorities = %d %d %d", localHits, testproto.TestFetchers["fetcher0"].hits, testproto.TestFetchers["fetcher1"].hits, testproto.TestFetchers["fetcher2"].hits)
+			return fmt.Sprintf("localHits = %d, star authorities = %d %d %d", localHits, testproto.TestFetchers["fetcher0"].hits, testproto.TestFetchers["fetcher1"].hits, testproto.TestFetchers["fetcher2"].hits)
 		}
 		if got := summary(); got != wantSummary {
 			t.Errorf("%s: got %q; want %q", name, got, wantSummary)
@@ -323,22 +323,22 @@ func TestArmAuthoritys(t *testing.T) {
 		g.hotCache = cache{}
 	}
 
-	// Base case; armAuthorities all up, with no problems.
+	// Base case; star authorities all up, with no problems.
 	resetCacheSize(1 << 20)
-	run("base", 200, "localHits = 50, armAuthorities = 50 50 50")
+	run("base", 200, "localHits = 50, star authorities = 50 50 50")
 
 	// Verify cache was hit.  All localHits and some of
-	// the arm authority hits are gone (the ones randomly selected to be maybe hot)
-	run("cached_base", 200, "localHits = 0, armAuthorities = 48 47 48")
+	// the star authority hits are gone (the ones randomly selected to be maybe hot)
+	run("cached_base", 200, "localHits = 0, star authorities = 48 47 48")
 	resetCacheSize(0)
 
-	// // With one of the armAuthorities being down.
-	// // TODO(bradfitz): on a armAuthority number being unavailable, the
+	// // With one of the star  authorities being down.
+	// // TODO(bradfitz): on a star authority number being unavailable, the
 	// // consistent hashing should maybe keep trying others to
 	// // spread the load out. Currently it fails back to local
 	// // execution if the first consistent-hash slot is unavailable.
 	testproto.TestFetchers["fetcher1"].fail = true
-	run("one_arm_auth_down", 200, "localHits = 100, armAuthorities = 50 0 50")
+	run("one_star_auth_down", 200, "localHits = 100, star authorities = 50 0 50")
 
 }
 
@@ -418,7 +418,7 @@ func TestNoDedup(t *testing.T) {
 	dummyCtx := context.TODO()
 	const testkey = "testkey"
 	const testval = "testval"
-	g := universe.newGalaxy("testgalaxy", 1024, GetterFunc(func(_ context.Context, key string, dest Sink) error {
+	g := universe.NewGalaxy("testgalaxy", 1024, GetterFunc(func(_ context.Context, key string, dest Sink) error {
 		return dest.SetString(testval)
 	}))
 
