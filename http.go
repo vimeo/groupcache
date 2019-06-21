@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package groupcache
+package galaxycache
 
 import (
 	"bytes"
@@ -32,7 +32,7 @@ import (
 	"go.opencensus.io/stats"
 )
 
-const defaultBasePath = "/_groupcache/"
+const defaultBasePath = "/_galaxycache/"
 
 const defaultReplicas = 50
 
@@ -46,15 +46,15 @@ type HTTPFetchProtocol struct {
 }
 
 // HTTPOptions specifies a base path for serving and fetching.
-// *ONLY SPECIFY IF NOT USING THE DEFAULT "/_groupcache/" BASE PATH*.
+// *ONLY SPECIFY IF NOT USING THE DEFAULT "/_galaxycache/" BASE PATH*.
 type HTTPOptions struct {
 	Transport func(context.Context) http.RoundTripper
 	basePath  string
 }
 
-// NewHTTPFetchProtocol creates an HTTP fetch protocol to be passed into a Galaxy constructor;
-// uses a user chosen base path specified in HTTPOptions (or the default "/_groupcache/" base path if passed nil).
-// *You must use the same base path for the HTTPFetchProtocol and the HTTPHandler on the same Galaxy*.
+// NewHTTPFetchProtocol creates an HTTP fetch protocol to be passed into a Universe constructor;
+// uses a user chosen base path specified in HTTPOptions (or the default "/_galaxycache/" base path if passed nil).
+// *You must use the same base path for the HTTPFetchProtocol and the HTTPHandler on the same Universe*.
 func NewHTTPFetchProtocol(opts *HTTPOptions) *HTTPFetchProtocol {
 	newProto := &HTTPFetchProtocol{
 		BasePath: defaultBasePath,
@@ -76,24 +76,24 @@ func (hp *HTTPFetchProtocol) NewFetcher(url string) RemoteFetcher {
 	return &httpFetcher{transport: hp.Transport, baseURL: url + hp.BasePath}
 }
 
-// HTTPHandler implements the HTTP handler necessary to serve an HTTP request; it contains a pointer to its parent Galaxy in order to access its Groups
+// HTTPHandler implements the HTTP handler necessary to serve an HTTP request; it contains a pointer to its parent Universe in order to access its Galaxys
 type HTTPHandler struct {
 	// context.Context optionally specifies a context for the server to use when it
 	// receives a request.
 	// If nil, the server uses a nil context.Context.
-	Context      func(*http.Request) context.Context
-	parentGalaxy *Galaxy
-	basePath     string
+	Context        func(*http.Request) context.Context
+	parentUniverse *Universe
+	basePath       string
 }
 
-// RegisterHTTPHandler sets up an HTTPHandler with a user specified path and serveMux (if non nil) to handle requests to the given Galaxy. If both opts and serveMux are nil, defaultBasePath and DefaultServeMux will be used.
-// *You must use the same base path for the HTTPFetchProtocol and the HTTPHandler on the same Galaxy*.
-func RegisterHTTPHandler(galaxy *Galaxy, opts *HTTPOptions, serveMux *http.ServeMux) {
+// RegisterHTTPHandler sets up an HTTPHandler with a user specified path and serveMux (if non nil) to handle requests to the given Universe. If both opts and serveMux are nil, defaultBasePath and DefaultServeMux will be used.
+// *You must use the same base path for the HTTPFetchProtocol and the HTTPHandler on the same Universe*.
+func RegisterHTTPHandler(universe *Universe, opts *HTTPOptions, serveMux *http.ServeMux) {
 	basePath := defaultBasePath
 	if opts != nil {
 		basePath = opts.basePath
 	}
-	newHTTPHandler := &HTTPHandler{basePath: basePath, parentGalaxy: galaxy}
+	newHTTPHandler := &HTTPHandler{basePath: basePath, parentUniverse: universe}
 	if serveMux == nil {
 		http.Handle(basePath, newHTTPHandler)
 	} else {
@@ -112,13 +112,13 @@ func (handler *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	groupName := parts[0]
+	galaxyName := parts[0]
 	key := parts[1]
 
-	// Fetch the value for this group/key.
-	group := handler.parentGalaxy.GetGroup(groupName)
-	if group == nil {
-		http.Error(w, "no such group: "+groupName, http.StatusNotFound)
+	// Fetch the value for this galaxy/key.
+	galaxy := handler.parentUniverse.GetGalaxy(galaxyName)
+	if galaxy == nil {
+		http.Error(w, "no such galaxy: "+galaxyName, http.StatusNotFound)
 		return
 	}
 	var ctx context.Context
@@ -126,11 +126,11 @@ func (handler *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ctx = handler.Context(r)
 	}
 
-	// TODO: remove group.Stats from here
-	group.Stats.ServerRequests.Add(1)
+	// TODO: remove galaxy.Stats from here
+	galaxy.Stats.ServerRequests.Add(1)
 	stats.Record(ctx, MServerRequests.M(1))
 	var value []byte
-	err := group.Get(ctx, key, AllocatingByteSliceSink(&value))
+	err := galaxy.Get(ctx, key, AllocatingByteSliceSink(&value))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -159,7 +159,7 @@ func (h *httpFetcher) Fetch(ctx context.Context, in *pb.GetRequest, out *pb.GetR
 	u := fmt.Sprintf(
 		"%v%v/%v",
 		h.baseURL,
-		url.QueryEscape(in.GetGroup()),
+		url.QueryEscape(in.GetGalaxy()),
 		url.QueryEscape(in.GetKey()),
 	)
 	// fmt.Println("Fetching from ", u)

@@ -16,7 +16,7 @@ limitations under the License.
 
 // peers.go defines how processes find and communicate with their peers.
 
-package groupcache
+package galaxycache
 
 import (
 	"context"

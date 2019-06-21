@@ -56,7 +56,7 @@ message StatsResponse {
 
 message Empty {}
 
-service GroupCacheTest {
+service GalaxyCacheTest {
   rpc InitPeers(Empty) returns (Empty) {};
   rpc Get(TestRequest) returns (TestResponse) {};
   rpc GetStats(Empty) returns (StatsResponse) {};

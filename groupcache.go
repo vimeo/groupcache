@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package groupcache provides a data loading mechanism with caching
+// Package galaxycache provides a data loading mechanism with caching
 // and de-duplication that works across a set of peer processes.
 //
 // Each data Get first consults its local cache, otherwise delegates
@@ -22,7 +22,7 @@ limitations under the License.
 // or finally gets the data.  In the common case, many concurrent
 // cache misses across a set of peers for the same key result in just
 // one cache fill.
-package groupcache
+package galaxycache
 
 import (
 	"context"
@@ -61,38 +61,38 @@ func (f GetterFunc) Get(ctx context.Context, key string, dest Sink) error {
 	return f(ctx, key, dest)
 }
 
-// Galaxy defines the primary container for all groupcache operations. It contains the groups and PeerPicker
-type Galaxy struct {
+// Universe defines the primary container for all galaxycache operations. It contains the galaxies and PeerPicker
+type Universe struct {
 	mu         sync.RWMutex
-	groups     map[string]*Group
+	galaxies   map[string]*Galaxy
 	peerPicker *PeerPicker
 }
 
-// NewGalaxy is the default constructor for the Galaxy object
-func NewGalaxy(protocol FetchProtocol, self string) *Galaxy {
-	return NewGalaxyWithOpts(protocol, self, nil)
+// NewUniverse is the default constructor for the Universe object
+func NewUniverse(protocol FetchProtocol, self string) *Universe {
+	return NewUniverseWithOpts(protocol, self, nil)
 }
 
-// NewGalaxyWithOpts is the optional constructor for the Galaxy object that defines a non-default hash function and number of replicas
-func NewGalaxyWithOpts(protocol FetchProtocol, self string, options *HashOptions) *Galaxy {
-	c := &Galaxy{
-		groups:     make(map[string]*Group),
+// NewUniverseWithOpts is the optional constructor for the Universe object that defines a non-default hash function and number of replicas
+func NewUniverseWithOpts(protocol FetchProtocol, self string, options *HashOptions) *Universe {
+	c := &Universe{
+		galaxies:   make(map[string]*Galaxy),
 		peerPicker: newPeerPicker(protocol, self, options),
 	}
 
 	return c
 }
 
-// GetGroup returns the named group previously created with NewGroup, or
-// nil if there's no such group.
-func (galaxy *Galaxy) GetGroup(name string) *Group {
-	galaxy.mu.RLock()
-	group := galaxy.groups[name]
-	galaxy.mu.RUnlock()
-	return group
+// GetGalaxy returns the named galaxy previously created with NewGalaxy, or
+// nil if there's no such galaxy.
+func (universe *Universe) GetGalaxy(name string) *Galaxy {
+	universe.mu.RLock()
+	galaxy := universe.galaxies[name]
+	universe.mu.RUnlock()
+	return galaxy
 }
 
-// NewGroup creates a coordinated group-aware Getter from a Getter.
+// NewGalaxy creates a coordinated galaxy-aware Getter from a Getter.
 //
 // The returned Getter tries (but does not guarantee) to run only one
 // Get call at once for a given key across an entire set of peer
@@ -100,42 +100,42 @@ func (galaxy *Galaxy) GetGroup(name string) *Group {
 // other processes receive copies of the answer once the original Get
 // completes.
 //
-// The group name must be unique for each BackendGetter.
-func (galaxy *Galaxy) NewGroup(name string, cacheBytes int64, getter BackendGetter) *Group {
-	return galaxy.newGroup(name, cacheBytes, getter) // redundant, same internal call without the PeerPicker interface arg
+// The galaxy name must be unique for each BackendGetter.
+func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter BackendGetter) *Galaxy {
+	return universe.newGalaxy(name, cacheBytes, getter) // redundant, same internal call without the PeerPicker interface arg
 }
 
-func (galaxy *Galaxy) newGroup(name string, cacheBytes int64, getter BackendGetter) *Group {
+func (universe *Universe) newGalaxy(name string, cacheBytes int64, getter BackendGetter) *Galaxy {
 	if getter == nil {
 		panic("nil Getter")
 	}
-	galaxy.mu.Lock()
-	defer galaxy.mu.Unlock()
+	universe.mu.Lock()
+	defer universe.mu.Unlock()
 
-	if _, dup := galaxy.groups[name]; dup {
-		panic("duplicate registration of group " + name)
+	if _, dup := universe.galaxies[name]; dup {
+		panic("duplicate registration of galaxy " + name)
 	}
-	g := &Group{
+	g := &Galaxy{
 		name:       name,
 		getter:     getter,
-		peerPicker: galaxy.peerPicker,
+		peerPicker: universe.peerPicker,
 		cacheBytes: cacheBytes,
 		loadGroup:  &singleflight.Group{},
 	}
-	galaxy.groups[name] = g
+	universe.galaxies[name] = g
 	return g
 }
 
-// Set updates the Galaxy's list of peers "contained in the PeerPicker".
+// Set updates the Universe's list of peers (contained in the PeerPicker).
 // Each peer value should be a valid base URL,
 // for example "http://example.net:8000".
-func (galaxy *Galaxy) Set(peers ...string) {
-	galaxy.peerPicker.set(peers...)
+func (universe *Universe) Set(peers ...string) {
+	universe.peerPicker.set(peers...)
 }
 
-// A Group is a cache namespace and associated data loaded spread over
+// A Galaxy is a cache namespace and associated data loaded spread over
 // a group of 1 or more machines.
-type Group struct {
+type Galaxy struct {
 	name       string
 	getter     BackendGetter
 	peersOnce  sync.Once
@@ -165,7 +165,7 @@ type Group struct {
 
 	_ int32 // force Stats to be 8-byte aligned on 32-bit platforms
 
-	// Stats are statistics on the group.
+	// Stats are statistics on the galaxy.
 	Stats Stats
 }
 
@@ -177,7 +177,7 @@ type flightGroup interface {
 	Do(key string, fn func() (interface{}, error)) (interface{}, error)
 }
 
-// Stats are per-group statistics.
+// Stats are per-galaxy statistics.
 type Stats struct {
 	Gets           AtomicInt // any Get request, including from peers
 	CacheHits      AtomicInt // either cache was good
@@ -190,20 +190,20 @@ type Stats struct {
 	ServerRequests AtomicInt // gets that came over the network from peers
 }
 
-// Name returns the name of the group.
-func (g *Group) Name() string {
+// Name returns the name of the galaxy.
+func (g *Galaxy) Name() string {
 	return g.name
 }
 
-// Get as defined here is the primary "get" called on a group to find the value for the given key. It will first try the local cache, then on a cache miss it will search for which peer is the owner of the key based on the consistent hash, then try either fetching remotely or getting with the Getter (such as from a database) if the calling Galaxy instance is the owner
-func (g *Group) Get(ctx context.Context, key string, dest Sink) error {
+// Get as defined here is the primary "get" called on a galaxy to find the value for the given key. It will first try the local cache, then on a cache miss it will search for which peer is the owner of the key based on the consistent hash, then try either fetching remotely or getting with the Getter (such as from a database) if the calling Universe instance is the owner
+func (g *Galaxy) Get(ctx context.Context, key string, dest Sink) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
 	ctx, _ = tag.New(ctx, tag.Insert(keyCommand, "get"))
 
-	ctx, span := trace.StartSpan(ctx, "golang.org/groupcache.(*Group).Get")
+	ctx, span := trace.StartSpan(ctx, "golang.org/groupcache.(*Galaxy).Get")
 	startTime := time.Now()
 	defer func() {
 		stats.Record(ctx, MRoundtripLatencyMilliseconds.M(sinceInMilliseconds(startTime)))
@@ -215,7 +215,7 @@ func (g *Group) Get(ctx context.Context, key string, dest Sink) error {
 	stats.Record(ctx, MGets.M(1))
 	if dest == nil {
 		span.SetStatus(trace.Status{Code: trace.StatusCodeInvalidArgument, Message: "nil dest sink"})
-		return errors.New("groupcache: nil dest Sink")
+		return errors.New("galaxycache: nil dest Sink")
 	}
 	value, cacheHit := g.lookupCache(key)
 	stats.Record(ctx, MKeyLength.M(int64(len(key))))
@@ -249,7 +249,7 @@ func (g *Group) Get(ctx context.Context, key string, dest Sink) error {
 }
 
 // load loads key either by invoking the getter locally or by sending it to another machine.
-func (g *Group) load(ctx context.Context, key string, dest Sink) (value ByteView, destPopulated bool, err error) {
+func (g *Galaxy) load(ctx context.Context, key string, dest Sink) (value ByteView, destPopulated bool, err error) {
 	// TODO(@odeke-em): Remove .Stats
 	g.Stats.Loads.Add(1)
 	stats.Record(ctx, MLoads.M(1))
@@ -300,7 +300,7 @@ func (g *Group) load(ctx context.Context, key string, dest Sink) (value ByteView
 			g.Stats.PeerErrors.Add(1)
 			stats.Record(ctx, MPeerErrors.M(1))
 			// TODO(bradfitz): log the peer's error? keep
-			// log of the past few for /groupcachez?  It's
+			// log of the past few for /galaxycachez?  It's
 			// probably boring (normal task movement), so not
 			// worth logging I imagine.
 		}
@@ -324,7 +324,7 @@ func (g *Group) load(ctx context.Context, key string, dest Sink) (value ByteView
 	return
 }
 
-func (g *Group) getLocally(ctx context.Context, key string, dest Sink) (ByteView, error) {
+func (g *Galaxy) getLocally(ctx context.Context, key string, dest Sink) (ByteView, error) {
 	err := g.getter.Get(ctx, key, dest)
 	if err != nil {
 		return ByteView{}, err
@@ -332,10 +332,10 @@ func (g *Group) getLocally(ctx context.Context, key string, dest Sink) (ByteView
 	return dest.view()
 }
 
-func (g *Group) getFromPeer(ctx context.Context, peer RemoteFetcher, key string) (ByteView, error) {
+func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string) (ByteView, error) {
 	req := &pb.GetRequest{
-		Group: g.name,
-		Key:   key,
+		Galaxy: g.name,
+		Key:    key,
 	}
 	res := &pb.GetResponse{}
 	err := peer.Fetch(ctx, req, res)
@@ -352,7 +352,7 @@ func (g *Group) getFromPeer(ctx context.Context, peer RemoteFetcher, key string)
 	return value, nil
 }
 
-func (g *Group) lookupCache(key string) (value ByteView, ok bool) {
+func (g *Galaxy) lookupCache(key string) (value ByteView, ok bool) {
 	if g.cacheBytes <= 0 {
 		return
 	}
@@ -364,7 +364,7 @@ func (g *Group) lookupCache(key string) (value ByteView, ok bool) {
 	return
 }
 
-func (g *Group) populateCache(key string, value ByteView, cache *cache) {
+func (g *Galaxy) populateCache(key string, value ByteView, cache *cache) {
 	if g.cacheBytes <= 0 {
 		return
 	}
@@ -403,8 +403,8 @@ const (
 	HotCache
 )
 
-// CacheStats returns stats about the provided cache within the group.
-func (g *Group) CacheStats(which CacheType) CacheStats {
+// CacheStats returns stats about the provided cache within the galaxy.
+func (g *Galaxy) CacheStats(which CacheType) CacheStats {
 	switch which {
 	case MainCache:
 		return g.mainCache.stats()
@@ -513,7 +513,7 @@ func (i *AtomicInt) String() string {
 	return strconv.FormatInt(i.Get(), 10)
 }
 
-// CacheStats are returned by stats accessors on Group.
+// CacheStats are returned by stats accessors on Galaxy.
 type CacheStats struct {
 	Bytes     int64
 	Items     int64

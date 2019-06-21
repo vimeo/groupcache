@@ -16,10 +16,10 @@ limitations under the License.
 
 syntax = "proto3";
 
-package groupcachepb;
+package galaxycachepb;
 
 message GetRequest {
-  string group = 1;
+  string galaxy = 1;
   string key = 2; // not actually required/guaranteed to be UTF-8
 }
 
@@ -28,7 +28,7 @@ message GetResponse {
   double minute_qps = 2;
 }
 
-service GroupCache {
+service GalaxyCache {
   rpc Get(GetRequest) returns (GetResponse) {
   }
 }

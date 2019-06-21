@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package groupcache
+package galaxycache
 
 import (
 	"context"
@@ -54,21 +54,21 @@ func TestHTTPHandler(t *testing.T) {
 		peerListeners = append(peerListeners, newListener)
 	}
 
-	galaxy := NewGalaxy(NewHTTPFetchProtocol(nil), "shouldBeIgnored")
+	universe := NewUniverse(NewHTTPFetchProtocol(nil), "shouldBeIgnored")
 	serveMux := http.NewServeMux()
-	RegisterHTTPHandler(galaxy, nil, serveMux)
-	galaxy.Set(addrToURL(peerAddresses)...)
+	RegisterHTTPHandler(universe, nil, serveMux)
+	universe.Set(addrToURL(peerAddresses)...)
 
 	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
 		return fmt.Errorf("oh no! Local get occurred")
 	})
-	g := galaxy.NewGroup("peerFetchTest", 1<<20, getter)
+	g := universe.NewGalaxy("peerFetchTest", 1<<20, getter)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	for _, listener := range peerListeners {
-		go makeServerGalaxy(ctx, peerAddresses, listener)
+		go makeServerUniverse(ctx, peerAddresses, listener)
 	}
 
 	for _, key := range testKeys(nGets) {
@@ -84,18 +84,18 @@ func TestHTTPHandler(t *testing.T) {
 
 }
 
-func makeServerGalaxy(ctx context.Context, addresses []string, listener net.Listener) {
-	galaxy := NewGalaxy(NewHTTPFetchProtocol(nil), "http://"+listener.Addr().String())
+func makeServerUniverse(ctx context.Context, addresses []string, listener net.Listener) {
+	universe := NewUniverse(NewHTTPFetchProtocol(nil), "http://"+listener.Addr().String())
 	serveMux := http.NewServeMux()
 	wrappedHandler := &ochttp.Handler{Handler: serveMux}
-	RegisterHTTPHandler(galaxy, nil, serveMux)
-	galaxy.Set(addrToURL(addresses)...)
+	RegisterHTTPHandler(universe, nil, serveMux)
+	universe.Set(addrToURL(addresses)...)
 
 	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
 		dest.SetString(":" + key)
 		return nil
 	})
-	galaxy.NewGroup("peerFetchTest", 1<<20, getter)
+	universe.NewGalaxy("peerFetchTest", 1<<20, getter)
 	newServer := http.Server{Handler: wrappedHandler}
 	go func() {
 		err := newServer.Serve(listener)
