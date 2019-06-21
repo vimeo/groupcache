@@ -1,28 +1,28 @@
-# groupcache
+# galaxycache
 
 ## Summary
 
-groupcache is a caching and cache-filling library, intended as a
+galaxycache is a caching and cache-filling library, intended as a
 replacement for memcached in many cases.
 
-For API docs and examples, see http://godoc.org/github.com/golang/groupcache
+For API docs and examples, see http://godoc.org/github.com/golang/galaxycache
 
 ## Comparison to memcached
 
-### **Like memcached**, groupcache:
+### **Like memcached**, galaxycache:
 
  * shards by key to select which peer is responsible for that key
 
-### **Unlike memcached**, groupcache:
+### **Unlike memcached**, galaxycache:
 
  * does not require running a separate set of servers, thus massively
-   reducing deployment/configuration pain.  groupcache is a client
+   reducing deployment/configuration pain.  galaxycache is a client
    library as well as a server.  It connects to its own peers.
 
  * comes with a cache filling mechanism.  Whereas memcached just says
    "Sorry, cache miss", often resulting in a thundering herd of
    database (or whatever) loads from an unbounded number of clients
-   (which has resulted in several fun outages), groupcache coordinates
+   (which has resulted in several fun outages), galaxycache coordinates
    cache fills such that only one load in one process of an entire
    replicated set of processes populates the cache, then multiplexes
    the loaded value to all callers.
@@ -30,7 +30,7 @@ For API docs and examples, see http://godoc.org/github.com/golang/groupcache
  * does not support versioned values.  If key "foo" is value "bar",
    key "foo" must always be "bar".  There are neither cache expiration
    times, nor explicit cache evictions.  Thus there is also no CAS,
-   nor Increment/Decrement.  This also means that groupcache....
+   nor Increment/Decrement.  This also means that galaxycache....
 
  * ... supports automatic mirroring of super-hot items to multiple
    processes.  This prevents memcached hot spotting where a machine's
@@ -41,7 +41,7 @@ For API docs and examples, see http://godoc.org/github.com/golang/groupcache
 
 ## Loading process
 
-In a nutshell, a groupcache lookup of **Get("foo")** looks like:
+In a nutshell, a galaxycache lookup of **Get("foo")** looks like:
 
 (On machine #5 of a set of N machines running the same code)
 
@@ -60,7 +60,7 @@ In a nutshell, a groupcache lookup of **Get("foo")** looks like:
 
 ## Users
 
-groupcache is in production use by dl.google.com (its original user),
+galaxycache is in production use by dl.google.com (its original user),
 parts of Blogger, parts of Google Code, parts of Google Fiber, parts
 of Google production monitoring systems, etc.
 
