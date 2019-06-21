@@ -14,7 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// peers.go defines how processes find and communicate with their peers.
+// starauthorities.go defines how processes (star authorities) find and communicate with their peers (other star authorities).
+// Each running Universe instance has authority over a set of keys, or "stars", within each galaxy (address space of data) -- this star set is determined by the consistent hashing algorithm. Every one of these separate running Universe instances are therefore referred to as "star authorities". Each Universe fetches from other star authorities when it receives a request for a key that is handled by another instance.
 
 package galaxycache
 
@@ -26,7 +27,7 @@ import (
 	pb "github.com/vimeo/groupcache/groupcachepb"
 )
 
-// RemoteFetcher is the interface that must be implemented to fetch from other star authorities; the StarAuthorityPicker contains a map of these fetchers corresponding to each star authority address
+// RemoteFetcher is the interface that must be implemented to fetch from other star authorities; the StarAuthorityPicker contains a map of these fetchers corresponding to each other star authority address
 type RemoteFetcher interface {
 	Fetch(context context.Context, in *pb.GetRequest, out *pb.GetResponse) error
 }
@@ -52,10 +53,11 @@ type HashOptions struct {
 	HashFn consistenthash.Hash
 }
 
-func newStarAuthorityPicker(proto FetchProtocol, self string, options *HashOptions) *StarAuthorityPicker {
+// Creates a star authority picker; called when creating a new Universe
+func newStarAuthorityPicker(proto FetchProtocol, selfURL string, options *HashOptions) *StarAuthorityPicker {
 	pp := &StarAuthorityPicker{
 		fetchingProtocol: proto,
-		selfURL:          self,
+		selfURL:          selfURL,
 		fetchers:         make(map[string]RemoteFetcher),
 	}
 	if options != nil {
@@ -68,13 +70,14 @@ func newStarAuthorityPicker(proto FetchProtocol, self string, options *HashOptio
 	return pp
 }
 
-func (pp *StarAuthorityPicker) pickStarAuthority(star string) (RemoteFetcher, bool) {
+// When passed a key ("star"), the consistent hash is used to determine which star authority is responsible getting/caching it
+func (pp *StarAuthorityPicker) pickStarAuthority(key string) (RemoteFetcher, bool) {
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 	if pp.starAuthorities.IsEmpty() {
 		return nil, false
 	}
-	if URL := pp.starAuthorities.Get(star); URL != pp.selfURL {
+	if URL := pp.starAuthorities.Get(key); URL != pp.selfURL {
 		return pp.fetchers[URL], true
 	}
 	return nil, false
