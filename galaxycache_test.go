@@ -73,7 +73,7 @@ func testSetupProtoGalaxy(universe *Universe, cacheFills *AtomicInt) (*Galaxy, c
 }
 
 // tests that a BackendGetter's Get method is only called once with two
-// outstanding callers.  This is the string variant.
+// outstanding callers. This is the string variant.
 func TestGetDupSuppressString(t *testing.T) {
 	universe := NewUniverse(&TestProtocol{}, "test")
 	var cacheFills AtomicInt
@@ -230,6 +230,7 @@ func TestCacheEviction(t *testing.T) {
 	}
 }
 
+// Testing types to use in TestStarAuthorities
 type TestProtocol struct {
 	TestFetchers map[string]*TestFetcher
 }
@@ -257,7 +258,7 @@ func (proto *TestProtocol) NewFetcher(url string) RemoteFetcher {
 	return newTestFetcher
 }
 
-// TestStarAuthorities is a bit of a messy test that might be redundant with the current HTTPServer test, since the protocol there can simply be swapped for TestProtocol rather than HTTPProtocol
+// TestStarAuthorities tests to ensure that an instance with given hash function results in the expected number of gets both locally and into each other star authority
 func TestStarAuthorities(t *testing.T) {
 	// instantiate test fetchers with the test protocol
 	testproto := &TestProtocol{
@@ -332,7 +333,7 @@ func TestStarAuthorities(t *testing.T) {
 	run("cached_base", 200, "localHits = 0, star authorities = 48 47 48")
 	resetCacheSize(0)
 
-	// // With one of the star  authorities being down.
+	// // With one of the star authorities being down.
 	// // TODO(bradfitz): on a star authority number being unavailable, the
 	// // consistent hashing should maybe keep trying others to
 	// // spread the load out. Currently it fails back to local
