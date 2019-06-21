@@ -25,6 +25,7 @@ import (
 	"math/rand"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -44,12 +45,9 @@ const (
 	cacheSize       = 1 << 20
 )
 
-func testSetupStringGroup(c *Cacher, cacheFills *AtomicInt) (*Group, chan string) {
-	// cacheFills is the number of times stringGroup or
-	// protoGroup's BackendGetter have been called. Read using the
-	// cacheFills function.
+func testSetupStringGroup(galaxy *Galaxy, cacheFills *AtomicInt) (*Group, chan string) {
 	stringc := make(chan string)
-	stringGroup := c.NewGroup(stringGroupName, cacheSize, GetterFunc(func(_ context.Context, key string, dest Sink) error {
+	stringGroup := galaxy.NewGroup(stringGroupName, cacheSize, GetterFunc(func(_ context.Context, key string, dest Sink) error {
 		if key == fromChan {
 			key = <-stringc
 		}
@@ -59,9 +57,9 @@ func testSetupStringGroup(c *Cacher, cacheFills *AtomicInt) (*Group, chan string
 	return stringGroup, stringc
 }
 
-func testSetupProtoGroup(c *Cacher, cacheFills *AtomicInt) (*Group, chan string) {
+func testSetupProtoGroup(galaxy *Galaxy, cacheFills *AtomicInt) (*Group, chan string) {
 	stringc := make(chan string)
-	protoGroup := c.NewGroup(protoGroupName, cacheSize, GetterFunc(func(_ context.Context, key string, dest Sink) error {
+	protoGroup := galaxy.NewGroup(protoGroupName, cacheSize, GetterFunc(func(_ context.Context, key string, dest Sink) error {
 		if key == fromChan {
 			key = <-stringc
 		}
@@ -77,10 +75,10 @@ func testSetupProtoGroup(c *Cacher, cacheFills *AtomicInt) (*Group, chan string)
 // tests that a BackendGetter's Get method is only called once with two
 // outstanding callers.  This is the string variant.
 func TestGetDupSuppressString(t *testing.T) {
-	c := NewCacher(&TestProtocol{}, "test")
+	galaxy := NewGalaxy(&TestProtocol{}, "test")
 	var cacheFills AtomicInt
 	dummyCtx := context.TODO()
-	stringGroup, stringc := testSetupStringGroup(c, &cacheFills)
+	stringGroup, stringc := testSetupStringGroup(galaxy, &cacheFills)
 	// Start two BackendGetters. The first should block (waiting reading
 	// from stringc) and the second should latch on to the first
 	// one.
@@ -119,13 +117,13 @@ func TestGetDupSuppressString(t *testing.T) {
 	}
 }
 
-// tests that a Getter's Get method is only called once with two
+// tests that a BackendGetter's Get method is only called once with two
 // outstanding callers.  This is the proto variant.
 func TestGetDupSuppressProto(t *testing.T) {
-	c := NewCacher(&TestProtocol{}, "test")
+	galaxy := NewGalaxy(&TestProtocol{}, "test")
 	var cacheFills AtomicInt
 	dummyCtx := context.TODO()
-	protoGroup, stringc := testSetupProtoGroup(c, &cacheFills)
+	protoGroup, stringc := testSetupProtoGroup(galaxy, &cacheFills)
 	// Start two getters. The first should block (waiting reading
 	// from stringc) and the second should latch on to the first
 	// one.
@@ -173,7 +171,7 @@ func countFills(f func(), cacheFills *AtomicInt) int64 {
 }
 
 func TestCaching(t *testing.T) {
-	c := NewCacher(&TestProtocol{}, "test")
+	c := NewGalaxy(&TestProtocol{}, "test")
 	var cacheFills AtomicInt
 	dummyCtx := context.TODO()
 	stringGroup, _ := testSetupStringGroup(c, &cacheFills)
@@ -191,10 +189,10 @@ func TestCaching(t *testing.T) {
 }
 
 func TestCacheEviction(t *testing.T) {
-	c := NewCacher(&TestProtocol{}, "test")
+	galaxy := NewGalaxy(&TestProtocol{}, "test")
 	var cacheFills AtomicInt
 	dummyCtx := context.TODO()
-	stringGroup, _ := testSetupStringGroup(c, &cacheFills)
+	stringGroup, _ := testSetupStringGroup(galaxy, &cacheFills)
 	testKey := "TestCacheEviction-key"
 	getTestKey := func() {
 		var res string
@@ -233,7 +231,7 @@ func TestCacheEviction(t *testing.T) {
 }
 
 type TestProtocol struct {
-	BasePath string
+	TestFetchers map[string]*TestFetcher
 }
 type TestFetcher struct {
 	hits int
@@ -242,59 +240,58 @@ type TestFetcher struct {
 type testFetchers []RemoteFetcher
 
 func (fetcher *TestFetcher) Fetch(ctx context.Context, in *pb.GetRequest, out *pb.GetResponse) error {
-	fetcher.hits++
 	if fetcher.fail {
 		return errors.New("simulated error from peer")
 	}
+	fetcher.hits++
 	out.Value = []byte("got:" + in.GetKey())
 	return nil
 }
 
 func (proto *TestProtocol) NewFetcher(url string) RemoteFetcher {
-	return &TestFetcher{
+	newTestFetcher := &TestFetcher{
 		hits: 0,
 		fail: false,
 	}
+	proto.TestFetchers[url] = newTestFetcher
+	return newTestFetcher
 }
 
 // TestPeers is a bit of a messy test that might be redundant with the current HTTPServer test, since the protocol there can simply be swapped for TestProtocol rather than HTTPProtocol
 func TestPeers(t *testing.T) {
 	// instantiate test fetchers with the test protocol
-	c := NewCacher(&TestProtocol{}, "test")
-	dummyCtx := context.TODO()
+	testproto := &TestProtocol{
+		TestFetchers: make(map[string]*TestFetcher),
+	}
 	rand.Seed(123)
-	fetcher0 := &TestFetcher{}
-	fetcher1 := &TestFetcher{}
-	fetcher2 := &TestFetcher{}
-	fetcherList := testFetchers([]RemoteFetcher{fetcher0, fetcher1, fetcher2, nil})
-
-	c.peerPicker.fetchers = map[string]RemoteFetcher{"fetcher0": fetcher0, "fetcher1": fetcher1, "fetcher2": fetcher2}
-	c.peerPicker.Set("fetcher0", "fetcher1", "fetcher2")
-	c.peerPicker.pickPeerFunc = func(key string, fetchers []RemoteFetcher) (RemoteFetcher, bool) {
-		keyNum, err := strconv.Atoi(key)
-		if err != nil {
-			return &TestFetcher{}, false
-		}
-		fetchers = fetcherList
-		keyIndex := keyNum % len(fetcherList)
-
-		return fetcherList[keyIndex], fetcherList[keyIndex] != nil
-
+	hashFn := func(data []byte) uint32 {
+		dataStr := strings.TrimPrefix(string(data), "0fetcher")
+		toReturn, _ := strconv.Atoi(dataStr)
+		return uint32(toReturn) % 4
 	}
 
-	const cacheSize = 0 // empty to force gets from peers rather than local (?)
+	hashOpts := &HashOptions{
+		Replicas: 1,
+		HashFn:   hashFn,
+	}
+	galaxy := NewGalaxyWithOpts(testproto, "fetcher3", hashOpts)
+	dummyCtx := context.TODO()
+
+	galaxy.Set("fetcher0", "fetcher1", "fetcher2", "fetcher3")
+
+	const cacheSize = 0
 	localHits := 0
 	getter := func(_ context.Context, key string, dest Sink) error {
 		localHits++
 		return dest.SetString("got:" + key)
 	}
 
-	testGroup := c.NewGroup("TestPeers-group", cacheSize, GetterFunc(getter))
+	testGroup := galaxy.NewGroup("TestPeers-group", cacheSize, GetterFunc(getter))
 
 	run := func(name string, n int, wantSummary string) {
 		// Reset counters
 		localHits = 0
-		for _, p := range []*TestFetcher{fetcher0, fetcher1, fetcher2} {
+		for _, p := range testproto.TestFetchers {
 			p.hits = 0
 		}
 
@@ -312,7 +309,7 @@ func TestPeers(t *testing.T) {
 			}
 		}
 		summary := func() string {
-			return fmt.Sprintf("localHits = %d, peers = %d %d %d", localHits, fetcher0.hits, fetcher1.hits, fetcher2.hits)
+			return fmt.Sprintf("localHits = %d, peers = %d %d %d", localHits, testproto.TestFetchers["fetcher0"].hits, testproto.TestFetchers["fetcher1"].hits, testproto.TestFetchers["fetcher2"].hits)
 		}
 		if got := summary(); got != wantSummary {
 			t.Errorf("%s: got %q; want %q", name, got, wantSummary)
@@ -332,28 +329,24 @@ func TestPeers(t *testing.T) {
 
 	// Verify cache was hit.  All localHits are gone, and some of
 	// the peer hits (the ones randomly selected to be maybe hot)
-	// run("cached_base", 200, "localHits = 0, peers = 49 47 48")
-	// resetCacheSize(0)
+	run("cached_base", 200, "localHits = 0, peers = 48 47 48")
+	resetCacheSize(0)
 
 	// // With one of the peers being down.
 	// // TODO(bradfitz): on a peer number being unavailable, the
 	// // consistent hashing should maybe keep trying others to
 	// // spread the load out. Currently it fails back to local
 	// // execution if the first consistent-hash slot is unavailable.
-	// fetcherList[0] = nil
-	// run("one_peer_down", 200, "localHits = 100, peers = 0 49 51")
+	testproto.TestFetchers["fetcher1"].fail = true
+	run("one_peer_down", 200, "localHits = 100, peers = 50 0 50")
 
-	// // Failing peer
-	// fetcherList[0] = fetcher0
-	// fetcher0.fail = true
-	// run("peer0_failing", 200, "localHits = 100, peers = 51 49 51")
 }
 
 func TestTruncatingByteSliceTarget(t *testing.T) {
-	c := NewCacher(&TestProtocol{}, "test")
+	galaxy := NewGalaxy(&TestProtocol{}, "test")
 	var cacheFills AtomicInt
 	dummyCtx := context.TODO()
-	stringGroup, _ := testSetupStringGroup(c, &cacheFills)
+	stringGroup, _ := testSetupStringGroup(galaxy, &cacheFills)
 	buf := make([]byte, 100)
 	s := buf[:]
 	sink := TruncatingByteSliceSink(&s)
@@ -421,11 +414,11 @@ func (g *orderedFlightGroup) Do(key string, fn func() (interface{}, error)) (int
 // TestNoDedup tests invariants on the cache size when singleflight is
 // unable to dedup calls.
 func TestNoDedup(t *testing.T) {
-	c := NewCacher(&TestProtocol{}, "test")
+	galaxy := NewGalaxy(&TestProtocol{}, "test")
 	dummyCtx := context.TODO()
 	const testkey = "testkey"
 	const testval = "testval"
-	g := c.newGroup("testgroup", 1024, GetterFunc(func(_ context.Context, key string, dest Sink) error {
+	g := galaxy.newGroup("testgroup", 1024, GetterFunc(func(_ context.Context, key string, dest Sink) error {
 		return dest.SetString(testval)
 	}))
 

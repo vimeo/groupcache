@@ -27,7 +27,6 @@ package groupcache
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math/rand"
 	"strconv"
 	"sync"
@@ -62,27 +61,21 @@ func (f GetterFunc) Get(ctx context.Context, key string, dest Sink) error {
 	return f(ctx, key, dest)
 }
 
-// Cacher defines the primary container for all groupcache operations. It contains the groups, PeerPicker, and servers (HTTP and GRPC (soon))
-type Cacher struct {
-	mu     sync.RWMutex
-	groups map[string]*Group
-
-	// initPeerServerOnce sync.Once
-	// initPeerServer     func()
-
-	// newGroupHook, if non-nil, is called right after a new group is created.
-	newGroupHook func(*Group)
-	peerPicker   *PeerPicker
+// Galaxy defines the primary container for all groupcache operations. It contains the groups and PeerPicker
+type Galaxy struct {
+	mu         sync.RWMutex
+	groups     map[string]*Group
+	peerPicker *PeerPicker
 }
 
-// NewCacher is the default constructor for the Cacher object
-func NewCacher(protocol FetchProtocol, self string) *Cacher {
-	return NewCacherWithOpts(protocol, self, nil)
+// NewGalaxy is the default constructor for the Galaxy object
+func NewGalaxy(protocol FetchProtocol, self string) *Galaxy {
+	return NewGalaxyWithOpts(protocol, self, nil)
 }
 
-// NewCacherWithOpts is the optional constructor for the Cacher object that defines a non-default hash function and number of replicas
-func NewCacherWithOpts(protocol FetchProtocol, self string, options *HashOptions) *Cacher {
-	c := &Cacher{
+// NewGalaxyWithOpts is the optional constructor for the Galaxy object that defines a non-default hash function and number of replicas
+func NewGalaxyWithOpts(protocol FetchProtocol, self string, options *HashOptions) *Galaxy {
+	c := &Galaxy{
 		groups:     make(map[string]*Group),
 		peerPicker: newPeerPicker(protocol, self, options),
 	}
@@ -92,11 +85,11 @@ func NewCacherWithOpts(protocol FetchProtocol, self string, options *HashOptions
 
 // GetGroup returns the named group previously created with NewGroup, or
 // nil if there's no such group.
-func (c *Cacher) GetGroup(name string) *Group {
-	c.mu.RLock()
-	g := c.groups[name]
-	c.mu.RUnlock()
-	return g
+func (galaxy *Galaxy) GetGroup(name string) *Group {
+	galaxy.mu.RLock()
+	group := galaxy.groups[name]
+	galaxy.mu.RUnlock()
+	return group
 }
 
 // NewGroup creates a coordinated group-aware Getter from a Getter.
@@ -107,49 +100,37 @@ func (c *Cacher) GetGroup(name string) *Group {
 // other processes receive copies of the answer once the original Get
 // completes.
 //
-// The group name must be unique for each getter.
-func (c *Cacher) NewGroup(name string, cacheBytes int64, getter BackendGetter) *Group {
-	return c.newGroup(name, cacheBytes, getter) // redundant, same internal call without the PeerPicker interface arg
+// The group name must be unique for each BackendGetter.
+func (galaxy *Galaxy) NewGroup(name string, cacheBytes int64, getter BackendGetter) *Group {
+	return galaxy.newGroup(name, cacheBytes, getter) // redundant, same internal call without the PeerPicker interface arg
 }
 
-func (c *Cacher) newGroup(name string, cacheBytes int64, getter BackendGetter) *Group {
+func (galaxy *Galaxy) newGroup(name string, cacheBytes int64, getter BackendGetter) *Group {
 	if getter == nil {
 		panic("nil Getter")
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	// c.initPeerServerOnce.Do(c.callInitPeerServer)
-	if _, dup := c.groups[name]; dup {
+	galaxy.mu.Lock()
+	defer galaxy.mu.Unlock()
+
+	if _, dup := galaxy.groups[name]; dup {
 		panic("duplicate registration of group " + name)
 	}
 	g := &Group{
 		name:       name,
 		getter:     getter,
-		peerPicker: c.peerPicker,
+		peerPicker: galaxy.peerPicker,
 		cacheBytes: cacheBytes,
 		loadGroup:  &singleflight.Group{},
 	}
-	if fn := c.newGroupHook; fn != nil {
-		fn(g)
-	}
-	c.groups[name] = g
+	galaxy.groups[name] = g
 	return g
 }
 
-// Set updates the PeerPicker's list of peers through the Cacher.
+// Set updates the Galaxy's list of peers "contained in the PeerPicker".
 // Each peer value should be a valid base URL,
 // for example "http://example.net:8000".
-func (c *Cacher) Set(peers ...string) {
-	c.peerPicker.set(peers...)
-}
-
-// RegisterNewGroupHook registers a hook that is run each time
-// a group is created.
-func (c *Cacher) RegisterNewGroupHook(fn func(*Group)) {
-	if c.newGroupHook != nil {
-		panic("RegisterNewGroupHook called more than once")
-	}
-	c.newGroupHook = fn
+func (galaxy *Galaxy) Set(peers ...string) {
+	galaxy.peerPicker.set(peers...)
 }
 
 // A Group is a cache namespace and associated data loaded spread over
@@ -214,7 +195,7 @@ func (g *Group) Name() string {
 	return g.name
 }
 
-// Get as defined here is the primary "get" called on a group to find the value for the given key. It will first try the local cache, then on a cache miss it will search which peer is the owner of the key based on the consistent hash, then try either fetching from them if remote or getting with the Getter (such as from a database) if the calling Cacher instance is the owner
+// Get as defined here is the primary "get" called on a group to find the value for the given key. It will first try the local cache, then on a cache miss it will search for which peer is the owner of the key based on the consistent hash, then try either fetching remotely or getting with the Getter (such as from a database) if the calling Galaxy instance is the owner
 func (g *Group) Get(ctx context.Context, key string, dest Sink) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -307,7 +288,7 @@ func (g *Group) load(ctx context.Context, key string, dest Sink) (value ByteView
 
 		var value ByteView
 		var err error
-		if peer, ok := g.peerPicker.PickPeer(key); ok { // Cacher must be initialized for testing
+		if peer, ok := g.peerPicker.pickPeer(key); ok {
 			value, err = g.getFromPeer(ctx, peer, key)
 			if err == nil {
 				// TODO(@odeke-em): Remove .Stats
@@ -315,7 +296,6 @@ func (g *Group) load(ctx context.Context, key string, dest Sink) (value ByteView
 				stats.Record(ctx, MPeerLoads.M(1))
 				return value, nil
 			}
-			fmt.Println(err)
 			// TODO(@odeke-em): Remove .Stats
 			g.Stats.PeerErrors.Add(1)
 			stats.Record(ctx, MPeerErrors.M(1))

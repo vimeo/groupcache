@@ -26,13 +26,12 @@ import (
 	pb "github.com/vimeo/groupcache/groupcachepb"
 )
 
-// RemoteFetcher is the interface that must be implemented by a peer.
+// RemoteFetcher is the interface that must be implemented to fetch from other peers; the PeerPicker contains a map of these fetchers corresponding to each peer address
 type RemoteFetcher interface {
 	Fetch(context context.Context, in *pb.GetRequest, out *pb.GetResponse) error
 }
 
-// TODO: rip this apart and give it all to Cacher (selfURL -> selfAddress)
-// BasePath will be owned by HTTPFetchProtocol (implementation of the new and improved FetchProtocol interface)
+// PeerPicker is in charge of dealing with peers: it contains the hashing options (hash function and number of replicas), consistent hash map of peers, and a map of RemoteFetchers to those peers
 type PeerPicker struct {
 	fetchingProtocol FetchProtocol
 	selfURL          string
@@ -40,12 +39,9 @@ type PeerPicker struct {
 	fetchers         map[string]RemoteFetcher
 	mu               sync.RWMutex
 	opts             HashOptions
-
-	// testing for allowing alternate PickPeer()
-	// pickPeerFunc func(key string, fetchers []RemoteFetcher) (RemoteFetcher, bool)
 }
 
-// HashOptions are the configurations of a PeerPicker.
+// HashOptions specifies the the hash function and the number of replicas for consistent hashing
 type HashOptions struct {
 	// Replicas specifies the number of key replicas on the consistent hash.
 	// If blank, it defaults to 50.
@@ -72,9 +68,7 @@ func newPeerPicker(proto FetchProtocol, self string, options *HashOptions) *Peer
 	return pp
 }
 
-func (pp *PeerPicker) PickPeer(key string) (RemoteFetcher, bool) {
-	// can define alternate pickPeerFunc for testing... a little messy
-	// if pp.pickPeerFunc == nil {
+func (pp *PeerPicker) pickPeer(key string) (RemoteFetcher, bool) {
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 	if pp.peers.IsEmpty() {
@@ -84,8 +78,6 @@ func (pp *PeerPicker) PickPeer(key string) (RemoteFetcher, bool) {
 		return pp.fetchers[peer], true
 	}
 	return nil, false
-	// }
-	// return pp.pickPeerFunc(key, nil)
 }
 
 func (pp *PeerPicker) set(peers ...string) {
@@ -99,7 +91,7 @@ func (pp *PeerPicker) set(peers ...string) {
 	}
 }
 
-// FetchProtocol defines the chosen fetching protocol to peers (namely HTTP or GRPC) and implements the instantiation method for that connection
+// FetchProtocol defines the chosen fetching protocol to peers (namely HTTP or GRPC) and implements the instantiation method for that connection (creating a new RemoteFetcher)
 type FetchProtocol interface {
 	// NewFetcher instantiates the connection between peers and returns a RemoteFetcher to be used for fetching from a peer
 	NewFetcher(url string) RemoteFetcher

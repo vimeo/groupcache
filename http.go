@@ -36,10 +36,6 @@ const defaultBasePath = "/_groupcache/"
 
 const defaultReplicas = 50
 
-// baseURLs keeps track of HTTPPools initialized with the given base URLs; panic if a base URL is used more than once (allows for multiple HTTPPools on the same process for testing)
-var baseURLs map[string]struct{}
-var mu sync.RWMutex
-
 // HTTPFetchProtocol specifies HTTP specific options for HTTP-based peer communication
 type HTTPFetchProtocol struct {
 	// Transport optionally specifies an http.RoundTripper for the client
@@ -56,16 +52,9 @@ type HTTPOptions struct {
 	basePath  string
 }
 
-// NewHTTPFetchProtocol creates an HTTP fetch protocol to be passed into a cacher constructor;
-// uses the default "/_groupcache/" base path.
-// *You must use the same base path for the HTTPFetchProtocol and the HTTPHandler on the same Cacher*.
-// func NewHTTPFetchProtocol() *HTTPFetchProtocol {
-// 	return NewHTTPFetchProtocolWithOpts(nil)
-// }
-
-// NewHTTPFetchProtocol creates an HTTP fetch protocol to be passed into a cacher constructor;
+// NewHTTPFetchProtocol creates an HTTP fetch protocol to be passed into a Galaxy constructor;
 // uses a user chosen base path specified in HTTPOptions (or the default "/_groupcache/" base path if passed nil).
-// *You must use the same base path for the HTTPFetchProtocol and the HTTPHandler on the same Cacher*.
+// *You must use the same base path for the HTTPFetchProtocol and the HTTPHandler on the same Galaxy*.
 func NewHTTPFetchProtocol(opts *HTTPOptions) *HTTPFetchProtocol {
 	newProto := &HTTPFetchProtocol{
 		BasePath: defaultBasePath,
@@ -87,24 +76,24 @@ func (hp *HTTPFetchProtocol) NewFetcher(url string) RemoteFetcher {
 	return &httpFetcher{transport: hp.Transport, baseURL: url + hp.BasePath}
 }
 
-// HTTPHandler implements the HTTP handler necessary to serve an HTTP request; it contains a pointer to its parent Cacher in order to access its Groups
+// HTTPHandler implements the HTTP handler necessary to serve an HTTP request; it contains a pointer to its parent Galaxy in order to access its Groups
 type HTTPHandler struct {
 	// context.Context optionally specifies a context for the server to use when it
 	// receives a request.
 	// If nil, the server uses a nil context.Context.
 	Context      func(*http.Request) context.Context
-	parentCacher *Cacher
+	parentGalaxy *Galaxy
 	basePath     string
 }
 
-// RegisterHTTPHandler sets up an HTTPHandler with a user specified path and serveMux (if non nil) to handle requests to the given cacher. If both opts and serveMux are nil, defaultBasePath and DefaultServeMux will be used.
-// *You must use the same base path for the HTTPFetchProtocol and the HTTPHandler on the same Cacher*.
-func RegisterHTTPHandler(cacher *Cacher, opts *HTTPOptions, serveMux *http.ServeMux) {
+// RegisterHTTPHandler sets up an HTTPHandler with a user specified path and serveMux (if non nil) to handle requests to the given Galaxy. If both opts and serveMux are nil, defaultBasePath and DefaultServeMux will be used.
+// *You must use the same base path for the HTTPFetchProtocol and the HTTPHandler on the same Galaxy*.
+func RegisterHTTPHandler(galaxy *Galaxy, opts *HTTPOptions, serveMux *http.ServeMux) {
 	basePath := defaultBasePath
 	if opts != nil {
 		basePath = opts.basePath
 	}
-	newHTTPHandler := &HTTPHandler{basePath: basePath, parentCacher: cacher}
+	newHTTPHandler := &HTTPHandler{basePath: basePath, parentGalaxy: galaxy}
 	if serveMux == nil {
 		http.Handle(basePath, newHTTPHandler)
 	} else {
@@ -127,7 +116,7 @@ func (handler *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	key := parts[1]
 
 	// Fetch the value for this group/key.
-	group := handler.parentCacher.GetGroup(groupName)
+	group := handler.parentGalaxy.GetGroup(groupName)
 	if group == nil {
 		http.Error(w, "no such group: "+groupName, http.StatusNotFound)
 		return

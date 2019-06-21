@@ -54,21 +54,21 @@ func TestHTTPHandler(t *testing.T) {
 		peerListeners = append(peerListeners, newListener)
 	}
 
-	cacher := NewCacher(NewHTTPFetchProtocol(nil), "shouldBeIgnored")
+	galaxy := NewGalaxy(NewHTTPFetchProtocol(nil), "shouldBeIgnored")
 	serveMux := http.NewServeMux()
-	RegisterHTTPHandler(cacher, nil, serveMux)
-	cacher.Set(addrToURL(peerAddresses)...)
+	RegisterHTTPHandler(galaxy, nil, serveMux)
+	galaxy.Set(addrToURL(peerAddresses)...)
 
 	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
 		return fmt.Errorf("oh no! Local get occurred")
 	})
-	g := cacher.NewGroup("peerFetchTest", 1<<20, getter)
+	g := galaxy.NewGroup("peerFetchTest", 1<<20, getter)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	for _, listener := range peerListeners {
-		go makeServerCacher(ctx, peerAddresses, listener)
+		go makeServerGalaxy(ctx, peerAddresses, listener)
 	}
 
 	for _, key := range testKeys(nGets) {
@@ -84,18 +84,18 @@ func TestHTTPHandler(t *testing.T) {
 
 }
 
-func makeServerCacher(ctx context.Context, addresses []string, listener net.Listener) {
-	cacher := NewCacher(NewHTTPFetchProtocol(nil), "http://"+listener.Addr().String())
+func makeServerGalaxy(ctx context.Context, addresses []string, listener net.Listener) {
+	galaxy := NewGalaxy(NewHTTPFetchProtocol(nil), "http://"+listener.Addr().String())
 	serveMux := http.NewServeMux()
 	wrappedHandler := &ochttp.Handler{Handler: serveMux}
-	RegisterHTTPHandler(cacher, nil, serveMux)
-	cacher.Set(addrToURL(addresses)...)
+	RegisterHTTPHandler(galaxy, nil, serveMux)
+	galaxy.Set(addrToURL(addresses)...)
 
 	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
 		dest.SetString(":" + key)
 		return nil
 	})
-	cacher.NewGroup("peerFetchTest", 1<<20, getter)
+	galaxy.NewGroup("peerFetchTest", 1<<20, getter)
 	newServer := http.Server{Handler: wrappedHandler}
 	go func() {
 		err := newServer.Serve(listener)
