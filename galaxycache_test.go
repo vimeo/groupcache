@@ -356,7 +356,7 @@ func TestTruncatingByteSliceTarget(t *testing.T) {
 	var cacheFills AtomicInt
 	dummyCtx := context.TODO()
 	stringGalaxy, _ := testSetupStringGalaxy(universe, &cacheFills)
-	buf := make([]byte, 100)
+	var buf [100]byte
 	s := buf[:]
 	if err := stringGalaxy.Get(dummyCtx, "short", TruncatingByteSliceSink(&s)); err != nil {
 		t.Fatal(err)
