@@ -4,8 +4,10 @@
 package galaxycachepb
 
 import (
+	context "context"
 	fmt "fmt"
 	proto "github.com/golang/protobuf/proto"
+	grpc "google.golang.org/grpc"
 	math "math"
 )
 
@@ -122,7 +124,7 @@ func init() {
 func init() { proto.RegisterFile("galaxycache.proto", fileDescriptor_23bd509ca7b74957) }
 
 var fileDescriptor_23bd509ca7b74957 = []byte{
-	// 181 bytes of a gzipped FileDescriptorProto
+	// 187 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0x12, 0x4c, 0x4f, 0xcc, 0x49,
 	0xac, 0xa8, 0x4c, 0x4e, 0x4c, 0xce, 0x48, 0xd5, 0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17, 0xe2, 0x45,
 	0x12, 0x2a, 0x48, 0x52, 0x32, 0xe3, 0xe2, 0x72, 0x4f, 0x2d, 0x09, 0x4a, 0x2d, 0x2c, 0x4d, 0x2d,
@@ -131,8 +133,80 @@ var fileDescriptor_23bd509ca7b74957 = []byte{
 	0x1b, 0xac, 0xaf, 0xb8, 0x20, 0x3f, 0xaf, 0x38, 0x55, 0x48, 0x84, 0x8b, 0xb5, 0x2c, 0x31, 0xa7,
 	0x34, 0x15, 0xac, 0x8f, 0x27, 0x08, 0xc2, 0x11, 0x92, 0xe5, 0xe2, 0xca, 0xcd, 0xcc, 0x2b, 0x2d,
 	0x49, 0x8d, 0x2f, 0x2c, 0x28, 0x06, 0xeb, 0x66, 0x0c, 0xe2, 0x84, 0x88, 0x04, 0x16, 0x14, 0x1b,
-	0xf9, 0x72, 0x71, 0xbb, 0x83, 0xcd, 0x77, 0x06, 0x39, 0x46, 0xc8, 0x8e, 0x8b, 0xd9, 0x3d, 0xb5,
-	0x44, 0x48, 0x52, 0x0f, 0xc5, 0x85, 0x7a, 0x08, 0xe7, 0x49, 0x49, 0x61, 0x93, 0x82, 0xb8, 0x40,
-	0x89, 0x21, 0x89, 0x0d, 0xec, 0x41, 0x63, 0x40, 0x00, 0x00, 0x00, 0xff, 0xff, 0xd7, 0xd1, 0x2c,
-	0xfa, 0xf5, 0x00, 0x00, 0x00,
+	0x85, 0x73, 0x71, 0xbb, 0x23, 0x1c, 0x23, 0xe4, 0xc1, 0xc5, 0xeb, 0x9e, 0x5a, 0xe2, 0x56, 0x94,
+	0x9f, 0x1b, 0x94, 0x9a, 0x9b, 0x5f, 0x92, 0x2a, 0x24, 0xa9, 0x87, 0xe2, 0x56, 0x3d, 0x84, 0x43,
+	0xa5, 0xa4, 0xb0, 0x49, 0x41, 0xdc, 0xa2, 0xc4, 0x90, 0xc4, 0x06, 0xf6, 0xaa, 0x31, 0x20, 0x00,
+	0x00, 0xff, 0xff, 0x6c, 0x17, 0xf8, 0xc6, 0xff, 0x00, 0x00, 0x00,
+}
+
+// Reference imports to suppress errors if they are not otherwise used.
+var _ context.Context
+var _ grpc.ClientConn
+
+// This is a compile-time assertion to ensure that this generated file
+// is compatible with the grpc package it is being compiled against.
+const _ = grpc.SupportPackageIsVersion4
+
+// GalaxycacheClient is the client API for Galaxycache service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
+type GalaxycacheClient interface {
+	GetFromRemote(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (*GetResponse, error)
+}
+
+type galaxycacheClient struct {
+	cc *grpc.ClientConn
+}
+
+func NewGalaxycacheClient(cc *grpc.ClientConn) GalaxycacheClient {
+	return &galaxycacheClient{cc}
+}
+
+func (c *galaxycacheClient) GetFromRemote(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (*GetResponse, error) {
+	out := new(GetResponse)
+	err := c.cc.Invoke(ctx, "/galaxycachepb.Galaxycache/GetFromRemote", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GalaxycacheServer is the server API for Galaxycache service.
+type GalaxycacheServer interface {
+	GetFromRemote(context.Context, *GetRequest) (*GetResponse, error)
+}
+
+func RegisterGalaxycacheServer(s *grpc.Server, srv GalaxycacheServer) {
+	s.RegisterService(&_Galaxycache_serviceDesc, srv)
+}
+
+func _Galaxycache_GetFromRemote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GalaxycacheServer).GetFromRemote(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/galaxycachepb.Galaxycache/GetFromRemote",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GalaxycacheServer).GetFromRemote(ctx, req.(*GetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+var _Galaxycache_serviceDesc = grpc.ServiceDesc{
+	ServiceName: "galaxycachepb.Galaxycache",
+	HandlerType: (*GalaxycacheServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "GetFromRemote",
+			Handler:    _Galaxycache_GetFromRemote_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "galaxycache.proto",
 }
