@@ -27,6 +27,8 @@ import (
 	pb "github.com/vimeo/groupcache/groupcachepb"
 )
 
+const defaultReplicas = 50
+
 // RemoteFetcher is the interface that must be implemented to fetch from other peers; the PeerPicker contains a map of these fetchers corresponding to each other peer address
 type RemoteFetcher interface {
 	Fetch(context context.Context, in *pb.GetRequest, out *pb.GetResponse) error

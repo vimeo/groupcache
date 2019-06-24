@@ -34,9 +34,7 @@ import (
 
 const defaultBasePath = "/_galaxycache/"
 
-const defaultReplicas = 50
-
-// HTTPFetchProtocol specifies HTTP specific options for HTTP-based peer communication
+// HTTPFetchProtocol specifies HTTP specific options for HTTP-based star authority communication
 type HTTPFetchProtocol struct {
 	// Transport optionally specifies an http.RoundTripper for the client
 	// to use when it makes a request.
