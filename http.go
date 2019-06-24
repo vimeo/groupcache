@@ -78,10 +78,6 @@ func (hp *HTTPFetchProtocol) NewFetcher(url string) RemoteFetcher {
 
 // HTTPHandler implements the HTTP handler necessary to serve an HTTP request; it contains a pointer to its parent Universe in order to access its Galaxys
 type HTTPHandler struct {
-	// context.Context optionally specifies a context for the server to use when it
-	// receives a request.
-	// If nil, the server uses a nil context.Context.
-	Context        func(*http.Request) context.Context
 	parentUniverse *Universe
 	basePath       string
 }
@@ -121,10 +117,8 @@ func (handler *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no such galaxy: "+galaxyName, http.StatusNotFound)
 		return
 	}
-	var ctx context.Context
-	if handler.Context != nil {
-		ctx = handler.Context(r)
-	}
+
+	ctx := r.Context()
 
 	// TODO: remove galaxy.Stats from here
 	galaxy.Stats.ServerRequests.Add(1)
@@ -162,7 +156,6 @@ func (h *httpFetcher) Fetch(ctx context.Context, in *pb.GetRequest, out *pb.GetR
 		url.QueryEscape(in.GetGalaxy()),
 		url.QueryEscape(in.GetKey()),
 	)
-	// fmt.Println("Fetching from ", u)
 	req, err := http.NewRequest("GET", u, nil)
 	if err != nil {
 		return err

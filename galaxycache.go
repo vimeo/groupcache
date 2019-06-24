@@ -18,9 +18,9 @@ limitations under the License.
 // and de-duplication that works across a set of peer processes.
 //
 // Each data Get first consults its local cache, otherwise delegates
-// to the requested key's canonical owner (StarAuthority), which then checks its cache
+// to the requested key's canonical owner, which then checks its cache
 // or finally gets the data.  In the common case, many concurrent
-// cache misses across a set of star authorities for the same key result in just
+// cache misses across a set of peers for the same key result in just
 // one cache fill.
 package galaxycache
 
@@ -68,16 +68,16 @@ type Universe struct {
 	starAuthorityPicker *StarAuthorityPicker
 }
 
-// NewUniverse is the default constructor for the Universe object
-func NewUniverse(protocol FetchProtocol, self string) *Universe {
-	return NewUniverseWithOpts(protocol, self, nil)
+// NewUniverse is the default constructor for the Universe object. It is passed a FetchProtocol (to specify fetching via GRPC or HTTP) and its own URL
+func NewUniverse(protocol FetchProtocol, selfURL string) *Universe {
+	return NewUniverseWithOpts(protocol, selfURL, nil)
 }
 
 // NewUniverseWithOpts is the optional constructor for the Universe object that defines a non-default hash function and number of replicas
-func NewUniverseWithOpts(protocol FetchProtocol, self string, options *HashOptions) *Universe {
+func NewUniverseWithOpts(protocol FetchProtocol, selfURL string, options *HashOptions) *Universe {
 	c := &Universe{
 		galaxies:            make(map[string]*Galaxy),
-		starAuthorityPicker: newStarAuthorityPicker(protocol, self, options),
+		starAuthorityPicker: newStarAuthorityPicker(protocol, selfURL, options),
 	}
 
 	return c
@@ -87,9 +87,8 @@ func NewUniverseWithOpts(protocol FetchProtocol, self string, options *HashOptio
 // nil if there's no such galaxy.
 func (universe *Universe) GetGalaxy(name string) *Galaxy {
 	universe.mu.RLock()
-	galaxy := universe.galaxies[name]
-	universe.mu.RUnlock()
-	return galaxy
+	defer universe.mu.RUnlock()
+	return universe.galaxies[name]
 }
 
 // NewGalaxy creates a coordinated galaxy-aware Getter from a Getter.
