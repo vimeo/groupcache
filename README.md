@@ -2,10 +2,10 @@
 
 ## Summary
 
-galaxycache is a caching and cache-filling library, intended as a
+galaxycache is a caching and cache-filling library, adapted from groupcache, intended as a
 replacement for memcached in many cases.
 
-For API docs and examples, see http://godoc.org/github.com/golang/galaxycache
+For API docs and examples, see http://godoc.org/github.com/vimeo/galaxycache
 
 ## Comparison to memcached
 
