@@ -189,7 +189,7 @@ func (g *Galaxy) Name() string {
 	return g.name
 }
 
-// Get as defined here is the primary "get" called on a galaxy to find the value for the given key. It will first try the local cache, then on a cache miss it will search for which star authority is the owner of the key based on the consistent hash, then try either fetching remotely or getting with the Getter (such as from a database) if the calling Universe instance is the owner
+// Get as defined here is the primary "get" called on a galaxy to find the value for the given key. It will first try the local cache, then on a cache miss it will search for which star authority is the owner of the key based on the consistent hash, then try either fetching remotely or getting with the Getter (such as from a database) if the calling instance is the key's canonical owner
 func (g *Galaxy) Get(ctx context.Context, key string, dest Sink) error {
 	if ctx == nil {
 		ctx = context.Background()
