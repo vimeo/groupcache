@@ -260,88 +260,94 @@ func (proto *TestProtocol) NewFetcher(url string) RemoteFetcher {
 
 // TestStarAuthorities tests to ensure that an instance with given hash function results in the expected number of gets both locally and into each other star authority
 func TestStarAuthorities(t *testing.T) {
-	// instantiate test fetchers with the test protocol
-	testproto := &TestProtocol{
-		TestFetchers: make(map[string]*TestFetcher),
-	}
 
-	// Initialize source to a deterministic state so we will have predictable hotCache result (given the current 10%-of-the-time method for putting items in the hotCache)
-	rand.Seed(123)
 	hashFn := func(data []byte) uint32 {
 		dataStr := strings.TrimPrefix(string(data), "0fetcher")
 		toReturn, _ := strconv.Atoi(dataStr)
 		return uint32(toReturn) % 4
 	}
-
 	hashOpts := &HashOptions{
 		Replicas: 1,
 		HashFn:   hashFn,
 	}
-	universe := NewUniverseWithOpts(testproto, "fetcher3", hashOpts)
-	dummyCtx := context.TODO()
 
-	universe.Set("fetcher0", "fetcher1", "fetcher2", "fetcher3")
-
-	const cacheSize = 0
-	localHits := 0
-	getter := func(_ context.Context, key string, dest Sink) error {
-		localHits++
-		return dest.SetString("got:" + key)
-	}
-
-	testGalaxy := universe.NewGalaxy("TestStarAuthorities-galaxy", cacheSize, GetterFunc(getter))
-
-	run := func(name string, n int, wantSummary string) {
-		// Reset counters
-		localHits = 0
-		for _, p := range testproto.TestFetchers {
-			p.hits = 0
-		}
-
-		for i := 0; i < n; i++ {
-			key := fmt.Sprintf("%d", i)
-			want := "got:" + key
-			var got string
-			err := testGalaxy.Get(dummyCtx, key, StringSink(&got))
-			if err != nil {
-				t.Errorf("%s: error on key %q: %v", name, key, err)
-				continue
+	testCases := []struct {
+		testName     string
+		numGets      int
+		expectedHits map[string]int
+		cacheSize    int64
+		initFunc     func(g *Galaxy, fetchers map[string]*TestFetcher)
+	}{
+		{testName: "base", numGets: 200, expectedHits: map[string]int{"fetcher0": 50, "fetcher1": 50, "fetcher2": 50, "fetcher3": 50}, cacheSize: 1 << 20},
+		{"cached_base", 200, map[string]int{"fetcher0": 0, "fetcher1": 48, "fetcher2": 47, "fetcher3": 48}, 1 << 20, func(g *Galaxy, _ map[string]*TestFetcher) {
+			for i := 0; i < 200; i++ {
+				key := fmt.Sprintf("%d", i)
+				var got string
+				err := g.Get(context.TODO(), key, StringSink(&got))
+				if err != nil {
+					t.Errorf("error on key %q: %v", key, err)
+					continue
+				}
 			}
-			if got != want {
-				t.Errorf("%s: for key %q, got %q; want %q", name, key, got, want)
+		}},
+		{"one_peer_down", 200, map[string]int{"fetcher0": 100, "fetcher1": 50, "fetcher2": 0, "fetcher3": 50}, 1 << 20, func(g *Galaxy, fetchers map[string]*TestFetcher) {
+			fetchers["fetcher2"].fail = true
+		}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.testName, func(t *testing.T) {
+			// instantiate test fetchers with the test protocol
+			testproto := &TestProtocol{
+				TestFetchers: make(map[string]*TestFetcher),
 			}
-		}
-		summary := func() string {
-			return fmt.Sprintf("localHits = %d, star authorities = %d %d %d", localHits, testproto.TestFetchers["fetcher0"].hits, testproto.TestFetchers["fetcher1"].hits, testproto.TestFetchers["fetcher2"].hits)
-		}
-		if got := summary(); got != wantSummary {
-			t.Errorf("%s: got %q; want %q", name, got, wantSummary)
-		}
+
+			// Initialize source to a deterministic state so we will have predictable hotCache result (given the current 10%-of-the-time method for putting items in the hotCache)
+			rand.Seed(123)
+
+			universe := NewUniverseWithOpts(testproto, "fetcher0", hashOpts)
+			dummyCtx := context.TODO()
+
+			universe.Set("fetcher0", "fetcher1", "fetcher2", "fetcher3")
+			getter := func(_ context.Context, key string, dest Sink) error {
+				// these are local hits
+				testproto.TestFetchers["fetcher0"].hits++
+				return dest.SetString("got:" + key)
+			}
+
+			testGalaxy := universe.NewGalaxy("TestStarAuthorities-galaxy", tc.cacheSize, GetterFunc(getter))
+
+			if tc.initFunc != nil {
+				tc.initFunc(testGalaxy, testproto.TestFetchers)
+			}
+
+			for _, p := range testproto.TestFetchers {
+				p.hits = 0
+			}
+
+			for i := 0; i < tc.numGets; i++ {
+				key := fmt.Sprintf("%d", i)
+				want := "got:" + key
+				var got string
+				err := testGalaxy.Get(dummyCtx, key, StringSink(&got))
+				if err != nil {
+					t.Errorf("%s: error on key %q: %v", tc.testName, key, err)
+					continue
+				}
+				if got != want {
+					t.Errorf("%s: for key %q, got %q; want %q", tc.testName, key, got, want)
+				}
+			}
+			for name, fetcher := range testproto.TestFetchers {
+				want := tc.expectedHits[name]
+				got := fetcher.hits
+				if got != want {
+					t.Errorf("For %s:  got %d, want %d", name, fetcher.hits, want)
+				}
+
+			}
+		})
 	}
-
-	resetCacheSize := func(maxBytes int64) {
-		g := testGalaxy
-		g.cacheBytes = maxBytes
-		g.mainCache = cache{}
-		g.hotCache = cache{}
-	}
-
-	// Base case; star authorities all up, with no problems.
-	resetCacheSize(1 << 20)
-	run("base", 200, "localHits = 50, star authorities = 50 50 50")
-
-	// Verify cache was hit.  All localHits and some of
-	// the star authority hits are gone (the ones randomly selected to be maybe hot)
-	run("cached_base", 200, "localHits = 0, star authorities = 48 47 48")
-	resetCacheSize(0)
-
-	// // With one of the star authorities being down.
-	// // TODO(bradfitz): on a star authority number being unavailable, the
-	// // consistent hashing should maybe keep trying others to
-	// // spread the load out. Currently it fails back to local
-	// // execution if the first consistent-hash slot is unavailable.
-	testproto.TestFetchers["fetcher1"].fail = true
-	run("one_star_auth_down", 200, "localHits = 100, star authorities = 50 0 50")
 
 }
 
