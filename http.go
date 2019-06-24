@@ -41,15 +41,15 @@ type HTTPFetchProtocol struct {
 	// Transport optionally specifies an http.RoundTripper for the client
 	// to use when it makes a request.
 	// If nil, the client uses http.DefaultTransport.
-	Transport func(context.Context) http.RoundTripper
-	BasePath  string
+	transport func(context.Context) http.RoundTripper
+	basePath  string
 }
 
 // HTTPOptions specifies a base path for serving and fetching.
 // *ONLY SPECIFY IF NOT USING THE DEFAULT "/_galaxycache/" BASE PATH*.
 type HTTPOptions struct {
 	Transport func(context.Context) http.RoundTripper
-	basePath  string
+	BasePath  string
 }
 
 // NewHTTPFetchProtocol creates an HTTP fetch protocol to be passed into a Universe constructor;
@@ -57,23 +57,23 @@ type HTTPOptions struct {
 // *You must use the same base path for the HTTPFetchProtocol and the HTTPHandler on the same Universe*.
 func NewHTTPFetchProtocol(opts *HTTPOptions) *HTTPFetchProtocol {
 	newProto := &HTTPFetchProtocol{
-		BasePath: defaultBasePath,
+		basePath: defaultBasePath,
 	}
 	if opts == nil {
 		return newProto
 	}
-	if opts.basePath != "" {
-		newProto.BasePath = opts.basePath
+	if opts.BasePath != "" {
+		newProto.basePath = opts.BasePath
 	}
 	if opts.Transport != nil {
-		newProto.Transport = opts.Transport
+		newProto.transport = opts.Transport
 	}
 	return newProto
 }
 
 // NewFetcher implements the Protocol interface for HTTPProtocol by constructing a new fetcher to fetch from starAuthorities via HTTP
 func (hp *HTTPFetchProtocol) NewFetcher(url string) RemoteFetcher {
-	return &httpFetcher{transport: hp.Transport, baseURL: url + hp.BasePath}
+	return &httpFetcher{transport: hp.transport, baseURL: url + hp.basePath}
 }
 
 // HTTPHandler implements the HTTP handler necessary to serve an HTTP request; it contains a pointer to its parent Universe in order to access its Galaxys
@@ -87,7 +87,7 @@ type HTTPHandler struct {
 func RegisterHTTPHandler(universe *Universe, opts *HTTPOptions, serveMux *http.ServeMux) {
 	basePath := defaultBasePath
 	if opts != nil {
-		basePath = opts.basePath
+		basePath = opts.BasePath
 	}
 	newHTTPHandler := &HTTPHandler{basePath: basePath, parentUniverse: universe}
 	if serveMux == nil {

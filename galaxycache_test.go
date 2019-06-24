@@ -264,6 +264,8 @@ func TestStarAuthorities(t *testing.T) {
 	testproto := &TestProtocol{
 		TestFetchers: make(map[string]*TestFetcher),
 	}
+
+	// Initialize source to a deterministic state so we will have predictable hotCache result (given the current 10%-of-the-time method for putting items in the hotCache)
 	rand.Seed(123)
 	hashFn := func(data []byte) uint32 {
 		dataStr := strings.TrimPrefix(string(data), "0fetcher")
@@ -350,14 +352,10 @@ func TestTruncatingByteSliceTarget(t *testing.T) {
 	stringGalaxy, _ := testSetupStringGalaxy(universe, &cacheFills)
 	buf := make([]byte, 100)
 	s := buf[:]
-	sink := TruncatingByteSliceSink(&s)
-	println("sink: ", sink)
 	if err := stringGalaxy.Get(dummyCtx, "short", TruncatingByteSliceSink(&s)); err != nil {
-		fmt.Println("Err 1: ", err)
 		t.Fatal(err)
 	}
 	if want := "ECHO:short"; string(s) != want {
-		fmt.Println("Err 1: ")
 		t.Errorf("short key got %q; want %q", s, want)
 	}
 

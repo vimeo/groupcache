@@ -124,16 +124,15 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 // Set updates the Universe's list of star authorities (contained in the StarAuthorityPicker).
 // Each StarAuthorityURL value should be a valid base URL,
 // for example "http://example.net:8000".
-func (universe *Universe) Set(StarAuthorityURLs ...string) {
-	universe.starAuthorityPicker.set(StarAuthorityURLs...)
+func (universe *Universe) Set(starAuthorityURLs ...string) {
+	universe.starAuthorityPicker.set(starAuthorityURLs...)
 }
 
-// A Galaxy is a cache namespace and associated data loaded spread over
+// A Galaxy is a cache namespace and associated data spread over
 // a group of 1 or more machines.
 type Galaxy struct {
 	name                string
 	getter              BackendGetter
-	starAuthoritiesOnce sync.Once
 	starAuthorityPicker *StarAuthorityPicker
 	cacheBytes          int64 // limit for sum of mainCache and hotCache size
 
