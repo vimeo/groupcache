@@ -233,6 +233,11 @@ type TestFetcher struct {
 	hits int
 	fail bool
 }
+
+func (fetcher *TestFetcher) Close() error {
+	return nil
+}
+
 type testFetchers []RemoteFetcher
 
 func (fetcher *TestFetcher) Fetch(ctx context.Context, in *pb.GetRequest, out *pb.GetResponse) error {
@@ -244,13 +249,13 @@ func (fetcher *TestFetcher) Fetch(ctx context.Context, in *pb.GetRequest, out *p
 	return nil
 }
 
-func (proto *TestProtocol) NewFetcher(url string) RemoteFetcher {
+func (proto *TestProtocol) NewFetcher(url string) (RemoteFetcher, error) {
 	newTestFetcher := &TestFetcher{
 		hits: 0,
 		fail: false,
 	}
 	proto.TestFetchers[url] = newTestFetcher
-	return newTestFetcher
+	return newTestFetcher, nil
 }
 
 // TestPeers tests to ensure that an instance with given hash
