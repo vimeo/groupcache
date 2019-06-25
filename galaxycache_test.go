@@ -242,7 +242,7 @@ type testFetchers []RemoteFetcher
 
 func (fetcher *TestFetcher) Fetch(ctx context.Context, in *pb.GetRequest, out *pb.GetResponse) error {
 	if fetcher.fail {
-		return errors.New("simulated error from star authority")
+		return errors.New("simulated error from peer")
 	}
 	fetcher.hits++
 	out.Value = []byte("got:" + in.GetKey())
@@ -258,7 +258,7 @@ func (proto *TestProtocol) NewFetcher(url string) RemoteFetcher {
 	return newTestFetcher
 }
 
-// TestPeers tests to ensure that an instance with given hash function results in the expected number of gets both locally and into each other star authority
+// TestPeers tests to ensure that an instance with given hash function results in the expected number of gets both locally and into each other peer
 func TestPeers(t *testing.T) {
 
 	hashFn := func(data []byte) uint32 {
