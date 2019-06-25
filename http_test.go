@@ -66,7 +66,7 @@ func TestHTTPHandler(t *testing.T) {
 	defer cancel()
 
 	for _, listener := range peerListeners {
-		go makeServerUniverse(ctx, t, peerAddresses, listener)
+		go makeHTTPServerUniverse(ctx, t, peerAddresses, listener)
 	}
 
 	for _, key := range testKeys(nGets) {
@@ -82,7 +82,7 @@ func TestHTTPHandler(t *testing.T) {
 
 }
 
-func makeServerUniverse(ctx context.Context, t testing.TB, addresses []string, listener net.Listener) {
+func makeHTTPServerUniverse(ctx context.Context, t testing.TB, addresses []string, listener net.Listener) {
 	universe := NewUniverse(NewHTTPFetchProtocol(nil), "http://"+listener.Addr().String())
 	serveMux := http.NewServeMux()
 	wrappedHandler := &ochttp.Handler{Handler: serveMux}

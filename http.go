@@ -72,10 +72,9 @@ func NewHTTPFetchProtocol(opts *HTTPOptions) *HTTPFetchProtocol {
 	return newProto
 }
 
-// NewFetcher implements the Protocol interface for HTTPProtocol by
-// constructing a new fetcher to fetch from peers via HTTP
-func (hp *HTTPFetchProtocol) NewFetcher(url string) RemoteFetcher {
-	return &httpFetcher{transport: hp.transport, baseURL: url + hp.basePath}
+// NewFetcher implements the Protocol interface for HTTPProtocol by constructing a new fetcher to fetch from peers via HTTP
+func (hp *HTTPFetchProtocol) NewFetcher(url string) (RemoteFetcher, error) {
+	return &httpFetcher{transport: hp.transport, baseURL: url + hp.basePath}, nil
 }
 
 // HTTPHandler implements the HTTP handler necessary to serve an HTTP
@@ -155,6 +154,7 @@ var bufferPool = sync.Pool{
 	New: func() interface{} { return new(bytes.Buffer) },
 }
 
+// Fetch here implements the RemoteFetcher interface for sending a GET request over HTTP to a peer
 func (h *httpFetcher) Fetch(ctx context.Context, in *pb.GetRequest, out *pb.GetResponse) error {
 	u := fmt.Sprintf(
 		"%v%v/%v",
@@ -189,5 +189,10 @@ func (h *httpFetcher) Fetch(ctx context.Context, in *pb.GetRequest, out *pb.GetR
 	if err != nil {
 		return fmt.Errorf("decoding response body: %v", err)
 	}
+	return nil
+}
+
+// Close here implements the RemoteFetcher interface for closing (does nothing for HTTP)
+func (h *httpFetcher) Close() error {
 	return nil
 }
