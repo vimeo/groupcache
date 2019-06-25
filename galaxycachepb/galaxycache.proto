@@ -28,6 +28,6 @@ message GetResponse {
   double minute_qps = 2;
 }
 
-service Galaxycache {
-  rpc GetFromRemote(GetRequest) returns (GetResponse) {}
+service Peer {
+  rpc GetFromPeer(GetRequest) returns (GetResponse) {}
 }
