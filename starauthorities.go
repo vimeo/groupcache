@@ -14,8 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// starauthorities.go defines how processes (star authorities) find and communicate with their peers (other star authorities).
-// Each running Universe instance has authority over a set of keys, or "stars", within each galaxy (address space of data) -- this star set is determined by the consistent hashing algorithm. Every one of these separate running Universe instances are therefore referred to as "star authorities". Each Universe fetches from other star authorities when it receives a request for a key that is handled by another instance.
+// peers.go defines how processes find and communicate with their peers.
+// Each running Universe instance is a peer of each other, and it has authority over a set of keys, or "stars", within each galaxy (address space of data) -- which keys are handled by each peer is determined by the consistent hashing algorithm. Each instance fetches from another peer when it receives a request for a key for which that peer is the authority.
 
 package galaxycache
 
@@ -27,16 +27,16 @@ import (
 	pb "github.com/vimeo/groupcache/groupcachepb"
 )
 
-// RemoteFetcher is the interface that must be implemented to fetch from other star authorities; the StarAuthorityPicker contains a map of these fetchers corresponding to each other star authority address
+// RemoteFetcher is the interface that must be implemented to fetch from other peers; the PeerPicker contains a map of these fetchers corresponding to each other peer address
 type RemoteFetcher interface {
 	Fetch(context context.Context, in *pb.GetRequest, out *pb.GetResponse) error
 }
 
-// StarAuthorityPicker is in charge of dealing with star authorities: it contains the hashing options (hash function and number of replicas), consistent hash map of star authorities, and a map of RemoteFetchers to those star authorities
-type StarAuthorityPicker struct {
+// PeerPicker is in charge of dealing with peers: it contains the hashing options (hash function and number of replicas), consistent hash map of peers, and a map of RemoteFetchers to those peers
+type PeerPicker struct {
 	fetchingProtocol FetchProtocol
 	selfURL          string
-	starAuthorities  *consistenthash.Map
+	peers            *consistenthash.Map
 	fetchers         map[string]RemoteFetcher
 	mu               sync.RWMutex
 	opts             HashOptions
@@ -53,9 +53,9 @@ type HashOptions struct {
 	HashFn consistenthash.Hash
 }
 
-// Creates a star authority picker; called when creating a new Universe
-func newStarAuthorityPicker(proto FetchProtocol, selfURL string, options *HashOptions) *StarAuthorityPicker {
-	pp := &StarAuthorityPicker{
+// Creates a peer picker; called when creating a new Universe
+func newPeerPicker(proto FetchProtocol, selfURL string, options *HashOptions) *PeerPicker {
+	pp := &PeerPicker{
 		fetchingProtocol: proto,
 		selfURL:          selfURL,
 		fetchers:         make(map[string]RemoteFetcher),
@@ -66,36 +66,36 @@ func newStarAuthorityPicker(proto FetchProtocol, selfURL string, options *HashOp
 	if pp.opts.Replicas == 0 {
 		pp.opts.Replicas = defaultReplicas
 	}
-	pp.starAuthorities = consistenthash.New(pp.opts.Replicas, pp.opts.HashFn)
+	pp.peers = consistenthash.New(pp.opts.Replicas, pp.opts.HashFn)
 	return pp
 }
 
-// When passed a key ("star"), the consistent hash is used to determine which star authority is responsible getting/caching it
-func (pp *StarAuthorityPicker) pickStarAuthority(key string) (RemoteFetcher, bool) {
+// When passed a key ("star"), the consistent hash is used to determine which peer is responsible getting/caching it
+func (pp *PeerPicker) pickPeer(key string) (RemoteFetcher, bool) {
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
-	if pp.starAuthorities.IsEmpty() {
+	if pp.peers.IsEmpty() {
 		return nil, false
 	}
-	if URL := pp.starAuthorities.Get(key); URL != pp.selfURL {
+	if URL := pp.peers.Get(key); URL != pp.selfURL {
 		return pp.fetchers[URL], true
 	}
 	return nil, false
 }
 
-func (pp *StarAuthorityPicker) set(starAuthorityURLs ...string) {
+func (pp *PeerPicker) set(peerURLs ...string) {
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
-	pp.starAuthorities = consistenthash.New(pp.opts.Replicas, pp.opts.HashFn)
-	pp.starAuthorities.Add(starAuthorityURLs...)
-	pp.fetchers = make(map[string]RemoteFetcher, len(starAuthorityURLs))
-	for _, URL := range starAuthorityURLs {
+	pp.peers = consistenthash.New(pp.opts.Replicas, pp.opts.HashFn)
+	pp.peers.Add(peerURLs...)
+	pp.fetchers = make(map[string]RemoteFetcher, len(peerURLs))
+	for _, URL := range peerURLs {
 		pp.fetchers[URL] = pp.fetchingProtocol.NewFetcher(URL)
 	}
 }
 
-// FetchProtocol defines the chosen fetching protocol to star authorities (namely HTTP or GRPC) and implements the instantiation method for that connection (creating a new RemoteFetcher)
+// FetchProtocol defines the chosen fetching protocol to peers (namely HTTP or GRPC) and implements the instantiation method for that connection (creating a new RemoteFetcher)
 type FetchProtocol interface {
-	// NewFetcher instantiates the connection between the current and a remote star authority and returns a RemoteFetcher to be used for fetching data from that authority
+	// NewFetcher instantiates the connection between the current and a remote peer and returns a RemoteFetcher to be used for fetching data from that peer
 	NewFetcher(url string) RemoteFetcher
 }

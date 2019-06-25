@@ -230,7 +230,7 @@ func TestCacheEviction(t *testing.T) {
 	}
 }
 
-// Testing types to use in TestStarAuthorities
+// Testing types to use in TestPeers
 type TestProtocol struct {
 	TestFetchers map[string]*TestFetcher
 }
@@ -258,8 +258,8 @@ func (proto *TestProtocol) NewFetcher(url string) RemoteFetcher {
 	return newTestFetcher
 }
 
-// TestStarAuthorities tests to ensure that an instance with given hash function results in the expected number of gets both locally and into each other star authority
-func TestStarAuthorities(t *testing.T) {
+// TestPeers tests to ensure that an instance with given hash function results in the expected number of gets both locally and into each other star authority
+func TestPeers(t *testing.T) {
 
 	hashFn := func(data []byte) uint32 {
 		dataStr := strings.TrimPrefix(string(data), "0fetcher")
@@ -315,7 +315,7 @@ func TestStarAuthorities(t *testing.T) {
 				return dest.SetString("got:" + key)
 			}
 
-			testGalaxy := universe.NewGalaxy("TestStarAuthorities-galaxy", tc.cacheSize, GetterFunc(getter))
+			testGalaxy := universe.NewGalaxy("TestPeers-galaxy", tc.cacheSize, GetterFunc(getter))
 
 			if tc.initFunc != nil {
 				tc.initFunc(testGalaxy, testproto.TestFetchers)

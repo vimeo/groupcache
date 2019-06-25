@@ -36,7 +36,7 @@ const defaultBasePath = "/_galaxycache/"
 
 const defaultReplicas = 50
 
-// HTTPFetchProtocol specifies HTTP specific options for HTTP-based star authority communication
+// HTTPFetchProtocol specifies HTTP specific options for HTTP-based peer communication
 type HTTPFetchProtocol struct {
 	// Transport optionally specifies an http.RoundTripper for the client
 	// to use when it makes a request.
@@ -71,7 +71,7 @@ func NewHTTPFetchProtocol(opts *HTTPOptions) *HTTPFetchProtocol {
 	return newProto
 }
 
-// NewFetcher implements the Protocol interface for HTTPProtocol by constructing a new fetcher to fetch from starAuthorities via HTTP
+// NewFetcher implements the Protocol interface for HTTPProtocol by constructing a new fetcher to fetch from peers via HTTP
 func (hp *HTTPFetchProtocol) NewFetcher(url string) RemoteFetcher {
 	return &httpFetcher{transport: hp.transport, baseURL: url + hp.basePath}
 }
