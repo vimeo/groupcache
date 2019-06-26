@@ -278,21 +278,38 @@ func TestPeers(t *testing.T) {
 		cacheSize    int64
 		initFunc     func(g *Galaxy, fetchers map[string]*TestFetcher)
 	}{
-		{testName: "base", numGets: 200, expectedHits: map[string]int{"fetcher0": 50, "fetcher1": 50, "fetcher2": 50, "fetcher3": 50}, cacheSize: 1 << 20},
-		{"cached_base", 200, map[string]int{"fetcher0": 0, "fetcher1": 48, "fetcher2": 47, "fetcher3": 48}, 1 << 20, func(g *Galaxy, _ map[string]*TestFetcher) {
-			for i := 0; i < 200; i++ {
-				key := fmt.Sprintf("%d", i)
-				var got string
-				err := g.Get(context.TODO(), key, StringSink(&got))
-				if err != nil {
-					t.Errorf("error on key %q: %v", key, err)
-					continue
+		{
+			testName:     "base",
+			numGets:      200,
+			expectedHits: map[string]int{"fetcher0": 50, "fetcher1": 50, "fetcher2": 50, "fetcher3": 50},
+			cacheSize:    1 << 20,
+		},
+		{
+			testName:     "cached_base",
+			numGets:      200,
+			expectedHits: map[string]int{"fetcher0": 0, "fetcher1": 48, "fetcher2": 47, "fetcher3": 48},
+			cacheSize:    1 << 20,
+			initFunc: func(g *Galaxy, _ map[string]*TestFetcher) {
+				for i := 0; i < 200; i++ {
+					key := fmt.Sprintf("%d", i)
+					var got string
+					err := g.Get(context.TODO(), key, StringSink(&got))
+					if err != nil {
+						t.Errorf("error on key %q: %v", key, err)
+						continue
+					}
 				}
-			}
-		}},
-		{"one_peer_down", 200, map[string]int{"fetcher0": 100, "fetcher1": 50, "fetcher2": 0, "fetcher3": 50}, 1 << 20, func(g *Galaxy, fetchers map[string]*TestFetcher) {
-			fetchers["fetcher2"].fail = true
-		}},
+			},
+		},
+		{
+			testName:     "one_peer_down",
+			numGets:      200,
+			expectedHits: map[string]int{"fetcher0": 100, "fetcher1": 50, "fetcher2": 0, "fetcher3": 50},
+			cacheSize:    1 << 20,
+			initFunc: func(g *Galaxy, fetchers map[string]*TestFetcher) {
+				fetchers["fetcher2"].fail = true
+			},
+		},
 	}
 
 	for _, tc := range testCases {

@@ -49,15 +49,15 @@ message StatsResponse {
   optional CacheStats hot_cache = 5;
   optional int64 server_in = 6;
   optional int64 loads = 8;
-  optional int64 star_loads = 9;
-  optional int64 star_errors = 10;
+  optional int64 peer_loads = 9;
+  optional int64 peer_errors = 10;
   optional int64 local_loads = 11;
 }
 
 message Empty {}
 
 service GalaxyCacheTest {
-  rpc InitStarAuthorities(Empty) returns (Empty) {};
+  rpc InitPeers(Empty) returns (Empty) {};
   rpc Get(TestRequest) returns (TestResponse) {};
   rpc GetStats(Empty) returns (StatsResponse) {};
 }

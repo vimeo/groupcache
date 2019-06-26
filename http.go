@@ -99,7 +99,6 @@ func RegisterHTTPHandler(universe *Universe, opts *HTTPOptions, serveMux *http.S
 
 func (handler *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Parse request.
-	// fmt.Println("Serving request!")
 	if !strings.HasPrefix(r.URL.Path, handler.basePath) {
 		panic("HTTPPool serving unexpected path: " + r.URL.Path)
 	}
