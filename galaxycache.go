@@ -56,24 +56,30 @@ type BackendGetter interface {
 // A GetterFunc implements BackendGetter with a function.
 type GetterFunc func(ctx context.Context, key string, dest Sink) error
 
-// Get here calls the chosen Getter when the current peer is the owner of a key, getting the value from the database, for example
+// Get here calls the chosen BackendGetter (or GetterFunc) when the
+// current peer is the owner of a key, getting the value from the
+// database, for example
 func (f GetterFunc) Get(ctx context.Context, key string, dest Sink) error {
 	return f(ctx, key, dest)
 }
 
-// Universe defines the primary container for all galaxycache operations. It contains the galaxies and PeerPicker
+// Universe defines the primary container for all galaxycache operations.
+// It contains the galaxies and PeerPicker
 type Universe struct {
 	mu         sync.RWMutex
 	galaxies   map[string]*Galaxy
 	peerPicker *PeerPicker
 }
 
-// NewUniverse is the default constructor for the Universe object. It is passed a FetchProtocol (to specify fetching via GRPC or HTTP) and its own URL
+// NewUniverse is the default constructor for the Universe object.
+// It is passed a FetchProtocol (to specify fetching via GRPC or HTTP)
+// and its own URL
 func NewUniverse(protocol FetchProtocol, selfURL string) *Universe {
 	return NewUniverseWithOpts(protocol, selfURL, nil)
 }
 
-// NewUniverseWithOpts is the optional constructor for the Universe object that defines a non-default hash function and number of replicas
+// NewUniverseWithOpts is the optional constructor for the Universe
+// object that defines a non-default hash function and number of replicas
 func NewUniverseWithOpts(protocol FetchProtocol, selfURL string, options *HashOptions) *Universe {
 	c := &Universe{
 		galaxies:   make(map[string]*Galaxy),
@@ -91,9 +97,10 @@ func (universe *Universe) GetGalaxy(name string) *Galaxy {
 	return universe.galaxies[name]
 }
 
-// NewGalaxy creates a coordinated galaxy-aware Getter from a Getter.
+// NewGalaxy creates a coordinated galaxy-aware BackendGetter from a
+// BackendGetter.
 //
-// The returned Getter tries (but does not guarantee) to run only one
+// The returned BackendGetter tries (but does not guarantee) to run only one
 // Get call at once for a given key across an entire set of peer
 // processes. Concurrent callers both in the local process and in
 // other processes receive copies of the answer once the original Get
@@ -189,12 +196,14 @@ func (g *Galaxy) Name() string {
 	return g.name
 }
 
-// Get as defined here is the primary "get" called on a galaxy to find the value for the given key,
-// using the following logic:
+// Get as defined here is the primary "get" called on a galaxy to
+// find the value for the given key, using the following logic:
 // - First, try the local cache; if its a cache hit, we're done
-// - On a cache miss, search for which peer is the owner of the key based on the consistent hash
-// - If a different peer is the owner, use the corresponding fetcher to Fetch from it; otherwise,
-// if the calling instance is the key's canonical owner, call the BackendGetter to retrieve the value
+// - On a cache miss, search for which peer is the owner of the
+// key based on the consistent hash
+// - If a different peer is the owner, use the corresponding fetcher
+// to Fetch from it; otherwise, if the calling instance is the key's
+// canonical owner, call the BackendGetter to retrieve the value
 // (which will now be cached locally)
 func (g *Galaxy) Get(ctx context.Context, key string, dest Sink) error {
 	if ctx == nil {
