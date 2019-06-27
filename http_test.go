@@ -38,7 +38,6 @@ type testStatsExporter struct {
 }
 
 func TestHTTPHandler(t *testing.T) {
-	dummyCtx := context.TODO()
 
 	const (
 		nRoutines = 5
@@ -73,7 +72,7 @@ func TestHTTPHandler(t *testing.T) {
 
 	for _, key := range testKeys(nGets) {
 		var value string
-		if err := g.Get(dummyCtx, key, StringSink(&value)); err != nil {
+		if err := g.Get(ctx, key, StringSink(&value)); err != nil {
 			t.Fatal(err)
 		}
 		if suffix := ":" + key; !strings.HasSuffix(value, suffix) {
