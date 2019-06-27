@@ -29,12 +29,14 @@ import (
 
 const defaultReplicas = 50
 
-// RemoteFetcher is the interface that must be implemented to fetch from other peers; the PeerPicker contains a map of these fetchers corresponding to each other peer address
+// RemoteFetcher is the interface that must be implemented to fetch from other peers;
+// the PeerPicker contains a map of these fetchers corresponding to each other peer address
 type RemoteFetcher interface {
 	Fetch(context context.Context, in *pb.GetRequest, out *pb.GetResponse) error
 }
 
-// PeerPicker is in charge of dealing with peers: it contains the hashing options (hash function and number of replicas), consistent hash map of peers, and a map of RemoteFetchers to those peers
+// PeerPicker is in charge of dealing with peers: it contains the hashing options (hash function
+// and number of replicas), consistent hash map of peers, and a map of RemoteFetchers to those peers
 type PeerPicker struct {
 	fetchingProtocol FetchProtocol
 	selfURL          string
@@ -47,11 +49,11 @@ type PeerPicker struct {
 // HashOptions specifies the the hash function and the number of replicas for consistent hashing
 type HashOptions struct {
 	// Replicas specifies the number of key replicas on the consistent hash.
-	// If blank, it defaults to 50.
+	// If zero, it defaults to 50.
 	Replicas int
 
 	// HashFn specifies the hash function of the consistent hash.
-	// If blank, it defaults to crc32.ChecksumIEEE.
+	// If nil, it defaults to crc32.ChecksumIEEE.
 	HashFn consistenthash.Hash
 }
 

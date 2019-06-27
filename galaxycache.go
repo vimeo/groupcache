@@ -189,15 +189,13 @@ func (g *Galaxy) Name() string {
 	return g.name
 }
 
-/* Get as defined here is the primary "get" called on a galaxy to find the value for the given key,
-using the following logic:
-- First, try the local cache; if its a cache hit, we're done
-- On a cache miss, search for which peer is the owner of the key based on the consistent
-hash
-- If a different peer is the owner, use the corresponding fetcher to Fetch from it; otherwise,
-if the calling instance is the key's canonical owner, call the BackendGetter to retrieve the value
-(which will now be cached locally)
-*/
+// Get as defined here is the primary "get" called on a galaxy to find the value for the given key,
+// using the following logic:
+// - First, try the local cache; if its a cache hit, we're done
+// - On a cache miss, search for which peer is the owner of the key based on the consistent hash
+// - If a different peer is the owner, use the corresponding fetcher to Fetch from it; otherwise,
+// if the calling instance is the key's canonical owner, call the BackendGetter to retrieve the value
+// (which will now be cached locally)
 func (g *Galaxy) Get(ctx context.Context, key string, dest Sink) error {
 	if ctx == nil {
 		ctx = context.Background()
