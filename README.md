@@ -1,43 +1,30 @@
 # galaxycache
 
-## Summary
-
 galaxycache is a caching and cache-filling library, adapted from groupcache, intended as a
 replacement for memcached in many cases.
 
 For API docs and examples, see http://godoc.org/github.com/vimeo/galaxycache
 
+## Summary of changes
+
+### New architecture and naming scheme
+
+* Renamed Group type to Galaxy, Getter to BackendGetter, Get to Fetch (for newly named RemoteFetcher interface, previously called ProtoGetter)
+* Reworked PeerPicker interface into a struct; contains a FetchProtocol and RemoteFetchers (generalizing for HTTP and GRPC fetching implementations), a hash map of other peer addresses, and a self URL
+
+### No more global state
+
+* Removed all global variables to allow for multithreaded testing by implementing a Universe container that holds the Galaxies (previously a global "groups" map) and PeerPicker (part of what used to be HTTPPool)
+* Added methods to Universe to allow for simpler handling of most galaxycache operations through the Universe (setting Peers, instantiating a Picker, etc)
+
+### New structure for fetching from peers (with **gRPC support**!)
+* Added an HTTPHandler and associated registration function for serving HTTP requests by reaching into an associated Universe (deals with the other function of the deprecated HTTPPool)
+* Reworked tests to fit new architecture
+* Renamed files to match new type names
+
 ## Comparison to memcached
 
-### **Like memcached**, galaxycache:
-
- * shards by key to select which peer is responsible for that key
-
-### **Unlike memcached**, galaxycache:
-
- * does not require running a separate set of servers, thus massively
-   reducing deployment/configuration pain.  galaxycache is a client
-   library as well as a server.  It connects to its own peers.
-
- * comes with a cache filling mechanism.  Whereas memcached just says
-   "Sorry, cache miss", often resulting in a thundering herd of
-   database (or whatever) loads from an unbounded number of clients
-   (which has resulted in several fun outages), galaxycache coordinates
-   cache fills such that only one load in one process of an entire
-   replicated set of processes populates the cache, then multiplexes
-   the loaded value to all callers.
-
- * does not support versioned values.  If key "foo" is value "bar",
-   key "foo" must always be "bar".  There are neither cache expiration
-   times, nor explicit cache evictions.  Thus there is also no CAS,
-   nor Increment/Decrement.  This also means that galaxycache....
-
- * ... supports automatic mirroring of super-hot items to multiple
-   processes.  This prevents memcached hot spotting where a machine's
-   CPU and/or NIC are overloaded by very popular keys/values.
-
- * is currently only available for Go.  It's very unlikely that I
-   (bradfitz@) will port the code to any other language.
+See: https://github.com/golang/groupcache/blob/master/README.md
 
 ## Loading process
 
@@ -58,10 +45,13 @@ In a nutshell, a galaxycache lookup of **Get("foo")** looks like:
     the answer.  If the RPC fails, just load it locally (still with
     local dup suppression).
 
+<<<<<<< HEAD
 ## Presentations
 
 See http://talks.golang.org/2013/oscon-dl.slide
 
+=======
+>>>>>>> Rewrite README to include galaxycache-related information (draft 1)
 ## Help
 
 Use the golang-nuts mailing list for any discussion or questions.
