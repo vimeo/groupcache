@@ -60,7 +60,7 @@ In a nutshell, a galaxycache lookup of **Get("foo")** looks like:
 
 ## Users
 
-galaxycache is in production use by dl.google.com (its original user),
+groupcache (from which galaxycache is forked) is in production use by dl.google.com (its original user),
 parts of Blogger, parts of Google Code, parts of Google Fiber, parts
 of Google production monitoring systems, etc.
 
