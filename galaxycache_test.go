@@ -45,12 +45,12 @@ const (
 	cacheSize        = 1 << 20
 )
 
-func testInitSetup() (*Universe, context.Context) {
-	return NewUniverse(&TestProtocol{}, "test"), context.TODO()
+func testInitSetup() (*Universe, context.Context, chan string) {
+	return NewUniverse(&TestProtocol{}, "test"), context.TODO(), make(chan string)
 }
 
-func testSetupStringGalaxy(universe *Universe, cacheFills *AtomicInt) (*Galaxy, chan string) {
-	stringc := make(chan string)
+func testSetupStringGalaxy(cacheFills *AtomicInt) (*Galaxy, context.Context, chan string) {
+	universe, ctx, stringc := testInitSetup()
 	stringGalaxy := universe.NewGalaxy(stringGalaxyName, cacheSize, GetterFunc(func(_ context.Context, key string, dest Sink) error {
 		if key == fromChan {
 			key = <-stringc
@@ -58,11 +58,11 @@ func testSetupStringGalaxy(universe *Universe, cacheFills *AtomicInt) (*Galaxy, 
 		cacheFills.Add(1)
 		return dest.SetString("ECHO:" + key)
 	}))
-	return stringGalaxy, stringc
+	return stringGalaxy, ctx, stringc
 }
 
-func testSetupProtoGalaxy(universe *Universe, cacheFills *AtomicInt) (*Galaxy, chan string) {
-	stringc := make(chan string)
+func testSetupProtoGalaxy(cacheFills *AtomicInt) (*Galaxy, context.Context, chan string) {
+	universe, ctx, stringc := testInitSetup()
 	protoGalaxy := universe.NewGalaxy(protoGalaxyName, cacheSize, GetterFunc(func(_ context.Context, key string, dest Sink) error {
 		if key == fromChan {
 			key = <-stringc
@@ -73,15 +73,14 @@ func testSetupProtoGalaxy(universe *Universe, cacheFills *AtomicInt) (*Galaxy, c
 			City: proto.String("SOME-CITY"),
 		})
 	}))
-	return protoGalaxy, stringc
+	return protoGalaxy, ctx, stringc
 }
 
 // tests that a BackendGetter's Get method is only called once with two
 // outstanding callers. This is the string variant.
 func TestGetDupSuppressString(t *testing.T) {
-	universe, dummyCtx := testInitSetup()
 	var cacheFills AtomicInt
-	stringGalaxy, stringc := testSetupStringGalaxy(universe, &cacheFills)
+	stringGalaxy, ctx, stringc := testSetupStringGalaxy(&cacheFills)
 	// Start two BackendGetters. The first should block (waiting reading
 	// from stringc) and the second should latch on to the first
 	// one.
@@ -89,7 +88,7 @@ func TestGetDupSuppressString(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		go func() {
 			var s string
-			if err := stringGalaxy.Get(dummyCtx, fromChan, StringSink(&s)); err != nil {
+			if err := stringGalaxy.Get(ctx, fromChan, StringSink(&s)); err != nil {
 				resc <- "ERROR:" + err.Error()
 				return
 			}
@@ -123,9 +122,8 @@ func TestGetDupSuppressString(t *testing.T) {
 // tests that a BackendGetter's Get method is only called once with two
 // outstanding callers.  This is the proto variant.
 func TestGetDupSuppressProto(t *testing.T) {
-	universe, dummyCtx := testInitSetup()
 	var cacheFills AtomicInt
-	protoGalaxy, stringc := testSetupProtoGalaxy(universe, &cacheFills)
+	protoGalaxy, ctx, stringc := testSetupProtoGalaxy(&cacheFills)
 	// Start two getters. The first should block (waiting reading
 	// from stringc) and the second should latch on to the first
 	// one.
@@ -133,7 +131,7 @@ func TestGetDupSuppressProto(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		go func() {
 			tm := new(testpb.TestMessage)
-			if err := protoGalaxy.Get(dummyCtx, fromChan, ProtoSink(tm)); err != nil {
+			if err := protoGalaxy.Get(ctx, fromChan, ProtoSink(tm)); err != nil {
 				tm.Name = proto.String("ERROR:" + err.Error())
 			}
 			resc <- tm
@@ -173,13 +171,12 @@ func countFills(f func(), cacheFills *AtomicInt) int64 {
 }
 
 func TestCaching(t *testing.T) {
-	universe, dummyCtx := testInitSetup()
 	var cacheFills AtomicInt
-	stringGalaxy, _ := testSetupStringGalaxy(universe, &cacheFills)
+	stringGalaxy, ctx, _ := testSetupStringGalaxy(&cacheFills)
 	fills := countFills(func() {
 		for i := 0; i < 10; i++ {
 			var s string
-			if err := stringGalaxy.Get(dummyCtx, "TestCaching-key", StringSink(&s)); err != nil {
+			if err := stringGalaxy.Get(ctx, "TestCaching-key", StringSink(&s)); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -190,14 +187,13 @@ func TestCaching(t *testing.T) {
 }
 
 func TestCacheEviction(t *testing.T) {
-	universe, dummyCtx := testInitSetup()
 	var cacheFills AtomicInt
-	stringGalaxy, _ := testSetupStringGalaxy(universe, &cacheFills)
+	stringGalaxy, ctx, _ := testSetupStringGalaxy(&cacheFills)
 	testKey := "TestCacheEviction-key"
 	getTestKey := func() {
 		var res string
 		for i := 0; i < 10; i++ {
-			if err := stringGalaxy.Get(dummyCtx, testKey, StringSink(&res)); err != nil {
+			if err := stringGalaxy.Get(ctx, testKey, StringSink(&res)); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -215,7 +211,7 @@ func TestCacheEviction(t *testing.T) {
 	for bytesFlooded < cacheSize+1024 {
 		var res string
 		key := fmt.Sprintf("dummy-key-%d", bytesFlooded)
-		stringGalaxy.Get(dummyCtx, key, StringSink(&res))
+		stringGalaxy.Get(ctx, key, StringSink(&res))
 		bytesFlooded += int64(len(key) + len(res))
 	}
 	evicts := stringGalaxy.mainCache.nevict - evict0
@@ -369,12 +365,11 @@ func TestPeers(t *testing.T) {
 }
 
 func TestTruncatingByteSliceTarget(t *testing.T) {
-	universe, dummyCtx := testInitSetup()
 	var cacheFills AtomicInt
-	stringGalaxy, _ := testSetupStringGalaxy(universe, &cacheFills)
+	stringGalaxy, ctx, _ := testSetupStringGalaxy(&cacheFills)
 	var buf [100]byte
 	s := buf[:]
-	if err := stringGalaxy.Get(dummyCtx, "short", TruncatingByteSliceSink(&s)); err != nil {
+	if err := stringGalaxy.Get(ctx, "short", TruncatingByteSliceSink(&s)); err != nil {
 		t.Fatal(err)
 	}
 	if want := "ECHO:short"; string(s) != want {
@@ -382,7 +377,7 @@ func TestTruncatingByteSliceTarget(t *testing.T) {
 	}
 
 	s = buf[:6]
-	if err := stringGalaxy.Get(dummyCtx, "truncated", TruncatingByteSliceSink(&s)); err != nil {
+	if err := stringGalaxy.Get(ctx, "truncated", TruncatingByteSliceSink(&s)); err != nil {
 		t.Fatal(err)
 	}
 	if want := "ECHO:t"; string(s) != want {
@@ -435,7 +430,7 @@ func (g *orderedFlightGroup) Do(key string, fn func() (interface{}, error)) (int
 // TestNoDedup tests invariants on the cache size when singleflight is
 // unable to dedup calls.
 func TestNoDedup(t *testing.T) {
-	universe, dummyCtx := testInitSetup()
+	universe, dummyCtx, _ := testInitSetup()
 	const testkey = "testkey"
 	const testval = "testval"
 	g := universe.NewGalaxy("testgalaxy", 1024, GetterFunc(func(_ context.Context, key string, dest Sink) error {
