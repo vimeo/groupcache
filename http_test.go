@@ -19,7 +19,6 @@ package galaxycache
 import (
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"strconv"
@@ -67,7 +66,7 @@ func TestHTTPHandler(t *testing.T) {
 	defer cancel()
 
 	for _, listener := range peerListeners {
-		go makeServerUniverse(ctx, peerAddresses, listener)
+		go makeServerUniverse(ctx, t, peerAddresses, listener)
 	}
 
 	for _, key := range testKeys(nGets) {
@@ -83,7 +82,7 @@ func TestHTTPHandler(t *testing.T) {
 
 }
 
-func makeServerUniverse(ctx context.Context, addresses []string, listener net.Listener) {
+func makeServerUniverse(ctx context.Context, t testing.TB, addresses []string, listener net.Listener) {
 	universe := NewUniverse(NewHTTPFetchProtocol(nil), "http://"+listener.Addr().String())
 	serveMux := http.NewServeMux()
 	wrappedHandler := &ochttp.Handler{Handler: serveMux}
@@ -99,7 +98,7 @@ func makeServerUniverse(ctx context.Context, addresses []string, listener net.Li
 	go func() {
 		err := newServer.Serve(listener)
 		if err != http.ErrServerClosed {
-			log.Fatal("serve failed:", err)
+			t.Errorf("serve failed: %s", err)
 		}
 	}()
 
