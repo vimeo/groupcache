@@ -25,6 +25,7 @@ package galaxycache
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/vimeo/groupcache/consistenthash"
@@ -38,6 +39,8 @@ const defaultReplicas = 50
 // to each other peer address
 type RemoteFetcher interface {
 	Fetch(context context.Context, in *pb.GetRequest, out *pb.GetResponse) error
+	// Close closes a client-side connection (for GRPC use only)
+	Close() error
 }
 
 // PeerPicker is in charge of dealing with peers: it contains the hashing
@@ -92,23 +95,55 @@ func (pp *PeerPicker) pickPeer(key string) (RemoteFetcher, bool) {
 	return nil, false
 }
 
-func (pp *PeerPicker) set(peerURLs ...string) {
+func (pp *PeerPicker) set(peerURLs ...string) error {
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 	pp.peers = consistenthash.New(pp.opts.Replicas, pp.opts.HashFn)
 	pp.peers.Add(peerURLs...)
-	pp.fetchers = make(map[string]RemoteFetcher, len(peerURLs))
-	for _, URL := range peerURLs {
-		pp.fetchers[URL] = pp.fetchingProtocol.NewFetcher(URL)
+	currFetchers := make(map[string]struct{})
+
+	for url := range pp.fetchers {
+		currFetchers[url] = struct{}{}
 	}
+
+	for _, url := range peerURLs {
+		// fmt.Printf("[%s]: connecting to [%s]\n", pp.selfURL, url) // TODO: remove print
+		var err error
+		pp.fetchers[url], err = pp.fetchingProtocol.NewFetcher(url)
+		if err != nil {
+			return err
+		}
+		delete(currFetchers, url)
+	}
+
+	for url := range currFetchers {
+		err := pp.fetchers[url].Close()
+		if err != nil {
+			return err
+		}
+		delete(pp.fetchers, url)
+	}
+	return nil
+}
+
+func (pp *PeerPicker) shutdown() error {
+	errs := []error{}
+	for _, fetcher := range pp.fetchers {
+		err := fetcher.Close()
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("Failed to close: %v", errs)
+	}
+	return nil
 }
 
 // FetchProtocol defines the chosen fetching protocol to peers (namely
 // HTTP or GRPC) and implements the instantiation method for that
 // connection (creating a new RemoteFetcher)
 type FetchProtocol interface {
-	// NewFetcher instantiates the connection between the current and
-	// a remote peer and returns a RemoteFetcher to be used for fetching
-	// data from that peer
-	NewFetcher(url string) RemoteFetcher
+	// NewFetcher instantiates the connection between the current and a remote peer and returns a RemoteFetcher to be used for fetching data from that peer
+	NewFetcher(url string) (RemoteFetcher, error)
 }
