@@ -45,6 +45,10 @@ const (
 	cacheSize        = 1 << 20
 )
 
+func testInitSetup() (*Universe, context.Context) {
+	return NewUniverse(&TestProtocol{}, "test"), context.TODO()
+}
+
 func testSetupStringGalaxy(universe *Universe, cacheFills *AtomicInt) (*Galaxy, chan string) {
 	stringc := make(chan string)
 	stringGalaxy := universe.NewGalaxy(stringGalaxyName, cacheSize, GetterFunc(func(_ context.Context, key string, dest Sink) error {
@@ -75,9 +79,8 @@ func testSetupProtoGalaxy(universe *Universe, cacheFills *AtomicInt) (*Galaxy, c
 // tests that a BackendGetter's Get method is only called once with two
 // outstanding callers. This is the string variant.
 func TestGetDupSuppressString(t *testing.T) {
-	universe := NewUniverse(&TestProtocol{}, "test")
+	universe, dummyCtx := testInitSetup()
 	var cacheFills AtomicInt
-	dummyCtx := context.TODO()
 	stringGalaxy, stringc := testSetupStringGalaxy(universe, &cacheFills)
 	// Start two BackendGetters. The first should block (waiting reading
 	// from stringc) and the second should latch on to the first
@@ -120,9 +123,8 @@ func TestGetDupSuppressString(t *testing.T) {
 // tests that a BackendGetter's Get method is only called once with two
 // outstanding callers.  This is the proto variant.
 func TestGetDupSuppressProto(t *testing.T) {
-	universe := NewUniverse(&TestProtocol{}, "test")
+	universe, dummyCtx := testInitSetup()
 	var cacheFills AtomicInt
-	dummyCtx := context.TODO()
 	protoGalaxy, stringc := testSetupProtoGalaxy(universe, &cacheFills)
 	// Start two getters. The first should block (waiting reading
 	// from stringc) and the second should latch on to the first
@@ -171,10 +173,9 @@ func countFills(f func(), cacheFills *AtomicInt) int64 {
 }
 
 func TestCaching(t *testing.T) {
-	c := NewUniverse(&TestProtocol{}, "test")
+	universe, dummyCtx := testInitSetup()
 	var cacheFills AtomicInt
-	dummyCtx := context.TODO()
-	stringGalaxy, _ := testSetupStringGalaxy(c, &cacheFills)
+	stringGalaxy, _ := testSetupStringGalaxy(universe, &cacheFills)
 	fills := countFills(func() {
 		for i := 0; i < 10; i++ {
 			var s string
@@ -189,9 +190,8 @@ func TestCaching(t *testing.T) {
 }
 
 func TestCacheEviction(t *testing.T) {
-	universe := NewUniverse(&TestProtocol{}, "test")
+	universe, dummyCtx := testInitSetup()
 	var cacheFills AtomicInt
-	dummyCtx := context.TODO()
 	stringGalaxy, _ := testSetupStringGalaxy(universe, &cacheFills)
 	testKey := "TestCacheEviction-key"
 	getTestKey := func() {
@@ -369,9 +369,8 @@ func TestPeers(t *testing.T) {
 }
 
 func TestTruncatingByteSliceTarget(t *testing.T) {
-	universe := NewUniverse(&TestProtocol{}, "test")
+	universe, dummyCtx := testInitSetup()
 	var cacheFills AtomicInt
-	dummyCtx := context.TODO()
 	stringGalaxy, _ := testSetupStringGalaxy(universe, &cacheFills)
 	var buf [100]byte
 	s := buf[:]
@@ -436,8 +435,7 @@ func (g *orderedFlightGroup) Do(key string, fn func() (interface{}, error)) (int
 // TestNoDedup tests invariants on the cache size when singleflight is
 // unable to dedup calls.
 func TestNoDedup(t *testing.T) {
-	universe := NewUniverse(&TestProtocol{}, "test")
-	dummyCtx := context.TODO()
+	universe, dummyCtx := testInitSetup()
 	const testkey = "testkey"
 	const testval = "testval"
 	g := universe.NewGalaxy("testgalaxy", 1024, GetterFunc(func(_ context.Context, key string, dest Sink) error {
