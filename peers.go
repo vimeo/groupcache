@@ -15,7 +15,12 @@ limitations under the License.
 */
 
 // peers.go defines how processes find and communicate with their peers.
-// Each running Universe instance is a peer of each other, and it has authority over a set of keys, or "stars", within each galaxy (address space of data) -- which keys are handled by each peer is determined by the consistent hashing algorithm. Each instance fetches from another peer when it receives a request for a key for which that peer is the authority.
+// Each running Universe instance is a peer of each other, and it has
+// authority over a set of keys, or "stars", within each galaxy (address
+// space of data) -- which keys are handled by each peer is determined by
+// the consistent hashing algorithm. Each instance fetches from another
+// peer when it receives a request for a key for which that peer is the
+// authority.
 
 package galaxycache
 
@@ -29,14 +34,16 @@ import (
 
 const defaultReplicas = 50
 
-// RemoteFetcher is the interface that must be implemented to fetch from other peers;
-// the PeerPicker contains a map of these fetchers corresponding to each other peer address
+// RemoteFetcher is the interface that must be implemented to fetch from
+// other peers; the PeerPicker contains a map of these fetchers corresponding
+// to each other peer address
 type RemoteFetcher interface {
 	Fetch(context context.Context, in *pb.GetRequest, out *pb.GetResponse) error
 }
 
-// PeerPicker is in charge of dealing with peers: it contains the hashing options (hash function
-// and number of replicas), consistent hash map of peers, and a map of RemoteFetchers to those peers
+// PeerPicker is in charge of dealing with peers: it contains the hashing
+// options (hash function and number of replicas), consistent hash map of
+// peers, and a map of RemoteFetchers to those peers
 type PeerPicker struct {
 	fetchingProtocol FetchProtocol
 	selfURL          string
@@ -46,7 +53,8 @@ type PeerPicker struct {
 	opts             HashOptions
 }
 
-// HashOptions specifies the the hash function and the number of replicas for consistent hashing
+// HashOptions specifies the the hash function and the number of replicas
+// for consistent hashing
 type HashOptions struct {
 	// Replicas specifies the number of key replicas on the consistent hash.
 	// If zero, it defaults to 50.
@@ -74,7 +82,8 @@ func newPeerPicker(proto FetchProtocol, selfURL string, options *HashOptions) *P
 	return pp
 }
 
-// When passed a key ("star"), the consistent hash is used to determine which peer is responsible getting/caching it
+// When passed a key ("star"), the consistent hash is used to determine which
+// peer is responsible getting/caching it
 func (pp *PeerPicker) pickPeer(key string) (RemoteFetcher, bool) {
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
@@ -98,8 +107,12 @@ func (pp *PeerPicker) set(peerURLs ...string) {
 	}
 }
 
-// FetchProtocol defines the chosen fetching protocol to peers (namely HTTP or GRPC) and implements the instantiation method for that connection (creating a new RemoteFetcher)
+// FetchProtocol defines the chosen fetching protocol to peers (namely
+// HTTP or GRPC) and implements the instantiation method for that
+// connection (creating a new RemoteFetcher)
 type FetchProtocol interface {
-	// NewFetcher instantiates the connection between the current and a remote peer and returns a RemoteFetcher to be used for fetching data from that peer
+	// NewFetcher instantiates the connection between the current and
+	// a remote peer and returns a RemoteFetcher to be used for fetching
+	// data from that peer
 	NewFetcher(url string) RemoteFetcher
 }
