@@ -33,7 +33,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	pb "github.com/vimeo/galaxycache/galaxycachepb"
 	"github.com/vimeo/galaxycache/lru"
 	"github.com/vimeo/galaxycache/singleflight"
 
@@ -344,16 +343,11 @@ func (g *Galaxy) getLocally(ctx context.Context, key string, dest Sink) (ByteVie
 }
 
 func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string) (ByteView, error) {
-	req := &pb.GetRequest{
-		Galaxy: g.name,
-		Key:    key,
-	}
-	res := &pb.GetResponse{}
-	err := peer.Fetch(ctx, req, res)
+	data, err := peer.Fetch(ctx, g.name, key)
 	if err != nil {
 		return ByteView{}, err
 	}
-	value := ByteView{b: res.Value}
+	value := ByteView{b: data}
 	// TODO(bradfitz): use res.MinuteQps or something smart to
 	// conditionally populate hotCache.  For now just do it some
 	// percentage of the time.
