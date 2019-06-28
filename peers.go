@@ -107,7 +107,6 @@ func (pp *PeerPicker) set(peerURLs ...string) error {
 	}
 
 	for _, url := range peerURLs {
-		// fmt.Printf("[%s]: connecting to [%s]\n", pp.selfURL, url) // TODO: remove print
 		var err error
 		pp.fetchers[url], err = pp.fetchingProtocol.NewFetcher(url)
 		if err != nil {
@@ -144,6 +143,8 @@ func (pp *PeerPicker) shutdown() error {
 // HTTP or GRPC) and implements the instantiation method for that
 // connection (creating a new RemoteFetcher)
 type FetchProtocol interface {
-	// NewFetcher instantiates the connection between the current and a remote peer and returns a RemoteFetcher to be used for fetching data from that peer
+	// NewFetcher instantiates the connection between the current and a
+	// remote peer and returns a RemoteFetcher to be used for fetching
+	// data from that peer
 	NewFetcher(url string) (RemoteFetcher, error)
 }
