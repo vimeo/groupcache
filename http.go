@@ -17,14 +17,12 @@ limitations under the License.
 package galaxycache
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 
 	"github.com/golang/protobuf/proto"
 	pb "github.com/vimeo/galaxycache/galaxycachepb"
@@ -149,10 +147,6 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 type httpFetcher struct {
 	transport func(context.Context) http.RoundTripper
 	baseURL   string
-}
-
-var bufferPool = sync.Pool{
-	New: func() interface{} { return new(bytes.Buffer) },
 }
 
 // Fetch here implements the RemoteFetcher interface for sending a GET request over HTTP to a peer
