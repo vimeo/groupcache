@@ -254,7 +254,8 @@ func (proto *TestProtocol) NewFetcher(url string) RemoteFetcher {
 	return newTestFetcher
 }
 
-// TestPeers tests to ensure that an instance with given hash function results in the expected number of gets both locally and into each other peer
+// TestPeers tests to ensure that an instance with given hash
+// function results in the expected number of gets both locally and into each other peer
 func TestPeers(t *testing.T) {
 
 	hashFn := func(data []byte) uint32 {
@@ -315,7 +316,9 @@ func TestPeers(t *testing.T) {
 				TestFetchers: make(map[string]*TestFetcher),
 			}
 
-			// Initialize source to a deterministic state so we will have predictable hotCache result (given the current 10%-of-the-time method for putting items in the hotCache)
+			// Initialize source to a deterministic state so we will have
+			// predictable hotCache result (given the current 10%-of-the-time
+			// method for putting items in the hotCache)
 			rand.Seed(123)
 
 			universe := NewUniverseWithOpts(testproto, "fetcher0", hashOpts)

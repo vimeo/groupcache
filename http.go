@@ -34,7 +34,8 @@ import (
 
 const defaultBasePath = "/_galaxycache/"
 
-// HTTPFetchProtocol specifies HTTP specific options for HTTP-based star authority communication
+// HTTPFetchProtocol specifies HTTP specific options for HTTP-based
+// peer communication
 type HTTPFetchProtocol struct {
 	// Transport optionally specifies an http.RoundTripper for the client
 	// to use when it makes a request.
@@ -50,9 +51,11 @@ type HTTPOptions struct {
 	BasePath  string
 }
 
-// NewHTTPFetchProtocol creates an HTTP fetch protocol to be passed into a Universe constructor;
-// uses a user chosen base path specified in HTTPOptions (or the default "/_galaxycache/" base path if passed nil).
-// *You must use the same base path for the HTTPFetchProtocol and the HTTPHandler on the same Universe*.
+// NewHTTPFetchProtocol creates an HTTP fetch protocol to be passed
+// into a Universe constructor; uses a user chosen base path specified
+// in HTTPOptions (or the default "/_galaxycache/" base path if passed nil).
+// *You must use the same base path for the HTTPFetchProtocol and the
+// HTTPHandler on the same Universe*.
 func NewHTTPFetchProtocol(opts *HTTPOptions) *HTTPFetchProtocol {
 	newProto := &HTTPFetchProtocol{
 		basePath: defaultBasePath,
@@ -69,19 +72,25 @@ func NewHTTPFetchProtocol(opts *HTTPOptions) *HTTPFetchProtocol {
 	return newProto
 }
 
-// NewFetcher implements the Protocol interface for HTTPProtocol by constructing a new fetcher to fetch from peers via HTTP
+// NewFetcher implements the Protocol interface for HTTPProtocol by
+// constructing a new fetcher to fetch from peers via HTTP
 func (hp *HTTPFetchProtocol) NewFetcher(url string) RemoteFetcher {
 	return &httpFetcher{transport: hp.transport, baseURL: url + hp.basePath}
 }
 
-// HTTPHandler implements the HTTP handler necessary to serve an HTTP request; it contains a pointer to its parent Universe in order to access its Galaxys
+// HTTPHandler implements the HTTP handler necessary to serve an HTTP
+// request; it contains a pointer to its parent Universe in order to access
+// its galaxies
 type HTTPHandler struct {
 	parentUniverse *Universe
 	basePath       string
 }
 
-// RegisterHTTPHandler sets up an HTTPHandler with a user specified path and serveMux (if non nil) to handle requests to the given Universe. If both opts and serveMux are nil, defaultBasePath and DefaultServeMux will be used.
-// *You must use the same base path for the HTTPFetchProtocol and the HTTPHandler on the same Universe*.
+// RegisterHTTPHandler sets up an HTTPHandler with a user specified path
+// and serveMux (if non nil) to handle requests to the given Universe.
+// If both opts and serveMux are nil, defaultBasePath and DefaultServeMux
+// will be used. *You must use the same base path for the HTTPFetchProtocol
+// and the HTTPHandler on the same Universe*.
 func RegisterHTTPHandler(universe *Universe, opts *HTTPOptions, serveMux *http.ServeMux) {
 	basePath := defaultBasePath
 	if opts != nil {
