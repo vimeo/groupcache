@@ -87,10 +87,7 @@ func newPeerPicker(proto FetchProtocol, selfURL string, options *HashOptions) *P
 func (pp *PeerPicker) pickPeer(key string) (RemoteFetcher, bool) {
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
-	if pp.peers.IsEmpty() {
-		return nil, false
-	}
-	if URL := pp.peers.Get(key); URL != pp.selfURL {
+	if URL := pp.peers.Get(key); URL != "" && URL != pp.selfURL {
 		return pp.fetchers[URL], true
 	}
 	return nil, false

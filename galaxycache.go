@@ -65,7 +65,7 @@ func (f GetterFunc) Get(ctx context.Context, key string, dest Sink) error {
 // It contains the galaxies and PeerPicker
 type Universe struct {
 	mu         sync.RWMutex
-	galaxies   map[string]*Galaxy
+	galaxies   map[string]*Galaxy // galaxies are indexed by their name
 	peerPicker *PeerPicker
 }
 
@@ -85,14 +85,6 @@ func NewUniverseWithOpts(protocol FetchProtocol, selfURL string, options *HashOp
 	}
 
 	return c
-}
-
-// GetGalaxy returns the named galaxy previously created with NewGalaxy, or
-// nil if there's no such galaxy.
-func (universe *Universe) GetGalaxy(name string) *Galaxy {
-	universe.mu.RLock()
-	defer universe.mu.RUnlock()
-	return universe.galaxies[name]
 }
 
 // NewGalaxy creates a coordinated galaxy-aware BackendGetter from a
@@ -124,6 +116,14 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 	}
 	universe.galaxies[name] = g
 	return g
+}
+
+// GetGalaxy returns the named galaxy previously created with NewGalaxy, or
+// nil if there's no such galaxy.
+func (universe *Universe) GetGalaxy(name string) *Galaxy {
+	universe.mu.RLock()
+	defer universe.mu.RUnlock()
+	return universe.galaxies[name]
 }
 
 // Set updates the Universe's list of peers (contained in the PeerPicker).
