@@ -101,7 +101,7 @@ func (universe *Universe) GetGalaxy(name string) *Galaxy {
 // BackendGetter.
 //
 // The returned BackendGetter tries (but does not guarantee) to run only one
-// Get call at once for a given key across an entire set of peer
+// Get is called once for a given key across an entire set of peer
 // processes. Concurrent callers both in the local process and in
 // other processes receive copies of the answer once the original Get
 // completes.
