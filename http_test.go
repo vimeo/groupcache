@@ -60,7 +60,7 @@ func TestHTTPHandler(t *testing.T) {
 		t.Errorf("Error setting peers: %s", err)
 	}
 
-	getter := GetterFunc(func(ctx context.Context, key string, dest New_Sink) error {
+	getter := GetterFunc(func(ctx context.Context, key string, dest Codec) error {
 		return fmt.Errorf("oh no! Local get occurred")
 	})
 	g := universe.NewGalaxy("peerFetchTest", 1<<20, getter)
@@ -94,7 +94,7 @@ func makeHTTPServerUniverse(ctx context.Context, t testing.TB, addresses []strin
 	if err != nil {
 		t.Errorf("Error setting peers: %s", err)
 	}
-	getter := GetterFunc(func(ctx context.Context, key string, dest New_Sink) error {
+	getter := GetterFunc(func(ctx context.Context, key string, dest Codec) error {
 		dest.UnmarshalBinary([]byte(":" + key))
 		return nil
 	})

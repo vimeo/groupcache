@@ -48,14 +48,14 @@ type BackendGetter interface {
 	// uniquely describe the loaded data, without an implicit
 	// current time, and without relying on cache expiration
 	// mechanisms.
-	Get(ctx context.Context, key string, dest New_Sink) error
+	Get(ctx context.Context, key string, dest Codec) error
 }
 
 // A GetterFunc implements BackendGetter with a function.
-type GetterFunc func(ctx context.Context, key string, dest New_Sink) error
+type GetterFunc func(ctx context.Context, key string, dest Codec) error
 
 // Get implements Get from BackendGetter
-func (f GetterFunc) Get(ctx context.Context, key string, dest New_Sink) error {
+func (f GetterFunc) Get(ctx context.Context, key string, dest Codec) error {
 	return f(ctx, key, dest)
 }
 
@@ -205,7 +205,7 @@ func (g *Galaxy) Name() string {
 // to Fetch from it; otherwise, if the calling instance is the key's
 // canonical owner, call the BackendGetter to retrieve the value
 // (which will now be cached locally)
-func (g *Galaxy) Get(ctx context.Context, key string, dest New_Sink) error {
+func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -258,7 +258,7 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest New_Sink) error {
 }
 
 // load loads key either by invoking the getter locally or by sending it to another machine.
-func (g *Galaxy) load(ctx context.Context, key string, dest New_Sink) (value []byte, destPopulated bool, err error) {
+func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value []byte, destPopulated bool, err error) {
 	// TODO(@odeke-em): Remove .Stats
 	g.Stats.Loads.Add(1)
 	stats.Record(ctx, MLoads.M(1))
@@ -333,7 +333,7 @@ func (g *Galaxy) load(ctx context.Context, key string, dest New_Sink) (value []b
 	return
 }
 
-func (g *Galaxy) getLocally(ctx context.Context, key string, dest New_Sink) ([]byte, error) {
+func (g *Galaxy) getLocally(ctx context.Context, key string, dest Codec) ([]byte, error) {
 	err := g.getter.Get(ctx, key, dest)
 	if err != nil {
 		return nil, err
