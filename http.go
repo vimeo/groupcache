@@ -124,8 +124,8 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// TODO: remove galaxy.Stats from here
 	galaxy.Stats.ServerRequests.Add(1)
 	stats.Record(ctx, MServerRequests.M(1))
-	var value []byte
-	err := galaxy.Get(ctx, key, AllocatingByteSliceSink(&value))
+	var value ByteCodec
+	err := galaxy.Get(ctx, key, &value)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

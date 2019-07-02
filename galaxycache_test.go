@@ -42,42 +42,13 @@ const (
 	cacheSize        = 1 << 20
 )
 
-type StringCodec string
-type ProtoCodec struct {
-	Msg proto.Message
-}
-
-func (c *StringCodec) MarshalBinary() ([]byte, error) {
-	return []byte(*c), nil
-}
-
-func (c *StringCodec) UnmarshalBinary(data []byte) error {
-	*c = StringCodec(data)
-	return nil
-}
-
-type newProtoSink struct {
-	bytes []byte        // encoded (marshaled)
-	msg   proto.Message // decoded value (unmarshaled)
-}
-
-type sinkProtoMessage proto.Message
-
-func (c *ProtoCodec) MarshalBinary() ([]byte, error) {
-	return proto.Marshal(c.Msg)
-}
-
-func (c *ProtoCodec) UnmarshalBinary(data []byte) error {
-	return proto.Unmarshal(data, c.Msg)
-}
-
 func testInitSetup() (*Universe, context.Context, chan string) {
 	return NewUniverse(&TestProtocol{}, "test"), context.TODO(), make(chan string)
 }
 
 func testSetupStringGalaxy(cacheFills *AtomicInt) (*Galaxy, context.Context, chan string) {
 	universe, ctx, stringc := testInitSetup()
-	stringGalaxy := universe.NewGalaxy(stringGalaxyName, cacheSize, GetterFunc(func(_ context.Context, key string, dest New_Sink) error {
+	stringGalaxy := universe.NewGalaxy(stringGalaxyName, cacheSize, GetterFunc(func(_ context.Context, key string, dest Codec) error {
 		if key == fromChan {
 			key = <-stringc
 		}
@@ -90,7 +61,7 @@ func testSetupStringGalaxy(cacheFills *AtomicInt) (*Galaxy, context.Context, cha
 
 func testSetupProtoGalaxy(cacheFills *AtomicInt) (*Galaxy, context.Context, chan string) {
 	universe, ctx, stringc := testInitSetup()
-	protoGalaxy := universe.NewGalaxy(protoGalaxyName, cacheSize, GetterFunc(func(_ context.Context, key string, dest New_Sink) error {
+	protoGalaxy := universe.NewGalaxy(protoGalaxyName, cacheSize, GetterFunc(func(_ context.Context, key string, dest Codec) error {
 		if key == fromChan {
 			key = <-stringc
 		}
@@ -356,15 +327,10 @@ func TestPeers(t *testing.T) {
 
 			universe := NewUniverseWithOpts(testproto, "fetcher0", hashOpts)
 			dummyCtx := context.TODO()
-<<<<<<< HEAD
 
 			universe.Set("fetcher0", "fetcher1", "fetcher2", "fetcher3")
-			getter := func(_ context.Context, key string, dest Sink) error {
-=======
-			fetchers := map[string]struct{}{"fetcher0": struct{}{}, "fetcher1": struct{}{}, "fetcher2": struct{}{}, "fetcher3": struct{}{}}
-			universe.Set(fetchers)
-			getter := func(_ context.Context, key string, dest New_Sink) error {
->>>>>>> f3c1735... Finish removing ByteView from lru.go and galaxycache/tests, implement new sink into tests
+
+			getter := func(_ context.Context, key string, dest Codec) error {
 				// these are local hits
 				testproto.TestFetchers["fetcher0"].hits++
 				return dest.UnmarshalBinary([]byte("got:" + key))
@@ -474,7 +440,7 @@ func TestNoDedup(t *testing.T) {
 	universe, dummyCtx, _ := testInitSetup()
 	const testkey = "testkey"
 	const testval = "testval"
-	g := universe.NewGalaxy("testgalaxy", 1024, GetterFunc(func(_ context.Context, key string, dest New_Sink) error {
+	g := universe.NewGalaxy("testgalaxy", 1024, GetterFunc(func(_ context.Context, key string, dest Codec) error {
 		return dest.UnmarshalBinary([]byte(testval))
 	}))
 
