@@ -20,7 +20,6 @@ package galaxycache
 
 import (
 	"context"
-	"encoding"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -44,33 +43,40 @@ const (
 	cacheSize        = 1 << 20
 )
 
+type sink struct {
+	bytes []byte
+	str   string
+}
+
 func testInitSetup() (*Universe, context.Context, chan string) {
 	return NewUniverse(&TestProtocol{}, "test"), context.TODO(), make(chan string)
 }
 
 func testSetupStringGalaxy(cacheFills *AtomicInt) (*Galaxy, context.Context, chan string) {
 	universe, ctx, stringc := testInitSetup()
-	stringGalaxy := universe.NewGalaxy(stringGalaxyName, cacheSize, GetterFunc(func(_ context.Context, key string, dest encoding.BinaryUnmarshaler) error {
+	stringGalaxy := universe.NewGalaxy(stringGalaxyName, cacheSize, GetterFunc(func(_ context.Context, key string, dest New_Sink) error {
 		if key == fromChan {
 			key = <-stringc
 		}
 		cacheFills.Add(1)
-		return dest.SetString("ECHO:" + key)
+		str := "ECHO:" + key
+		return dest.UnmarshalBinary([]byte(str))
 	}))
 	return stringGalaxy, ctx, stringc
 }
 
 func testSetupProtoGalaxy(cacheFills *AtomicInt) (*Galaxy, context.Context, chan string) {
 	universe, ctx, stringc := testInitSetup()
-	protoGalaxy := universe.NewGalaxy(protoGalaxyName, cacheSize, GetterFunc(func(_ context.Context, key string, dest Sink) error {
+	protoGalaxy := universe.NewGalaxy(protoGalaxyName, cacheSize, GetterFunc(func(_ context.Context, key string, dest New_Sink) error {
 		if key == fromChan {
 			key = <-stringc
 		}
 		cacheFills.Add(1)
-		return dest.SetProto(&testpb.TestMessage{
+		bytes, _ := proto.Marshal(&testpb.TestMessage{
 			Name: proto.String("ECHO:" + key),
 			City: proto.String("SOME-CITY"),
 		})
+		return dest.UnmarshalBinary(bytes)
 	}))
 	return protoGalaxy, ctx, stringc
 }
