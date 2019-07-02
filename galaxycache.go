@@ -210,7 +210,7 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Sink) error {
 
 	ctx, _ = tag.New(ctx, tag.Insert(keyCommand, "get"))
 
-	ctx, span := trace.StartSpan(ctx, "golang.org/groupcache.(*Galaxy).Get")
+	ctx, span := trace.StartSpan(ctx, "galaxycache.(*Galaxy).Get on "+g.name)
 	startTime := time.Now()
 	defer func() {
 		stats.Record(ctx, MRoundtripLatencyMilliseconds.M(sinceInMilliseconds(startTime)))
