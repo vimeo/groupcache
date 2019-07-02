@@ -372,6 +372,8 @@ func TestPeers(t *testing.T) {
 
 }
 
+// TODO(willg): Still want these tests?
+
 // func TestTruncatingByteSliceTarget(t *testing.T) {
 // 	var cacheFills AtomicInt
 // 	stringGalaxy, ctx, _ := testSetupStringGalaxy(&cacheFills)
