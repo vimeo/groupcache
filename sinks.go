@@ -218,60 +218,69 @@ func (s *protoSink) SetProto(m proto.Message) error {
 // AllocatingByteSliceSink returns a Sink that allocates
 // a byte slice to hold the received value and assigns
 // it to *dst. The memory is not retained by galaxycache.
-func AllocatingByteSliceSink(dst *[]byte) Sink {
-	return &allocBytesSink{dst: dst}
+func AllocatingByteSliceSink(b *[]byte) New_Sink {
+	return &allocBytesSink{bytes: b}
 }
 
 type allocBytesSink struct {
-	dst *[]byte
-	v   ByteView
+	// there was also another slice of bytes here.. why?
+	bytes *[]byte
 }
 
-func (s *allocBytesSink) view() (ByteView, error) {
-	return s.v, nil
+func (s *allocBytesSink) MarshalBinary() ([]byte, error) {
+	return *s.bytes, nil
 }
 
-func (s *allocBytesSink) setView(v ByteView) error {
-	if v.b != nil {
-		*s.dst = cloneBytes(v.b)
-	} else {
-		*s.dst = []byte(v.s)
-	}
-	s.v = v
+func (s *allocBytesSink) UnmarshalBinary(b []byte) error {
+	*s.bytes = cloneBytes(b)
 	return nil
 }
 
-func (s *allocBytesSink) SetProto(m proto.Message) error {
-	b, err := proto.Marshal(m)
-	if err != nil {
-		return err
-	}
-	return s.setBytesOwned(b)
-}
+// func (s *allocBytesSink) view() (ByteView, error) {
+// 	return s.v, nil
+// }
 
-func (s *allocBytesSink) SetBytes(b []byte) error {
-	return s.setBytesOwned(cloneBytes(b))
-}
+// func (s *allocBytesSink) setView(v ByteView) error {
+// 	if v.b != nil {
+// 		*s.dst = cloneBytes(v.b)
+// 	} else {
+// 		*s.dst = []byte(v.s)
+// 	}
+// 	s.v = v
+// 	return nil
+// }
 
-func (s *allocBytesSink) setBytesOwned(b []byte) error {
-	if s.dst == nil {
-		return errors.New("nil AllocatingByteSliceSink *[]byte dst")
-	}
-	*s.dst = cloneBytes(b) // another copy, protecting the read-only s.v.b view
-	s.v.b = b
-	s.v.s = ""
-	return nil
-}
+// func (s *allocBytesSink) SetProto(m proto.Message) error {
+// 	b, err := proto.Marshal(m)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	return s.setBytesOwned(b)
+// }
 
-func (s *allocBytesSink) SetString(v string) error {
-	if s.dst == nil {
-		return errors.New("nil AllocatingByteSliceSink *[]byte dst")
-	}
-	*s.dst = []byte(v)
-	s.v.b = nil
-	s.v.s = v
-	return nil
-}
+// func (s *allocBytesSink) SetBytes(b []byte) error {
+// 	return s.setBytesOwned(cloneBytes(b))
+// }
+
+// func (s *allocBytesSink) setBytesOwned(b []byte) error {
+// 	if s.dst == nil {
+// 		return errors.New("nil AllocatingByteSliceSink *[]byte dst")
+// 	}
+// 	*s.dst = cloneBytes(b) // another copy, protecting the read-only s.v.b view
+// 	s.v.b = b
+// 	s.v.s = ""
+// 	return nil
+// }
+
+// func (s *allocBytesSink) SetString(v string) error {
+// 	if s.dst == nil {
+// 		return errors.New("nil AllocatingByteSliceSink *[]byte dst")
+// 	}
+// 	*s.dst = []byte(v)
+// 	s.v.b = nil
+// 	s.v.s = v
+// 	return nil
+// }
 
 // TruncatingByteSliceSink returns a Sink that writes up to len(*dst)
 // bytes to *dst. If more bytes are available, they're silently
