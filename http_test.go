@@ -60,7 +60,7 @@ func TestHTTPHandler(t *testing.T) {
 		t.Errorf("Error setting peers: %s", err)
 	}
 
-	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
+	getter := GetterFunc(func(ctx context.Context, key string, dest New_Sink) error {
 		return fmt.Errorf("oh no! Local get occurred")
 	})
 	g := universe.NewGalaxy("peerFetchTest", 1<<20, getter)
@@ -73,11 +73,11 @@ func TestHTTPHandler(t *testing.T) {
 	}
 
 	for _, key := range testKeys(nGets) {
-		var value string
-		if err := g.Get(ctx, key, StringSink(&value)); err != nil {
+		var value StringCodec
+		if err := g.Get(ctx, key, &value); err != nil {
 			t.Fatal(err)
 		}
-		if suffix := ":" + key; !strings.HasSuffix(value, suffix) {
+		if suffix := ":" + key; !strings.HasSuffix(string(value), suffix) {
 			t.Errorf("Get(%q) = %q, want value ending in %q", key, value, suffix)
 		}
 		t.Logf("Get key=%q, value=%q (peer:key)", key, value)
@@ -94,8 +94,8 @@ func makeHTTPServerUniverse(ctx context.Context, t testing.TB, addresses []strin
 	if err != nil {
 		t.Errorf("Error setting peers: %s", err)
 	}
-	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
-		dest.SetString(":" + key)
+	getter := GetterFunc(func(ctx context.Context, key string, dest New_Sink) error {
+		dest.UnmarshalBinary([]byte(":" + key))
 		return nil
 	})
 	universe.NewGalaxy("peerFetchTest", 1<<20, getter)

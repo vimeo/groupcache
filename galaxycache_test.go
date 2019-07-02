@@ -23,7 +23,6 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
-	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -43,9 +42,33 @@ const (
 	cacheSize        = 1 << 20
 )
 
-type sink struct {
-	bytes []byte
-	str   string
+type StringCodec string
+type ProtoCodec struct {
+	Msg proto.Message
+}
+
+func (c *StringCodec) MarshalBinary() ([]byte, error) {
+	return []byte(*c), nil
+}
+
+func (c *StringCodec) UnmarshalBinary(data []byte) error {
+	*c = StringCodec(data)
+	return nil
+}
+
+type newProtoSink struct {
+	bytes []byte        // encoded (marshaled)
+	msg   proto.Message // decoded value (unmarshaled)
+}
+
+type sinkProtoMessage proto.Message
+
+func (c *ProtoCodec) MarshalBinary() ([]byte, error) {
+	return proto.Marshal(c.Msg)
+}
+
+func (c *ProtoCodec) UnmarshalBinary(data []byte) error {
+	return proto.Unmarshal(data, c.Msg)
 }
 
 func testInitSetup() (*Universe, context.Context, chan string) {
@@ -92,12 +115,12 @@ func TestGetDupSuppressString(t *testing.T) {
 	resc := make(chan string, 2)
 	for i := 0; i < 2; i++ {
 		go func() {
-			var s string
-			if err := stringGalaxy.Get(ctx, fromChan, StringSink(&s)); err != nil {
+			var s StringCodec
+			if err := stringGalaxy.Get(ctx, fromChan, &s); err != nil {
 				resc <- "ERROR:" + err.Error()
 				return
 			}
-			resc <- s
+			resc <- string(s)
 		}()
 	}
 
@@ -135,11 +158,12 @@ func TestGetDupSuppressProto(t *testing.T) {
 	resc := make(chan *testpb.TestMessage, 2)
 	for i := 0; i < 2; i++ {
 		go func() {
-			tm := new(testpb.TestMessage)
-			if err := protoGalaxy.Get(ctx, fromChan, ProtoSink(tm)); err != nil {
+			tm := new(testpb.TestMessage) // necessary? maybe not?
+			psink := ProtoCodec{Msg: tm}
+			if err := protoGalaxy.Get(ctx, fromChan, &psink); err != nil {
 				tm.Name = proto.String("ERROR:" + err.Error())
 			}
-			resc <- tm
+			resc <- psink.Msg.(*testpb.TestMessage)
 		}()
 	}
 
@@ -160,8 +184,8 @@ func TestGetDupSuppressProto(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		select {
 		case v := <-resc:
-			if !reflect.DeepEqual(v, want) {
-				t.Errorf(" Got: %v\nWant: %v", proto.CompactTextString(v), proto.CompactTextString(want))
+			if !proto.Equal(v, want) {
+				t.Errorf(" Got: %+v\nWant: %+v", v, want)
 			}
 		case <-time.After(5 * time.Second):
 			t.Errorf("timeout waiting on getter #%d of 2", i+1)
@@ -180,8 +204,8 @@ func TestCaching(t *testing.T) {
 	stringGalaxy, ctx, _ := testSetupStringGalaxy(&cacheFills)
 	fills := countFills(func() {
 		for i := 0; i < 10; i++ {
-			var s string
-			if err := stringGalaxy.Get(ctx, "TestCaching-key", StringSink(&s)); err != nil {
+			var s StringCodec
+			if err := stringGalaxy.Get(ctx, "TestCaching-key", &s); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -196,9 +220,9 @@ func TestCacheEviction(t *testing.T) {
 	stringGalaxy, ctx, _ := testSetupStringGalaxy(&cacheFills)
 	testKey := "TestCacheEviction-key"
 	getTestKey := func() {
-		var res string
+		var res StringCodec
 		for i := 0; i < 10; i++ {
-			if err := stringGalaxy.Get(ctx, testKey, StringSink(&res)); err != nil {
+			if err := stringGalaxy.Get(ctx, testKey, &res); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -214,9 +238,9 @@ func TestCacheEviction(t *testing.T) {
 	var bytesFlooded int64
 	// cacheSize/len(testKey) is approximate
 	for bytesFlooded < cacheSize+1024 {
-		var res string
+		var res StringCodec
 		key := fmt.Sprintf("dummy-key-%d", bytesFlooded)
-		stringGalaxy.Get(ctx, key, StringSink(&res))
+		stringGalaxy.Get(ctx, key, &res)
 		bytesFlooded += int64(len(key) + len(res))
 	}
 	evicts := stringGalaxy.mainCache.nevict - evict0
@@ -298,8 +322,8 @@ func TestPeers(t *testing.T) {
 			initFunc: func(g *Galaxy, _ map[string]*TestFetcher) {
 				for i := 0; i < 200; i++ {
 					key := fmt.Sprintf("%d", i)
-					var got string
-					err := g.Get(context.TODO(), key, StringSink(&got))
+					var got StringCodec
+					err := g.Get(context.TODO(), key, &got)
 					if err != nil {
 						t.Errorf("error on key %q: %v", key, err)
 						continue
@@ -332,12 +356,18 @@ func TestPeers(t *testing.T) {
 
 			universe := NewUniverseWithOpts(testproto, "fetcher0", hashOpts)
 			dummyCtx := context.TODO()
+<<<<<<< HEAD
 
 			universe.Set("fetcher0", "fetcher1", "fetcher2", "fetcher3")
 			getter := func(_ context.Context, key string, dest Sink) error {
+=======
+			fetchers := map[string]struct{}{"fetcher0": struct{}{}, "fetcher1": struct{}{}, "fetcher2": struct{}{}, "fetcher3": struct{}{}}
+			universe.Set(fetchers)
+			getter := func(_ context.Context, key string, dest New_Sink) error {
+>>>>>>> f3c1735... Finish removing ByteView from lru.go and galaxycache/tests, implement new sink into tests
 				// these are local hits
 				testproto.TestFetchers["fetcher0"].hits++
-				return dest.SetString("got:" + key)
+				return dest.UnmarshalBinary([]byte("got:" + key))
 			}
 
 			testGalaxy := universe.NewGalaxy("TestPeers-galaxy", tc.cacheSize, GetterFunc(getter))
@@ -353,13 +383,13 @@ func TestPeers(t *testing.T) {
 			for i := 0; i < tc.numGets; i++ {
 				key := fmt.Sprintf("%d", i)
 				want := "got:" + key
-				var got string
-				err := testGalaxy.Get(dummyCtx, key, StringSink(&got))
+				var got StringCodec
+				err := testGalaxy.Get(dummyCtx, key, &got)
 				if err != nil {
 					t.Errorf("%s: error on key %q: %v", tc.testName, key, err)
 					continue
 				}
-				if got != want {
+				if string(got) != want {
 					t.Errorf("%s: for key %q, got %q; want %q", tc.testName, key, got, want)
 				}
 			}
@@ -376,50 +406,49 @@ func TestPeers(t *testing.T) {
 
 }
 
-func TestTruncatingByteSliceTarget(t *testing.T) {
-	var cacheFills AtomicInt
-	stringGalaxy, ctx, _ := testSetupStringGalaxy(&cacheFills)
-	var buf [100]byte
-	s := buf[:]
-	if err := stringGalaxy.Get(ctx, "short", TruncatingByteSliceSink(&s)); err != nil {
-		t.Fatal(err)
-	}
-	if want := "ECHO:short"; string(s) != want {
-		t.Errorf("short key got %q; want %q", s, want)
-	}
+// func TestTruncatingByteSliceTarget(t *testing.T) {
+// 	var cacheFills AtomicInt
+// 	stringGalaxy, ctx, _ := testSetupStringGalaxy(&cacheFills)
+// 	var buf [100]byte
+// 	s := buf[:]
+// 	if err := stringGalaxy.Get(ctx, "short", TruncatingByteSliceSink(&s)); err != nil {
+// 		t.Fatal(err)
+// 	}
+// 	if want := "ECHO:short"; string(s) != want {
+// 		t.Errorf("short key got %q; want %q", s, want)
+// 	}
 
-	s = buf[:6]
-	if err := stringGalaxy.Get(ctx, "truncated", TruncatingByteSliceSink(&s)); err != nil {
-		t.Fatal(err)
-	}
-	if want := "ECHO:t"; string(s) != want {
-		t.Errorf("truncated key got %q; want %q", s, want)
-	}
-}
+// 	s = buf[:6]
+// 	if err := stringGalaxy.Get(ctx, "truncated", TruncatingByteSliceSink(&s)); err != nil {
+// 		t.Fatal(err)
+// 	}
+// 	if want := "ECHO:t"; string(s) != want {
+// 		t.Errorf("truncated key got %q; want %q", s, want)
+// 	}
+// }
 
-func TestAllocatingByteSliceTarget(t *testing.T) {
-	var dst []byte
-	sink := AllocatingByteSliceSink(&dst)
+// func TestAllocatingByteSliceTarget(t *testing.T) {
+// 	var dst []byte
+// 	sink := AllocatingByteSliceSink(&dst)
 
-	inBytes := []byte("some bytes")
-	sink.SetBytes(inBytes)
-	if want := "some bytes"; string(dst) != want {
-		t.Errorf("SetBytes resulted in %q; want %q", dst, want)
-	}
-	v, err := sink.view()
-	if err != nil {
-		t.Fatalf("view after SetBytes failed: %v", err)
-	}
-	if &inBytes[0] == &dst[0] {
-		t.Error("inBytes and dst share memory")
-	}
-	if &inBytes[0] == &v.b[0] {
-		t.Error("inBytes and view share memory")
-	}
-	if &dst[0] == &v.b[0] {
-		t.Error("dst and view share memory")
-	}
-}
+// 	inBytes := []byte("some bytes")
+// 	if want := "some bytes"; string(dst) != want {
+// 		t.Errorf("SetBytes resulted in %q; want %q", dst, want)
+// 	}
+// 	v, err := sink.view()
+// 	if err != nil {
+// 		t.Fatalf("view after SetBytes failed: %v", err)
+// 	}
+// 	if &inBytes[0] == &dst[0] {
+// 		t.Error("inBytes and dst share memory")
+// 	}
+// 	if &inBytes[0] == &v.b[0] {
+// 		t.Error("inBytes and view share memory")
+// 	}
+// 	if &dst[0] == &v.b[0] {
+// 		t.Error("dst and view share memory")
+// 	}
+// }
 
 // orderedFlightGroup allows the caller to force the schedule of when
 // orig.Do will be called.  This is useful to serialize calls such
@@ -445,8 +474,8 @@ func TestNoDedup(t *testing.T) {
 	universe, dummyCtx, _ := testInitSetup()
 	const testkey = "testkey"
 	const testval = "testval"
-	g := universe.NewGalaxy("testgalaxy", 1024, GetterFunc(func(_ context.Context, key string, dest Sink) error {
-		return dest.SetString(testval)
+	g := universe.NewGalaxy("testgalaxy", 1024, GetterFunc(func(_ context.Context, key string, dest New_Sink) error {
+		return dest.UnmarshalBinary([]byte(testval))
 	}))
 
 	orderedGroup := &orderedFlightGroup{
@@ -465,12 +494,12 @@ func TestNoDedup(t *testing.T) {
 	resc := make(chan string, 2)
 	for i := 0; i < 2; i++ {
 		go func() {
-			var s string
-			if err := g.Get(dummyCtx, testkey, StringSink(&s)); err != nil {
+			var s StringCodec
+			if err := g.Get(dummyCtx, testkey, &s); err != nil {
 				resc <- "ERROR:" + err.Error()
 				return
 			}
-			resc <- s
+			resc <- string(s)
 		}()
 	}
 

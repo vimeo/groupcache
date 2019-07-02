@@ -127,7 +127,6 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var value []byte
 	err := galaxy.Get(ctx, key, AllocatingByteSliceSink(&value))
 	if err != nil {
-		fmt.Errorf("Unmarshal error: ", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
