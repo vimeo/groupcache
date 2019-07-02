@@ -259,7 +259,8 @@ func (s *allocBytesSink) UnmarshalBinary(b []byte) error {
 // }
 
 // func (s *allocBytesSink) SetBytes(b []byte) error {
-// 	return s.setBytesOwned(cloneBytes(b))
+// 	s.bytes = b
+// 	return nil
 // }
 
 // func (s *allocBytesSink) setBytesOwned(b []byte) error {

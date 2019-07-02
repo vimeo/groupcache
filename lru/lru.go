@@ -27,7 +27,7 @@ type Cache struct {
 
 	// OnEvicted optionally specificies a callback function to be
 	// executed when an entry is purged from the cache.
-	OnEvicted func(key Key, value interface{})
+	OnEvicted func(key Key)
 
 	ll    *list.List
 	cache map[interface{}]*list.Element
@@ -108,7 +108,7 @@ func (c *Cache) removeElement(e *list.Element) {
 	kv := e.Value.(*entry)
 	delete(c.cache, kv.key)
 	if c.OnEvicted != nil {
-		c.OnEvicted(kv.key, kv.value)
+		c.OnEvicted(kv.key)
 	}
 }
 
@@ -125,7 +125,7 @@ func (c *Cache) Clear() {
 	if c.OnEvicted != nil {
 		for _, e := range c.cache {
 			kv := e.Value.(*entry)
-			c.OnEvicted(kv.key, kv.value)
+			c.OnEvicted(kv.key)
 		}
 	}
 	c.ll = nil

@@ -447,9 +447,8 @@ func (c *cache) add(key string, value []byte) {
 	defer c.mu.Unlock()
 	if c.lru == nil {
 		c.lru = &lru.Cache{
-			OnEvicted: func(key lru.Key, value interface{}) {
-				val := value.(ByteView)
-				c.nbytes -= int64(len(key.(string))) + int64(val.Len())
+			OnEvicted: func(key lru.Key) {
+				c.nbytes -= int64(len(key.(string))) + int64(len(value))
 				c.nevict++
 			},
 		}
