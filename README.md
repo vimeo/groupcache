@@ -58,12 +58,6 @@ In a nutshell, a galaxycache lookup of **Get("foo")** looks like:
     the answer.  If the RPC fails, just load it locally (still with
     local dup suppression).
 
-## Users
-
-groupcache (from which galaxycache is forked) is in production use by dl.google.com (its original user),
-parts of Blogger, parts of Google Code, parts of Google Fiber, parts
-of Google production monitoring systems, etc.
-
 ## Presentations
 
 See http://talks.golang.org/2013/oscon-dl.slide
