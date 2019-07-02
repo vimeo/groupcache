@@ -311,7 +311,7 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Sink) (value ByteVie
 			g.Stats.PeerErrors.Add(1)
 			stats.Record(ctx, MPeerErrors.M(1))
 			// TODO(bradfitz): log the peer's error? keep
-			// log of the past few for /galaxycachez?  It's
+			// log of the past few for /galaxycache?  It's
 			// probably boring (normal task movement), so not
 			// worth logging I imagine.
 		}
