@@ -44,7 +44,7 @@ import (
 
 // A BackendGetter loads data for a key.
 type BackendGetter interface {
-	// Get returns the value identified by key, populating dest.
+	// Get populates dest with the value identified by key
 	//
 	// The returned data must be unversioned. That is, key must
 	// uniquely describe the loaded data, without an implicit
@@ -56,9 +56,7 @@ type BackendGetter interface {
 // A GetterFunc implements BackendGetter with a function.
 type GetterFunc func(ctx context.Context, key string, dest Sink) error
 
-// Get here calls the chosen BackendGetter (or GetterFunc) when the
-// current peer is the owner of a key, getting the value from the
-// database, for example
+// Get implements Get from BackendGetter
 func (f GetterFunc) Get(ctx context.Context, key string, dest Sink) error {
 	return f(ctx, key, dest)
 }

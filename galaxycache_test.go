@@ -40,7 +40,6 @@ import (
 const (
 	stringGalaxyName = "string-galaxy"
 	protoGalaxyName  = "proto-galaxy"
-	testMessageType  = "google3/net/groupcache/go/test_proto.TestMessage"
 	fromChan         = "from-chan"
 	cacheSize        = 1 << 20
 )

@@ -82,8 +82,8 @@ func (hp *HTTPFetchProtocol) NewFetcher(url string) RemoteFetcher {
 // request; it contains a pointer to its parent Universe in order to access
 // its galaxies
 type HTTPHandler struct {
-	parentUniverse *Universe
-	basePath       string
+	universe *Universe
+	basePath string
 }
 
 // RegisterHTTPHandler sets up an HTTPHandler with a user specified path
@@ -96,7 +96,7 @@ func RegisterHTTPHandler(universe *Universe, opts *HTTPOptions, serveMux *http.S
 	if opts != nil {
 		basePath = opts.BasePath
 	}
-	newHTTPHandler := &HTTPHandler{basePath: basePath, parentUniverse: universe}
+	newHTTPHandler := &HTTPHandler{basePath: basePath, universe: universe}
 	if serveMux == nil {
 		http.Handle(basePath, newHTTPHandler)
 	} else {
@@ -104,12 +104,12 @@ func RegisterHTTPHandler(universe *Universe, opts *HTTPOptions, serveMux *http.S
 	}
 }
 
-func (handler *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Parse request.
-	if !strings.HasPrefix(r.URL.Path, handler.basePath) {
+	if !strings.HasPrefix(r.URL.Path, h.basePath) {
 		panic("HTTPPool serving unexpected path: " + r.URL.Path)
 	}
-	parts := strings.SplitN(r.URL.Path[len(handler.basePath):], "/", 2)
+	parts := strings.SplitN(r.URL.Path[len(h.basePath):], "/", 2)
 	if len(parts) != 2 {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
@@ -118,7 +118,7 @@ func (handler *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	key := parts[1]
 
 	// Fetch the value for this galaxy/key.
-	galaxy := handler.parentUniverse.GetGalaxy(galaxyName)
+	galaxy := h.universe.GetGalaxy(galaxyName)
 	if galaxy == nil {
 		http.Error(w, "no such galaxy: "+galaxyName, http.StatusNotFound)
 		return
