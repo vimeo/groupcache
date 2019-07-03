@@ -16,15 +16,18 @@ limitations under the License.
 
 package galaxycache
 
-import "github.com/golang/protobuf/proto"
+import (
+	"github.com/golang/protobuf/proto"
+)
 
-// Codec implements both the BinaryMarshaler and BinaryUnmarshaler
+// Codec includes both the BinaryMarshaler and BinaryUnmarshaler
 // interfaces
 type Codec interface {
 	MarshalBinary() ([]byte, error)
 	UnmarshalBinary(data []byte) error
 }
 
+// ByteCodec is a byte slice type that implements Codec
 type ByteCodec []byte
 
 func (c *ByteCodec) MarshalBinary() ([]byte, error) {
@@ -32,10 +35,13 @@ func (c *ByteCodec) MarshalBinary() ([]byte, error) {
 }
 
 func (c *ByteCodec) UnmarshalBinary(data []byte) error {
-	*c = data
+	tmp := make([]byte, len(data))
+	copy(tmp, data)
+	*c = tmp
 	return nil
 }
 
+// StringCodec is a string type that implements Codec
 type StringCodec string
 
 func (c *StringCodec) MarshalBinary() ([]byte, error) {
@@ -47,6 +53,7 @@ func (c *StringCodec) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
+// ProtoCodec wraps a proto.Message and implements Codec
 type ProtoCodec struct {
 	Msg proto.Message
 }

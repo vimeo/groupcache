@@ -372,51 +372,41 @@ func TestPeers(t *testing.T) {
 
 }
 
-// TODO(willg): Still want these tests?
+// TODO(willg): Changed the order of assignment here to make this work, not
+// entirely sure of the purpose of this test but it basically still works as
+// it was
+func TestTruncatingByteSliceTarget(t *testing.T) {
+	var cacheFills AtomicInt
+	stringGalaxy, ctx, _ := testSetupStringGalaxy(&cacheFills)
+	var buf ByteCodec
+	if err := stringGalaxy.Get(ctx, "short", &buf); err != nil {
+		t.Fatal(err)
+	}
+	s := buf[:]
+	if want := "ECHO:short"; string(s) != want {
+		t.Errorf("short key got %q; want %q", s, want)
+	}
+	if err := stringGalaxy.Get(ctx, "truncated", &buf); err != nil {
+		t.Fatal(err)
+	}
+	s = buf[:6]
+	if want := "ECHO:t"; string(s) != want {
+		t.Errorf("truncated key got %q; want %q", s, want)
+	}
+}
 
-// func TestTruncatingByteSliceTarget(t *testing.T) {
-// 	var cacheFills AtomicInt
-// 	stringGalaxy, ctx, _ := testSetupStringGalaxy(&cacheFills)
-// 	var buf [100]byte
-// 	s := buf[:]
-// 	if err := stringGalaxy.Get(ctx, "short", TruncatingByteSliceSink(&s)); err != nil {
-// 		t.Fatal(err)
-// 	}
-// 	if want := "ECHO:short"; string(s) != want {
-// 		t.Errorf("short key got %q; want %q", s, want)
-// 	}
+func TestByteCodecTarget(t *testing.T) {
+	var byteCodec ByteCodec
 
-// 	s = buf[:6]
-// 	if err := stringGalaxy.Get(ctx, "truncated", TruncatingByteSliceSink(&s)); err != nil {
-// 		t.Fatal(err)
-// 	}
-// 	if want := "ECHO:t"; string(s) != want {
-// 		t.Errorf("truncated key got %q; want %q", s, want)
-// 	}
-// }
-
-// func TestAllocatingByteSliceTarget(t *testing.T) {
-// 	var dst []byte
-// 	sink := AllocatingByteSliceSink(&dst)
-
-// 	inBytes := []byte("some bytes")
-// 	if want := "some bytes"; string(dst) != want {
-// 		t.Errorf("SetBytes resulted in %q; want %q", dst, want)
-// 	}
-// 	v, err := sink.view()
-// 	if err != nil {
-// 		t.Fatalf("view after SetBytes failed: %v", err)
-// 	}
-// 	if &inBytes[0] == &dst[0] {
-// 		t.Error("inBytes and dst share memory")
-// 	}
-// 	if &inBytes[0] == &v.b[0] {
-// 		t.Error("inBytes and view share memory")
-// 	}
-// 	if &dst[0] == &v.b[0] {
-// 		t.Error("dst and view share memory")
-// 	}
-// }
+	inBytes := []byte("some bytes")
+	byteCodec.UnmarshalBinary(inBytes)
+	if want := "some bytes"; string(byteCodec) != want {
+		t.Errorf("UnmarshalBinary resulted in %q; want %q", byteCodec, want)
+	}
+	if &inBytes[0] == &byteCodec[0] {
+		t.Error("inBytes and byteCodec share memory")
+	}
+}
 
 // orderedFlightGroup allows the caller to force the schedule of when
 // orig.Do will be called.  This is useful to serialize calls such
