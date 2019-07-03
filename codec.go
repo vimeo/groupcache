@@ -27,29 +27,42 @@ type Codec interface {
 	UnmarshalBinary(data []byte) error
 }
 
+// Note: to ensure that unmarshaling is a read-only operation, bytes
+// are always cloned
+func cloneBytes(b []byte) []byte {
+	tmp := make([]byte, len(b))
+	copy(tmp, b)
+	return tmp
+}
+
 // ByteCodec is a byte slice type that implements Codec
 type ByteCodec []byte
 
+// MarshalBinary on a ByteCodec returns the bytes
 func (c *ByteCodec) MarshalBinary() ([]byte, error) {
 	return *c, nil
 }
 
+// UnmarshalBinary on a ByteCodec sets the ByteCodec to
+// a copy of the provided data
 func (c *ByteCodec) UnmarshalBinary(data []byte) error {
-	tmp := make([]byte, len(data))
-	copy(tmp, data)
-	*c = tmp
+	*c = cloneBytes(data)
 	return nil
 }
 
 // StringCodec is a string type that implements Codec
 type StringCodec string
 
+// MarshalBinary on a StringCodec returns the bytes underlying
+// the string
 func (c *StringCodec) MarshalBinary() ([]byte, error) {
 	return []byte(*c), nil
 }
 
+// UnmarshalBinary on a StringCodec sets the StringCodec to
+// a stringified copy of the provided data
 func (c *StringCodec) UnmarshalBinary(data []byte) error {
-	*c = StringCodec(data)
+	*c = StringCodec(cloneBytes(data))
 	return nil
 }
 
@@ -58,10 +71,13 @@ type ProtoCodec struct {
 	Msg proto.Message
 }
 
+// MarshalBinary on a ProtoCodec returns the encoded proto message
 func (c *ProtoCodec) MarshalBinary() ([]byte, error) {
 	return proto.Marshal(c.Msg)
 }
 
+// UnmarshalBinary on a ProtoCodec unmarshals provided data into
+// the proto message
 func (c *ProtoCodec) UnmarshalBinary(data []byte) error {
-	return proto.Unmarshal(data, c.Msg)
+	return proto.Unmarshal(cloneBytes(data), c.Msg) // redundant clone?
 }
