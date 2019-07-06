@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package groupcache
+package galaxycache
 
 import (
 	"time"
@@ -58,19 +58,19 @@ var (
 var keyCommand, _ = tag.NewKey("command")
 
 var AllViews = []*view.View{
-	{Name: "groupcache/gets", Description: "The number of Get requests", Measure: MGets, Aggregation: view.Count()},
-	{Name: "groupcache/cache_hits", Description: "The number of times that either cache was good", Measure: MCacheHits, Aggregation: view.Count()},
-	{Name: "groupcache/cache_misses", Description: "The number of times that either cache was not good", Measure: MCacheMisses, Aggregation: view.Count()},
-	{Name: "groupcache/peer_loads", Description: "The number of remote loads or remote cache hits", Measure: MPeerLoads, Aggregation: view.Count()},
-	{Name: "groupcache/peer_errors", Description: "The number of remote errors", Measure: MPeerErrors, Aggregation: view.Count()},
-	{Name: "groupcache/loads", Description: "The number of loads after singleflight", Measure: MLoads, Aggregation: view.Count()},
-	{Name: "groupcache/loads_deduped", Description: "The number of loads after singleflight", Measure: MLoadsDeduped, Aggregation: view.Count()},
-	{Name: "groupcache/local_loads", Description: "The number of good local loads", Measure: MLocalLoads, Aggregation: view.Count()},
-	{Name: "groupcache/local_load_errors", Description: "The number of bad local loads", Measure: MLocalLoadErrors, Aggregation: view.Count()},
-	{Name: "groupcache/server_requests", Description: "The number of Gets that came over the network from peers", Measure: MServerRequests, Aggregation: view.Count()},
-	{Name: "groupcache/key_length", Description: "The distribution of the key lengths", Measure: MKeyLength, Aggregation: defaultBytesDistribution},
-	{Name: "groupcache/value_length", Description: "The distribution of the value lengths", Measure: MValueLength, Aggregation: defaultBytesDistribution},
-	{Name: "groupcache/roundtrip_latency", Description: "The roundtrip latency", Measure: MRoundtripLatencyMilliseconds, Aggregation: defaultMillisecondsDistribution},
+	{Name: "galaxycache/gets", Description: "The number of Get requests", Measure: MGets, Aggregation: view.Count()},
+	{Name: "galaxycache/cache_hits", Description: "The number of times that either cache was good", Measure: MCacheHits, Aggregation: view.Count()},
+	{Name: "galaxycache/cache_misses", Description: "The number of times that either cache was not good", Measure: MCacheMisses, Aggregation: view.Count()},
+	{Name: "galaxycache/peer_loads", Description: "The number of remote loads or remote cache hits", Measure: MPeerLoads, Aggregation: view.Count()},
+	{Name: "galaxycache/peer_errors", Description: "The number of remote errors", Measure: MPeerErrors, Aggregation: view.Count()},
+	{Name: "galaxycache/loads", Description: "The number of loads after singleflight", Measure: MLoads, Aggregation: view.Count()},
+	{Name: "galaxycache/loads_deduped", Description: "The number of loads after singleflight", Measure: MLoadsDeduped, Aggregation: view.Count()},
+	{Name: "galaxycache/local_loads", Description: "The number of good local loads", Measure: MLocalLoads, Aggregation: view.Count()},
+	{Name: "galaxycache/local_load_errors", Description: "The number of bad local loads", Measure: MLocalLoadErrors, Aggregation: view.Count()},
+	{Name: "galaxycache/server_requests", Description: "The number of Gets that came over the network from peers", Measure: MServerRequests, Aggregation: view.Count()},
+	{Name: "galaxycache/key_length", Description: "The distribution of the key lengths", Measure: MKeyLength, Aggregation: defaultBytesDistribution},
+	{Name: "galaxycache/value_length", Description: "The distribution of the value lengths", Measure: MValueLength, Aggregation: defaultBytesDistribution},
+	{Name: "galaxycache/roundtrip_latency", Description: "The roundtrip latency", Measure: MRoundtripLatencyMilliseconds, Aggregation: defaultMillisecondsDistribution},
 }
 
 func sinceInMilliseconds(start time.Time) float64 {

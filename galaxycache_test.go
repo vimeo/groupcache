@@ -14,17 +14,18 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Tests for groupcache.
+// Tests for galaxycache.
 
-package groupcache
+package galaxycache
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"hash/crc32"
 	"math/rand"
 	"reflect"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -32,42 +33,36 @@ import (
 
 	"github.com/golang/protobuf/proto"
 
-	pb "github.com/golang/groupcache/groupcachepb"
-	testpb "github.com/golang/groupcache/testpb"
-)
-
-var (
-	once                    sync.Once
-	stringGroup, protoGroup Getter
-
-	stringc = make(chan string)
-
-	dummyCtx = context.TODO()
-
-	// cacheFills is the number of times stringGroup or
-	// protoGroup's Getter have been called. Read using the
-	// cacheFills function.
-	cacheFills AtomicInt
+	pb "github.com/vimeo/groupcache/groupcachepb"
+	testpb "github.com/vimeo/groupcache/testpb"
 )
 
 const (
-	stringGroupName = "string-group"
-	protoGroupName  = "proto-group"
-	testMessageType = "google3/net/groupcache/go/test_proto.TestMessage"
-	fromChan        = "from-chan"
-	cacheSize       = 1 << 20
+	stringGalaxyName = "string-galaxy"
+	protoGalaxyName  = "proto-galaxy"
+	fromChan         = "from-chan"
+	cacheSize        = 1 << 20
 )
 
-func testSetup() {
-	stringGroup = NewGroup(stringGroupName, cacheSize, GetterFunc(func(_ context.Context, key string, dest Sink) error {
+func testInitSetup() (*Universe, context.Context, chan string) {
+	return NewUniverse(&TestProtocol{}, "test"), context.TODO(), make(chan string)
+}
+
+func testSetupStringGalaxy(cacheFills *AtomicInt) (*Galaxy, context.Context, chan string) {
+	universe, ctx, stringc := testInitSetup()
+	stringGalaxy := universe.NewGalaxy(stringGalaxyName, cacheSize, GetterFunc(func(_ context.Context, key string, dest Sink) error {
 		if key == fromChan {
 			key = <-stringc
 		}
 		cacheFills.Add(1)
 		return dest.SetString("ECHO:" + key)
 	}))
+	return stringGalaxy, ctx, stringc
+}
 
-	protoGroup = NewGroup(protoGroupName, cacheSize, GetterFunc(func(_ context.Context, key string, dest Sink) error {
+func testSetupProtoGalaxy(cacheFills *AtomicInt) (*Galaxy, context.Context, chan string) {
+	universe, ctx, stringc := testInitSetup()
+	protoGalaxy := universe.NewGalaxy(protoGalaxyName, cacheSize, GetterFunc(func(_ context.Context, key string, dest Sink) error {
 		if key == fromChan {
 			key = <-stringc
 		}
@@ -77,20 +72,22 @@ func testSetup() {
 			City: proto.String("SOME-CITY"),
 		})
 	}))
+	return protoGalaxy, ctx, stringc
 }
 
-// tests that a Getter's Get method is only called once with two
-// outstanding callers.  This is the string variant.
+// tests that a BackendGetter's Get method is only called once with two
+// outstanding callers. This is the string variant.
 func TestGetDupSuppressString(t *testing.T) {
-	once.Do(testSetup)
-	// Start two getters. The first should block (waiting reading
+	var cacheFills AtomicInt
+	stringGalaxy, ctx, stringc := testSetupStringGalaxy(&cacheFills)
+	// Start two BackendGetters. The first should block (waiting reading
 	// from stringc) and the second should latch on to the first
 	// one.
 	resc := make(chan string, 2)
 	for i := 0; i < 2; i++ {
 		go func() {
 			var s string
-			if err := stringGroup.Get(dummyCtx, fromChan, StringSink(&s)); err != nil {
+			if err := stringGalaxy.Get(ctx, fromChan, StringSink(&s)); err != nil {
 				resc <- "ERROR:" + err.Error()
 				return
 			}
@@ -121,10 +118,11 @@ func TestGetDupSuppressString(t *testing.T) {
 	}
 }
 
-// tests that a Getter's Get method is only called once with two
+// tests that a BackendGetter's Get method is only called once with two
 // outstanding callers.  This is the proto variant.
 func TestGetDupSuppressProto(t *testing.T) {
-	once.Do(testSetup)
+	var cacheFills AtomicInt
+	protoGalaxy, ctx, stringc := testSetupProtoGalaxy(&cacheFills)
 	// Start two getters. The first should block (waiting reading
 	// from stringc) and the second should latch on to the first
 	// one.
@@ -132,7 +130,7 @@ func TestGetDupSuppressProto(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		go func() {
 			tm := new(testpb.TestMessage)
-			if err := protoGroup.Get(dummyCtx, fromChan, ProtoSink(tm)); err != nil {
+			if err := protoGalaxy.Get(ctx, fromChan, ProtoSink(tm)); err != nil {
 				tm.Name = proto.String("ERROR:" + err.Error())
 			}
 			resc <- tm
@@ -165,45 +163,46 @@ func TestGetDupSuppressProto(t *testing.T) {
 	}
 }
 
-func countFills(f func()) int64 {
+func countFills(f func(), cacheFills *AtomicInt) int64 {
 	fills0 := cacheFills.Get()
 	f()
 	return cacheFills.Get() - fills0
 }
 
 func TestCaching(t *testing.T) {
-	once.Do(testSetup)
+	var cacheFills AtomicInt
+	stringGalaxy, ctx, _ := testSetupStringGalaxy(&cacheFills)
 	fills := countFills(func() {
 		for i := 0; i < 10; i++ {
 			var s string
-			if err := stringGroup.Get(dummyCtx, "TestCaching-key", StringSink(&s)); err != nil {
+			if err := stringGalaxy.Get(ctx, "TestCaching-key", StringSink(&s)); err != nil {
 				t.Fatal(err)
 			}
 		}
-	})
+	}, &cacheFills)
 	if fills != 1 {
 		t.Errorf("expected 1 cache fill; got %d", fills)
 	}
 }
 
 func TestCacheEviction(t *testing.T) {
-	once.Do(testSetup)
+	var cacheFills AtomicInt
+	stringGalaxy, ctx, _ := testSetupStringGalaxy(&cacheFills)
 	testKey := "TestCacheEviction-key"
 	getTestKey := func() {
 		var res string
 		for i := 0; i < 10; i++ {
-			if err := stringGroup.Get(dummyCtx, testKey, StringSink(&res)); err != nil {
+			if err := stringGalaxy.Get(ctx, testKey, StringSink(&res)); err != nil {
 				t.Fatal(err)
 			}
 		}
 	}
-	fills := countFills(getTestKey)
+	fills := countFills(getTestKey, &cacheFills)
 	if fills != 1 {
 		t.Fatalf("expected 1 cache fill; got %d", fills)
 	}
 
-	g := stringGroup.(*Group)
-	evict0 := g.mainCache.nevict
+	evict0 := stringGalaxy.mainCache.nevict
 
 	// Trash the cache with other keys.
 	var bytesFlooded int64
@@ -211,121 +210,168 @@ func TestCacheEviction(t *testing.T) {
 	for bytesFlooded < cacheSize+1024 {
 		var res string
 		key := fmt.Sprintf("dummy-key-%d", bytesFlooded)
-		stringGroup.Get(dummyCtx, key, StringSink(&res))
+		stringGalaxy.Get(ctx, key, StringSink(&res))
 		bytesFlooded += int64(len(key) + len(res))
 	}
-	evicts := g.mainCache.nevict - evict0
+	evicts := stringGalaxy.mainCache.nevict - evict0
 	if evicts <= 0 {
 		t.Errorf("evicts = %v; want more than 0", evicts)
 	}
 
 	// Test that the key is gone.
-	fills = countFills(getTestKey)
+	fills = countFills(getTestKey, &cacheFills)
 	if fills != 1 {
 		t.Fatalf("expected 1 cache fill after cache trashing; got %d", fills)
 	}
 }
 
-type fakePeer struct {
+// Testing types to use in TestPeers
+type TestProtocol struct {
+	TestFetchers map[string]*TestFetcher
+}
+type TestFetcher struct {
 	hits int
 	fail bool
 }
+type testFetchers []RemoteFetcher
 
-func (p *fakePeer) Get(_ context.Context, in *pb.GetRequest, out *pb.GetResponse) error {
-	p.hits++
-	if p.fail {
+func (fetcher *TestFetcher) Fetch(ctx context.Context, in *pb.GetRequest, out *pb.GetResponse) error {
+	if fetcher.fail {
 		return errors.New("simulated error from peer")
 	}
+	fetcher.hits++
 	out.Value = []byte("got:" + in.GetKey())
 	return nil
 }
 
-type fakePeers []ProtoGetter
-
-func (p fakePeers) PickPeer(key string) (peer ProtoGetter, ok bool) {
-	if len(p) == 0 {
-		return
+func (proto *TestProtocol) NewFetcher(url string) RemoteFetcher {
+	newTestFetcher := &TestFetcher{
+		hits: 0,
+		fail: false,
 	}
-	n := crc32.Checksum([]byte(key), crc32.IEEETable) % uint32(len(p))
-	return p[n], p[n] != nil
+	proto.TestFetchers[url] = newTestFetcher
+	return newTestFetcher
 }
 
-// tests that peers (virtual, in-process) are hit, and how much.
+// TestPeers tests to ensure that an instance with given hash
+// function results in the expected number of gets both locally and into each other peer
 func TestPeers(t *testing.T) {
-	once.Do(testSetup)
-	rand.Seed(123)
-	peer0 := &fakePeer{}
-	peer1 := &fakePeer{}
-	peer2 := &fakePeer{}
-	peerList := fakePeers([]ProtoGetter{peer0, peer1, peer2, nil})
-	const cacheSize = 0 // disabled
-	localHits := 0
-	getter := func(_ context.Context, key string, dest Sink) error {
-		localHits++
-		return dest.SetString("got:" + key)
-	}
-	testGroup := newGroup("TestPeers-group", cacheSize, GetterFunc(getter), peerList)
-	run := func(name string, n int, wantSummary string) {
-		// Reset counters
-		localHits = 0
-		for _, p := range []*fakePeer{peer0, peer1, peer2} {
-			p.hits = 0
-		}
 
-		for i := 0; i < n; i++ {
-			key := fmt.Sprintf("key-%d", i)
-			want := "got:" + key
-			var got string
-			err := testGroup.Get(dummyCtx, key, StringSink(&got))
-			if err != nil {
-				t.Errorf("%s: error on key %q: %v", name, key, err)
-				continue
+	hashFn := func(data []byte) uint32 {
+		dataStr := strings.TrimPrefix(string(data), "0fetcher")
+		toReturn, _ := strconv.Atoi(dataStr)
+		return uint32(toReturn) % 4
+	}
+	hashOpts := &HashOptions{
+		Replicas: 1,
+		HashFn:   hashFn,
+	}
+
+	testCases := []struct {
+		testName     string
+		numGets      int
+		expectedHits map[string]int
+		cacheSize    int64
+		initFunc     func(g *Galaxy, fetchers map[string]*TestFetcher)
+	}{
+		{
+			testName:     "base",
+			numGets:      200,
+			expectedHits: map[string]int{"fetcher0": 50, "fetcher1": 50, "fetcher2": 50, "fetcher3": 50},
+			cacheSize:    1 << 20,
+		},
+		{
+			testName:     "cached_base",
+			numGets:      200,
+			expectedHits: map[string]int{"fetcher0": 0, "fetcher1": 48, "fetcher2": 47, "fetcher3": 48},
+			cacheSize:    1 << 20,
+			initFunc: func(g *Galaxy, _ map[string]*TestFetcher) {
+				for i := 0; i < 200; i++ {
+					key := fmt.Sprintf("%d", i)
+					var got string
+					err := g.Get(context.TODO(), key, StringSink(&got))
+					if err != nil {
+						t.Errorf("error on key %q: %v", key, err)
+						continue
+					}
+				}
+			},
+		},
+		{
+			testName:     "one_peer_down",
+			numGets:      200,
+			expectedHits: map[string]int{"fetcher0": 100, "fetcher1": 50, "fetcher2": 0, "fetcher3": 50},
+			cacheSize:    1 << 20,
+			initFunc: func(g *Galaxy, fetchers map[string]*TestFetcher) {
+				fetchers["fetcher2"].fail = true
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.testName, func(t *testing.T) {
+			// instantiate test fetchers with the test protocol
+			testproto := &TestProtocol{
+				TestFetchers: make(map[string]*TestFetcher),
 			}
-			if got != want {
-				t.Errorf("%s: for key %q, got %q; want %q", name, key, got, want)
+
+			// Initialize source to a deterministic state so we will have
+			// predictable hotCache result (given the current 10%-of-the-time
+			// method for putting items in the hotCache)
+			rand.Seed(123)
+
+			universe := NewUniverseWithOpts(testproto, "fetcher0", hashOpts)
+			dummyCtx := context.TODO()
+
+			universe.Set("fetcher0", "fetcher1", "fetcher2", "fetcher3")
+			getter := func(_ context.Context, key string, dest Sink) error {
+				// these are local hits
+				testproto.TestFetchers["fetcher0"].hits++
+				return dest.SetString("got:" + key)
 			}
-		}
-		summary := func() string {
-			return fmt.Sprintf("localHits = %d, peers = %d %d %d", localHits, peer0.hits, peer1.hits, peer2.hits)
-		}
-		if got := summary(); got != wantSummary {
-			t.Errorf("%s: got %q; want %q", name, got, wantSummary)
-		}
+
+			testGalaxy := universe.NewGalaxy("TestPeers-galaxy", tc.cacheSize, GetterFunc(getter))
+
+			if tc.initFunc != nil {
+				tc.initFunc(testGalaxy, testproto.TestFetchers)
+			}
+
+			for _, p := range testproto.TestFetchers {
+				p.hits = 0
+			}
+
+			for i := 0; i < tc.numGets; i++ {
+				key := fmt.Sprintf("%d", i)
+				want := "got:" + key
+				var got string
+				err := testGalaxy.Get(dummyCtx, key, StringSink(&got))
+				if err != nil {
+					t.Errorf("%s: error on key %q: %v", tc.testName, key, err)
+					continue
+				}
+				if got != want {
+					t.Errorf("%s: for key %q, got %q; want %q", tc.testName, key, got, want)
+				}
+			}
+			for name, fetcher := range testproto.TestFetchers {
+				want := tc.expectedHits[name]
+				got := fetcher.hits
+				if got != want {
+					t.Errorf("For %s:  got %d, want %d", name, fetcher.hits, want)
+				}
+
+			}
+		})
 	}
-	resetCacheSize := func(maxBytes int64) {
-		g := testGroup
-		g.cacheBytes = maxBytes
-		g.mainCache = cache{}
-		g.hotCache = cache{}
-	}
 
-	// Base case; peers all up, with no problems.
-	resetCacheSize(1 << 20)
-	run("base", 200, "localHits = 49, peers = 51 49 51")
-
-	// Verify cache was hit.  All localHits are gone, and some of
-	// the peer hits (the ones randomly selected to be maybe hot)
-	run("cached_base", 200, "localHits = 0, peers = 49 47 48")
-	resetCacheSize(0)
-
-	// With one of the peers being down.
-	// TODO(bradfitz): on a peer number being unavailable, the
-	// consistent hashing should maybe keep trying others to
-	// spread the load out. Currently it fails back to local
-	// execution if the first consistent-hash slot is unavailable.
-	peerList[0] = nil
-	run("one_peer_down", 200, "localHits = 100, peers = 0 49 51")
-
-	// Failing peer
-	peerList[0] = peer0
-	peer0.fail = true
-	run("peer0_failing", 200, "localHits = 100, peers = 51 49 51")
 }
 
 func TestTruncatingByteSliceTarget(t *testing.T) {
+	var cacheFills AtomicInt
+	stringGalaxy, ctx, _ := testSetupStringGalaxy(&cacheFills)
 	var buf [100]byte
 	s := buf[:]
-	if err := stringGroup.Get(dummyCtx, "short", TruncatingByteSliceSink(&s)); err != nil {
+	if err := stringGalaxy.Get(ctx, "short", TruncatingByteSliceSink(&s)); err != nil {
 		t.Fatal(err)
 	}
 	if want := "ECHO:short"; string(s) != want {
@@ -333,7 +379,7 @@ func TestTruncatingByteSliceTarget(t *testing.T) {
 	}
 
 	s = buf[:6]
-	if err := stringGroup.Get(dummyCtx, "truncated", TruncatingByteSliceSink(&s)); err != nil {
+	if err := stringGalaxy.Get(ctx, "truncated", TruncatingByteSliceSink(&s)); err != nil {
 		t.Fatal(err)
 	}
 	if want := "ECHO:t"; string(s) != want {
@@ -386,11 +432,12 @@ func (g *orderedFlightGroup) Do(key string, fn func() (interface{}, error)) (int
 // TestNoDedup tests invariants on the cache size when singleflight is
 // unable to dedup calls.
 func TestNoDedup(t *testing.T) {
+	universe, dummyCtx, _ := testInitSetup()
 	const testkey = "testkey"
 	const testval = "testval"
-	g := newGroup("testgroup", 1024, GetterFunc(func(_ context.Context, key string, dest Sink) error {
+	g := universe.NewGalaxy("testgalaxy", 1024, GetterFunc(func(_ context.Context, key string, dest Sink) error {
 		return dest.SetString(testval)
-	}), nil)
+	}))
 
 	orderedGroup := &orderedFlightGroup{
 		stage1: make(chan bool),
@@ -445,8 +492,8 @@ func TestNoDedup(t *testing.T) {
 	}
 }
 
-func TestGroupStatsAlignment(t *testing.T) {
-	var g Group
+func TestGalaxyStatsAlignment(t *testing.T) {
+	var g Galaxy
 	off := unsafe.Offsetof(g.Stats)
 	if off%8 != 0 {
 		t.Fatal("Stats structure is not 8-byte aligned.")

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package groupcache
+package galaxycache
 
 import (
 	"errors"
@@ -210,7 +210,7 @@ func (s *protoSink) SetProto(m proto.Message) error {
 
 // AllocatingByteSliceSink returns a Sink that allocates
 // a byte slice to hold the received value and assigns
-// it to *dst. The memory is not retained by groupcache.
+// it to *dst. The memory is not retained by galaxycache.
 func AllocatingByteSliceSink(dst *[]byte) Sink {
 	return &allocBytesSink{dst: dst}
 }

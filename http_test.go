@@ -14,31 +14,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package groupcache
+package galaxycache
 
 import (
 	"context"
-	"errors"
-	"flag"
-	"log"
+	"fmt"
 	"net"
 	"net/http"
-	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"go.opencensus.io/plugin/ochttp"
 	"go.opencensus.io/stats/view"
-)
-
-var (
-	peerAddrs = flag.String("test_peer_addrs", "", "Comma-separated list of peer addresses; used by TestHTTPPool")
-	peerIndex = flag.Int("test_peer_index", -1, "Index of which peer this child is; used by TestHTTPPool")
-	peerChild = flag.Bool("test_peer_child", false, "True if running as a child process; used by TestHTTPPool")
 )
 
 type testStatsExporter struct {
@@ -47,62 +36,42 @@ type testStatsExporter struct {
 	t    *testing.T
 }
 
-func TestHTTPPool(t *testing.T) {
-	if *peerChild {
-		beChildForTestHTTPPool()
-		os.Exit(0)
-	}
+func TestHTTPHandler(t *testing.T) {
 
 	const (
-		nChild = 4
-		nGets  = 100
+		nRoutines = 5
+		nGets     = 100
 	)
 
-	var childAddr []string
-	for i := 0; i < nChild; i++ {
-		childAddr = append(childAddr, pickFreeAddr(t))
+	var peerAddresses []string
+	var peerListeners []net.Listener
+
+	for i := 0; i < nRoutines; i++ {
+		newListener := pickFreeAddr(t)
+		peerAddresses = append(peerAddresses, newListener.Addr().String())
+		peerListeners = append(peerListeners, newListener)
 	}
 
-	var cmds []*exec.Cmd
-	var wg sync.WaitGroup
-	for i := 0; i < nChild; i++ {
-		cmd := exec.Command(os.Args[0],
-			"--test.run=TestHTTPPool",
-			"--test_peer_child",
-			"--test_peer_addrs="+strings.Join(childAddr, ","),
-			"--test_peer_index="+strconv.Itoa(i),
-		)
-		cmds = append(cmds, cmd)
-		wg.Add(1)
-		if err := cmd.Start(); err != nil {
-			t.Fatal("failed to start child process: ", err)
-		}
-		go awaitAddrReady(t, childAddr[i], &wg)
-	}
-	defer func() {
-		for i := 0; i < nChild; i++ {
-			if cmds[i].Process != nil {
-				cmds[i].Process.Kill()
-			}
-		}
-	}()
-	wg.Wait()
+	universe := NewUniverse(NewHTTPFetchProtocol(nil), "shouldBeIgnored")
+	serveMux := http.NewServeMux()
+	RegisterHTTPHandler(universe, nil, serveMux)
+	universe.Set(addrToURL(peerAddresses)...)
 
-	// Use a dummy self address so that we don't handle gets in-process.
-	p := NewHTTPPool("should-be-ignored")
-	p.Set(addrToURL(childAddr)...)
-
-	// Dummy getter function. Gets should go to children only.
-	// The only time this process will handle a get is when the
-	// children can't be contacted for some reason.
 	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
-		return errors.New("parent getter called; something's wrong")
+		return fmt.Errorf("oh no! Local get occurred")
 	})
-	g := NewGroup("httpPoolTest", 1<<20, getter)
+	g := universe.NewGalaxy("peerFetchTest", 1<<20, getter)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	for _, listener := range peerListeners {
+		go makeServerUniverse(ctx, t, peerAddresses, listener)
+	}
 
 	for _, key := range testKeys(nGets) {
 		var value string
-		if err := g.Get(dummyCtx, key, StringSink(&value)); err != nil {
+		if err := g.Get(ctx, key, StringSink(&value)); err != nil {
 			t.Fatal(err)
 		}
 		if suffix := ":" + key; !strings.HasSuffix(value, suffix) {
@@ -110,6 +79,31 @@ func TestHTTPPool(t *testing.T) {
 		}
 		t.Logf("Get key=%q, value=%q (peer:key)", key, value)
 	}
+
+}
+
+func makeServerUniverse(ctx context.Context, t testing.TB, addresses []string, listener net.Listener) {
+	universe := NewUniverse(NewHTTPFetchProtocol(nil), "http://"+listener.Addr().String())
+	serveMux := http.NewServeMux()
+	wrappedHandler := &ochttp.Handler{Handler: serveMux}
+	RegisterHTTPHandler(universe, nil, serveMux)
+	universe.Set(addrToURL(addresses)...)
+
+	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
+		dest.SetString(":" + key)
+		return nil
+	})
+	universe.NewGalaxy("peerFetchTest", 1<<20, getter)
+	newServer := http.Server{Handler: wrappedHandler}
+	go func() {
+		err := newServer.Serve(listener)
+		if err != http.ErrServerClosed {
+			t.Errorf("serve failed: %s", err)
+		}
+	}()
+
+	<-ctx.Done()
+	newServer.Shutdown(ctx)
 }
 
 func testKeys(n int) (keys []string) {
@@ -120,33 +114,12 @@ func testKeys(n int) (keys []string) {
 	return
 }
 
-func beChildForTestHTTPPool() {
-	addrs := strings.Split(*peerAddrs, ",")
-
-	p := NewHTTPPool("http://" + addrs[*peerIndex])
-	p.Set(addrToURL(addrs)...)
-
-	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
-		dest.SetString(strconv.Itoa(*peerIndex) + ":" + key)
-		return nil
-	})
-	NewGroup("httpPoolTest", 1<<20, getter)
-
-	handler := &ochttp.Handler{Handler: p}
-	log.Fatal(http.ListenAndServe(addrs[*peerIndex], handler))
-}
-
-// This is racy. Another process could swoop in and steal the port between the
-// call to this function and the next listen call. Should be okay though.
-// The proper way would be to pass the l.File() as ExtraFiles to the child
-// process, and then close your copy once the child starts.
-func pickFreeAddr(t *testing.T) string {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+func pickFreeAddr(t *testing.T) net.Listener {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
-	return l.Addr().String()
+	return listener
 }
 
 func addrToURL(addr []string) []string {
@@ -155,23 +128,4 @@ func addrToURL(addr []string) []string {
 		url[i] = "http://" + addr[i]
 	}
 	return url
-}
-
-func awaitAddrReady(t *testing.T, addr string, wg *sync.WaitGroup) {
-	defer wg.Done()
-	const max = 1 * time.Second
-	tries := 0
-	for {
-		tries++
-		c, err := net.Dial("tcp", addr)
-		if err == nil {
-			c.Close()
-			return
-		}
-		delay := time.Duration(tries) * 25 * time.Millisecond
-		if delay > max {
-			delay = max
-		}
-		time.Sleep(delay)
-	}
 }

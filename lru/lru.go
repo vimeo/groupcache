@@ -58,9 +58,9 @@ func (c *Cache) Add(key Key, value interface{}) {
 		c.cache = make(map[interface{}]*list.Element)
 		c.ll = list.New()
 	}
-	if ee, ok := c.cache[key]; ok {
-		c.ll.MoveToFront(ee)
-		ee.Value.(*entry).value = value
+	if ele, hit := c.cache[key]; hit {
+		c.ll.MoveToFront(ele)
+		ele.Value.(*entry).value = value
 		return
 	}
 	ele := c.ll.PushFront(&entry{key, value})

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package groupcache
+package galaxycache
 
 import (
 	"bytes"
@@ -26,150 +26,111 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/golang/groupcache/consistenthash"
-	pb "github.com/golang/groupcache/groupcachepb"
 	"github.com/golang/protobuf/proto"
+	pb "github.com/vimeo/groupcache/groupcachepb"
 
 	"go.opencensus.io/stats"
 )
 
-const defaultBasePath = "/_groupcache/"
+const defaultBasePath = "/_galaxycache/"
 
-const defaultReplicas = 50
-
-// HTTPPool implements PeerPicker for a pool of HTTP peers.
-type HTTPPool struct {
-	// context.Context optionally specifies a context for the server to use when it
-	// receives a request.
-	// If nil, the server uses a nil context.Context.
-	Context func(*http.Request) context.Context
-
+// HTTPFetchProtocol specifies HTTP specific options for HTTP-based
+// peer communication
+type HTTPFetchProtocol struct {
 	// Transport optionally specifies an http.RoundTripper for the client
 	// to use when it makes a request.
 	// If nil, the client uses http.DefaultTransport.
+	transport func(context.Context) http.RoundTripper
+	basePath  string
+}
+
+// HTTPOptions specifies a base path for serving and fetching.
+// *ONLY SPECIFY IF NOT USING THE DEFAULT "/_galaxycache/" BASE PATH*.
+type HTTPOptions struct {
 	Transport func(context.Context) http.RoundTripper
-
-	// this peer's base URL, e.g. "https://example.net:8000"
-	self string
-
-	// opts specifies the options.
-	opts HTTPPoolOptions
-
-	mu          sync.Mutex // guards peers and httpGetters
-	peers       *consistenthash.Map
-	httpGetters map[string]*httpGetter // keyed by e.g. "http://10.0.0.2:8008"
+	BasePath  string
 }
 
-// HTTPPoolOptions are the configurations of a HTTPPool.
-type HTTPPoolOptions struct {
-	// BasePath specifies the HTTP path that will serve groupcache requests.
-	// If blank, it defaults to "/_groupcache/".
-	BasePath string
-
-	// Replicas specifies the number of key replicas on the consistent hash.
-	// If blank, it defaults to 50.
-	Replicas int
-
-	// HashFn specifies the hash function of the consistent hash.
-	// If blank, it defaults to crc32.ChecksumIEEE.
-	HashFn consistenthash.Hash
+// NewHTTPFetchProtocol creates an HTTP fetch protocol to be passed
+// into a Universe constructor; uses a user chosen base path specified
+// in HTTPOptions (or the default "/_galaxycache/" base path if passed nil).
+// *You must use the same base path for the HTTPFetchProtocol and the
+// HTTPHandler on the same Universe*.
+func NewHTTPFetchProtocol(opts *HTTPOptions) *HTTPFetchProtocol {
+	newProto := &HTTPFetchProtocol{
+		basePath: defaultBasePath,
+	}
+	if opts == nil {
+		return newProto
+	}
+	if opts.BasePath != "" {
+		newProto.basePath = opts.BasePath
+	}
+	if opts.Transport != nil {
+		newProto.transport = opts.Transport
+	}
+	return newProto
 }
 
-// NewHTTPPool initializes an HTTP pool of peers, and registers itself as a PeerPicker.
-// For convenience, it also registers itself as an http.Handler with http.DefaultServeMux.
-// The self argument should be a valid base URL that points to the current server,
-// for example "http://example.net:8000".
-func NewHTTPPool(self string) *HTTPPool {
-	p := NewHTTPPoolOpts(self, nil)
-	http.Handle(p.opts.BasePath, p)
-	return p
+// NewFetcher implements the Protocol interface for HTTPProtocol by
+// constructing a new fetcher to fetch from peers via HTTP
+func (hp *HTTPFetchProtocol) NewFetcher(url string) RemoteFetcher {
+	return &httpFetcher{transport: hp.transport, baseURL: url + hp.basePath}
 }
 
-var httpPoolMade bool
-
-// NewHTTPPoolOpts initializes an HTTP pool of peers with the given options.
-// Unlike NewHTTPPool, this function does not register the created pool as an HTTP handler.
-// The returned *HTTPPool implements http.Handler and must be registered using http.Handle.
-func NewHTTPPoolOpts(self string, o *HTTPPoolOptions) *HTTPPool {
-	if httpPoolMade {
-		panic("groupcache: NewHTTPPool must be called only once")
-	}
-	httpPoolMade = true
-
-	p := &HTTPPool{
-		self:        self,
-		httpGetters: make(map[string]*httpGetter),
-	}
-	if o != nil {
-		p.opts = *o
-	}
-	if p.opts.BasePath == "" {
-		p.opts.BasePath = defaultBasePath
-	}
-	if p.opts.Replicas == 0 {
-		p.opts.Replicas = defaultReplicas
-	}
-	p.peers = consistenthash.New(p.opts.Replicas, p.opts.HashFn)
-
-	RegisterPeerPicker(func() PeerPicker { return p })
-	return p
+// HTTPHandler implements the HTTP handler necessary to serve an HTTP
+// request; it contains a pointer to its parent Universe in order to access
+// its galaxies
+type HTTPHandler struct {
+	universe *Universe
+	basePath string
 }
 
-// Set updates the pool's list of peers.
-// Each peer value should be a valid base URL,
-// for example "http://example.net:8000".
-func (p *HTTPPool) Set(peers ...string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.peers = consistenthash.New(p.opts.Replicas, p.opts.HashFn)
-	p.peers.Add(peers...)
-	p.httpGetters = make(map[string]*httpGetter, len(peers))
-	for _, peer := range peers {
-		p.httpGetters[peer] = &httpGetter{transport: p.Transport, baseURL: peer + p.opts.BasePath}
+// RegisterHTTPHandler sets up an HTTPHandler with a user specified path
+// and serveMux (if non nil) to handle requests to the given Universe.
+// If both opts and serveMux are nil, defaultBasePath and DefaultServeMux
+// will be used. *You must use the same base path for the HTTPFetchProtocol
+// and the HTTPHandler on the same Universe*.
+func RegisterHTTPHandler(universe *Universe, opts *HTTPOptions, serveMux *http.ServeMux) {
+	basePath := defaultBasePath
+	if opts != nil {
+		basePath = opts.BasePath
+	}
+	newHTTPHandler := &HTTPHandler{basePath: basePath, universe: universe}
+	if serveMux == nil {
+		http.Handle(basePath, newHTTPHandler)
+	} else {
+		serveMux.Handle(basePath, newHTTPHandler)
 	}
 }
 
-func (p *HTTPPool) PickPeer(key string) (ProtoGetter, bool) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.peers.IsEmpty() {
-		return nil, false
-	}
-	if peer := p.peers.Get(key); peer != p.self {
-		return p.httpGetters[peer], true
-	}
-	return nil, false
-}
-
-func (p *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Parse request.
-	if !strings.HasPrefix(r.URL.Path, p.opts.BasePath) {
+	if !strings.HasPrefix(r.URL.Path, h.basePath) {
 		panic("HTTPPool serving unexpected path: " + r.URL.Path)
 	}
-	parts := strings.SplitN(r.URL.Path[len(p.opts.BasePath):], "/", 2)
+	parts := strings.SplitN(r.URL.Path[len(h.basePath):], "/", 2)
 	if len(parts) != 2 {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	groupName := parts[0]
+	galaxyName := parts[0]
 	key := parts[1]
 
-	// Fetch the value for this group/key.
-	group := GetGroup(groupName)
-	if group == nil {
-		http.Error(w, "no such group: "+groupName, http.StatusNotFound)
+	// Fetch the value for this galaxy/key.
+	galaxy := h.universe.GetGalaxy(galaxyName)
+	if galaxy == nil {
+		http.Error(w, "no such galaxy: "+galaxyName, http.StatusNotFound)
 		return
 	}
-	var ctx context.Context
-	if p.Context != nil {
-		ctx = p.Context(r)
-	}
 
-	// TODO: remove group.Stats from here
-	group.Stats.ServerRequests.Add(1)
+	ctx := r.Context()
+
+	// TODO: remove galaxy.Stats from here
+	galaxy.Stats.ServerRequests.Add(1)
 	stats.Record(ctx, MServerRequests.M(1))
 	var value []byte
-	err := group.Get(ctx, key, AllocatingByteSliceSink(&value))
+	err := galaxy.Get(ctx, key, AllocatingByteSliceSink(&value))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -185,7 +146,7 @@ func (p *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Write(body)
 }
 
-type httpGetter struct {
+type httpFetcher struct {
 	transport func(context.Context) http.RoundTripper
 	baseURL   string
 }
@@ -194,11 +155,11 @@ var bufferPool = sync.Pool{
 	New: func() interface{} { return new(bytes.Buffer) },
 }
 
-func (h *httpGetter) Get(ctx context.Context, in *pb.GetRequest, out *pb.GetResponse) error {
+func (h *httpFetcher) Fetch(ctx context.Context, in *pb.GetRequest, out *pb.GetResponse) error {
 	u := fmt.Sprintf(
 		"%v%v/%v",
 		h.baseURL,
-		url.QueryEscape(in.GetGroup()),
+		url.QueryEscape(in.GetGalaxy()),
 		url.QueryEscape(in.GetKey()),
 	)
 	req, err := http.NewRequest("GET", u, nil)

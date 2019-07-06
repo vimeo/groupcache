@@ -14,21 +14,21 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-syntax = "proto2";
+syntax = "proto3";
 
-package groupcachepb;
+package galaxycachepb;
 
 message GetRequest {
-  required string group = 1;
-  required string key = 2; // not actually required/guaranteed to be UTF-8
+  string galaxy = 1;
+  string key = 2; // not actually required/guaranteed to be UTF-8
 }
 
 message GetResponse {
-  optional bytes value = 1;
-  optional double minute_qps = 2;
+  bytes value = 1;
+  double minute_qps = 2;
 }
 
-service GroupCache {
+service GalaxyCache {
   rpc Get(GetRequest) returns (GetResponse) {
-  };
+  }
 }
