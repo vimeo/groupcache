@@ -16,11 +16,10 @@ limitations under the License.
 
 // peers.go defines how processes find and communicate with their peers.
 // Each running Universe instance is a peer of each other, and it has
-// authority over a set of keys, or "stars", within each galaxy (address
-// space of data) -- which keys are handled by each peer is determined by
-// the consistent hashing algorithm. Each instance fetches from another
-// peer when it receives a request for a key for which that peer is the
-// authority.
+// authority over a set of keys within each galaxy (address space of data)
+// -- which keys are handled by each peer is determined by the consistent
+// hashing algorithm. Each instance fetches from another peer when it
+// receives a request for a key for which that peer is the authority.
 
 package galaxycache
 
@@ -82,7 +81,7 @@ func newPeerPicker(proto FetchProtocol, selfURL string, options *HashOptions) *P
 	return pp
 }
 
-// When passed a key ("star"), the consistent hash is used to determine which
+// When passed a key, the consistent hash is used to determine which
 // peer is responsible getting/caching it
 func (pp *PeerPicker) pickPeer(key string) (RemoteFetcher, bool) {
 	pp.mu.Lock()

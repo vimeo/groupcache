@@ -339,13 +339,13 @@ func (g *Galaxy) getLocally(ctx context.Context, key string, dest Sink) (ByteVie
 	return dest.view()
 }
 
-func (g *Galaxy) getFromPeer(ctx context.Context, peerFetcher RemoteFetcher, key string) (ByteView, error) {
+func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string) (ByteView, error) {
 	req := &pb.GetRequest{
 		Galaxy: g.name,
 		Key:    key,
 	}
 	res := &pb.GetResponse{}
-	err := peerFetcher.Fetch(ctx, req, res)
+	err := peer.Fetch(ctx, req, res)
 	if err != nil {
 		return ByteView{}, err
 	}
