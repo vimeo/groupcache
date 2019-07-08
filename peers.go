@@ -108,19 +108,22 @@ func (pp *PeerPicker) set(peerURLs ...string) error {
 
 	for _, url := range peerURLs {
 		var err error
-		pp.fetchers[url], err = pp.fetchingProtocol.NewFetcher(url)
-		if err != nil {
-			return err
+		// open a new fetcher if there is currently no peer at url
+		if _, ok := pp.fetchers[url]; !ok {
+			pp.fetchers[url], err = pp.fetchingProtocol.NewFetcher(url)
+			if err != nil {
+				return err
+			}
 		}
 		delete(currFetchers, url)
 	}
 
 	for url := range currFetchers {
 		err := pp.fetchers[url].Close()
+		delete(pp.fetchers, url)
 		if err != nil {
 			return err
 		}
-		delete(pp.fetchers, url)
 	}
 	return nil
 }
