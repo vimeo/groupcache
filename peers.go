@@ -112,6 +112,7 @@ func (pp *PeerPicker) set(peerURLs ...string) error {
 		if _, ok := pp.fetchers[url]; !ok {
 			pp.fetchers[url], err = pp.fetchingProtocol.NewFetcher(url)
 			if err != nil {
+				delete(pp.fetchers, url)
 				return err
 			}
 		}
