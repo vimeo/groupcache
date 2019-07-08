@@ -99,31 +99,31 @@ func (pp *PeerPicker) set(peerURLs map[string]struct{}) error {
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 	pp.peers = consistenthash.New(pp.opts.Replicas, pp.opts.HashFn, peerURLs)
-	newFetchers := make(map[string]struct{})
-
-	for url := range pp.fetchers {
-		newFetchers[url] = struct{}{}
-	}
+	newFetchers := make(map[string]RemoteFetcher)
 
 	for url := range peerURLs {
 		// open a new fetcher if there is currently no peer at url
 		if _, ok := pp.fetchers[url]; !ok {
-			newFetcher, err := pp.fetchingProtocol.NewFetcher(url)
+			var err error
+			newFetchers[url], err = pp.fetchingProtocol.NewFetcher(url)
 			if err != nil {
 				return err
 			}
-			pp.fetchers[url] = newFetcher
+		} else {
+			newFetchers[url] = pp.fetchers[url]
 		}
-		delete(newFetchers, url)
+		delete(pp.fetchers, url)
 	}
 
-	for url := range newFetchers {
+	// close and remove remaining fetchers that were not included in peerURLs
+	for url := range pp.fetchers {
 		err := pp.fetchers[url].Close()
 		delete(pp.fetchers, url)
 		if err != nil {
 			return err
 		}
 	}
+	pp.fetchers = newFetchers
 	return nil
 }
 
