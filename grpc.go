@@ -25,13 +25,13 @@ import (
 	"google.golang.org/grpc"
 )
 
-// GRPCFetchProtocol specifies GRPC specific options for GRPC-based star authority communcation
+// GRPCFetchProtocol specifies GRPC specific options for GRPC-based peer communcation
 type GRPCFetchProtocol struct {
 	// connection set up configurations for all peers
 	PeerDialOptions []grpc.DialOption
 }
 
-// GRPCFetchOptions holds the dial options for client side (fetcher) instantiation (necessary?)
+// GRPCFetchOptions holds the dial options for client side (fetcher) instantiation
 type GRPCFetchOptions struct {
 	// connection set up configurations for all peers
 	PeerDialOptions []grpc.DialOption
@@ -53,7 +53,6 @@ func NewGRPCFetchProtocol(dialOpts ...grpc.DialOption) *GRPCFetchProtocol {
 func (gp *GRPCFetchProtocol) NewFetcher(address string) (RemoteFetcher, error) {
 	conn, err := grpc.Dial(address, gp.PeerDialOptions...)
 	if err != nil {
-		// fmt.Printf("Failure connecting: [%v]\n", err) // TODO: Remove print
 		return nil, err
 	}
 	return &grpcFetcher{address: address, conn: conn}, nil
@@ -78,7 +77,7 @@ func (gp *GRPCPeerServer) GetFromPeer(ctx context.Context, req *pb.GetRequest) (
 		return nil, fmt.Errorf("Unable to find group [%s]", req.Galaxy)
 	}
 
-	group.Stats.ServerRequests.Add(1) // keep track of the num of req... was a TODO to remove this?
+	group.Stats.ServerRequests.Add(1) // keep track of the num of req
 
 	var value []byte
 	err := group.Get(ctx, req.Key, AllocatingByteSliceSink(&value))
