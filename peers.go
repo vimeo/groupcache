@@ -39,7 +39,7 @@ const defaultReplicas = 50
 // to each other peer address
 type RemoteFetcher interface {
 	Fetch(context context.Context, in *pb.GetRequest, out *pb.GetResponse) error
-	// Close closes a client-side connection (for GRPC use only)
+	// Close closes a client-side connection (may be a nop)
 	Close() error
 }
 

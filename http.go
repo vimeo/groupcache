@@ -72,7 +72,8 @@ func NewHTTPFetchProtocol(opts *HTTPOptions) *HTTPFetchProtocol {
 	return newProto
 }
 
-// NewFetcher implements the Protocol interface for HTTPProtocol by constructing a new fetcher to fetch from peers via HTTP
+// NewFetcher implements the Protocol interface for HTTPProtocol by constructing
+// a new fetcher to fetch from peers via HTTP
 func (hp *HTTPFetchProtocol) NewFetcher(url string) (RemoteFetcher, error) {
 	return &httpFetcher{transport: hp.transport, baseURL: url + hp.basePath}, nil
 }
