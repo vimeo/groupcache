@@ -89,17 +89,16 @@ func (gp *GRPCPeerServer) GetFromPeer(ctx context.Context, req *pb.GetRequest) (
 }
 
 // Fetch here implements the RemoteFetcher interface for sending Gets to peers over an RPC connection
-func (g *grpcFetcher) Fetch(ctx context.Context, in *pb.GetRequest, out *pb.GetResponse) error {
+func (g *grpcFetcher) Fetch(ctx context.Context, galaxy string, key string) ([]byte, error) {
 	client := pb.NewPeerClient(g.conn)
 	resp, err := client.GetFromPeer(ctx, &pb.GetRequest{
-		Galaxy: in.Galaxy,
-		Key:    in.Key})
+		Galaxy: galaxy,
+		Key:    key})
 	if err != nil {
-		return fmt.Errorf("Failed to GET [%s]: %v", in, err)
+		return nil, fmt.Errorf("Failed to GET [%s]: %v", galaxy, err)
 	}
 
-	out.Value = resp.Value
-	return nil
+	return resp.Value, nil
 }
 
 // Close here implements the RemoteFetcher interface for closing a client-side RPC connection opened by the fetcher
