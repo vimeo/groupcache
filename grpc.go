@@ -31,14 +31,6 @@ type GRPCFetchProtocol struct {
 	PeerDialOptions []grpc.DialOption
 }
 
-// GRPCFetchOptions holds the dial options for client side (fetcher) instantiation
-type GRPCFetchOptions struct {
-	// connection set up configurations for all peers
-	PeerDialOptions []grpc.DialOption
-	// if true, there will be no TLS
-	AllInsecureConnections bool
-}
-
 type grpcFetcher struct {
 	address string
 	conn    *grpc.ClientConn
