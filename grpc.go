@@ -79,8 +79,8 @@ func (gp *GRPCPeerServer) GetFromPeer(ctx context.Context, req *pb.GetRequest) (
 
 	group.Stats.ServerRequests.Add(1) // keep track of the num of req
 
-	var value []byte
-	err := group.Get(ctx, req.Key, AllocatingByteSliceSink(&value))
+	var value ByteCodec
+	err := group.Get(ctx, req.Key, &value)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to retrieve [%s]: %v", req, err)
 	}

@@ -45,7 +45,7 @@ func TestGRPCPeerServer(t *testing.T) {
 		t.Errorf("Error setting peers: %s", err)
 	}
 
-	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
+	getter := GetterFunc(func(ctx context.Context, key string, dest Codec) error {
 		return fmt.Errorf("oh no! Local get occurred")
 	})
 	g := universe.NewGalaxy("peerFetchTest", 1<<20, getter)
@@ -58,11 +58,11 @@ func TestGRPCPeerServer(t *testing.T) {
 	}
 
 	for _, key := range testKeys(nGets) {
-		var value string
-		if err := g.Get(dummyCtx, key, StringSink(&value)); err != nil {
+		var value StringCodec
+		if err := g.Get(dummyCtx, key, &value); err != nil {
 			t.Fatal(err)
 		}
-		if suffix := ":" + key; !strings.HasSuffix(value, suffix) {
+		if suffix := ":" + key; !strings.HasSuffix(string(value), suffix) {
 			t.Errorf("Get(%q) = %q, want value ending in %q", key, value, suffix)
 		}
 		t.Logf("Get key=%q, value=%q (peer:key)", key, value)
@@ -85,8 +85,8 @@ func makeGRPCServerUniverse(ctx context.Context, t testing.TB, addresses []strin
 		t.Errorf("Error setting peers: %s", err)
 	}
 
-	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
-		dest.SetString(":" + key)
+	getter := GetterFunc(func(ctx context.Context, key string, dest Codec) error {
+		dest.UnmarshalBinary([]byte(":" + key))
 		return nil
 	})
 	universe.NewGalaxy("peerFetchTest", 1<<20, getter)
