@@ -32,7 +32,7 @@ type Map struct {
 	hashMap  map[int]string
 }
 
-func New(replicas int, fn Hash) *Map {
+func New(replicas int, fn Hash, peerKeys map[string]struct{}) *Map {
 	m := &Map{
 		replicas: replicas,
 		hash:     fn,
@@ -41,6 +41,10 @@ func New(replicas int, fn Hash) *Map {
 	if m.hash == nil {
 		m.hash = crc32.ChecksumIEEE
 	}
+	for peer, _ := range peerKeys {
+		m.addReplicas(peer)
+	}
+	sort.Ints(m.keys)
 	return m
 }
 
@@ -49,14 +53,18 @@ func (m *Map) IsEmpty() bool {
 	return len(m.keys) == 0
 }
 
+func (m *Map) addReplicas(key string) {
+	for i := 0; i < m.replicas; i++ {
+		hash := int(m.hash([]byte(strconv.Itoa(i) + key)))
+		m.keys = append(m.keys, hash)
+		m.hashMap[hash] = key
+	}
+}
+
 // Adds some keys to the hash.
 func (m *Map) Add(keys ...string) {
 	for _, key := range keys {
-		for i := 0; i < m.replicas; i++ {
-			hash := int(m.hash([]byte(strconv.Itoa(i) + key)))
-			m.keys = append(m.keys, hash)
-			m.hashMap[hash] = key
-		}
+		m.addReplicas(key)
 	}
 	sort.Ints(m.keys)
 }

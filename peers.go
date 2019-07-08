@@ -80,7 +80,7 @@ func newPeerPicker(proto FetchProtocol, selfURL string, options *HashOptions) *P
 	if pp.opts.Replicas == 0 {
 		pp.opts.Replicas = defaultReplicas
 	}
-	pp.peers = consistenthash.New(pp.opts.Replicas, pp.opts.HashFn)
+	pp.peers = consistenthash.New(pp.opts.Replicas, pp.opts.HashFn, nil)
 	return pp
 }
 
@@ -95,18 +95,17 @@ func (pp *PeerPicker) pickPeer(key string) (RemoteFetcher, bool) {
 	return nil, false
 }
 
-func (pp *PeerPicker) set(peerURLs ...string) error {
+func (pp *PeerPicker) set(peerURLs map[string]struct{}) error {
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
-	pp.peers = consistenthash.New(pp.opts.Replicas, pp.opts.HashFn)
-	pp.peers.Add(peerURLs...)
-	currFetchers := make(map[string]struct{})
+	pp.peers = consistenthash.New(pp.opts.Replicas, pp.opts.HashFn, peerURLs)
+	newFetchers := make(map[string]struct{})
 
 	for url := range pp.fetchers {
-		currFetchers[url] = struct{}{}
+		newFetchers[url] = struct{}{}
 	}
 
-	for _, url := range peerURLs {
+	for url := range peerURLs {
 		// open a new fetcher if there is currently no peer at url
 		if _, ok := pp.fetchers[url]; !ok {
 			newFetcher, err := pp.fetchingProtocol.NewFetcher(url)
@@ -115,10 +114,10 @@ func (pp *PeerPicker) set(peerURLs ...string) error {
 			}
 			pp.fetchers[url] = newFetcher
 		}
-		delete(currFetchers, url)
+		delete(newFetchers, url)
 	}
 
-	for url := range currFetchers {
+	for url := range newFetchers {
 		err := pp.fetchers[url].Close()
 		delete(pp.fetchers, url)
 		if err != nil {

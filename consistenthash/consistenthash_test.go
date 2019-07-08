@@ -32,7 +32,7 @@ func TestHashing(t *testing.T) {
 			panic(err)
 		}
 		return uint32(i)
-	})
+	}, nil)
 
 	// Given the above hash function, this will give replicas with "hashes":
 	// 2, 4, 6, 12, 14, 16, 22, 24, 26
@@ -66,8 +66,8 @@ func TestHashing(t *testing.T) {
 }
 
 func TestConsistency(t *testing.T) {
-	hash1 := New(1, nil)
-	hash2 := New(1, nil)
+	hash1 := New(1, nil, nil)
+	hash2 := New(1, nil, nil)
 
 	hash1.Add("Bill", "Bob", "Bonny")
 	hash2.Add("Bob", "Bonny", "Bill")
@@ -93,7 +93,7 @@ func BenchmarkGet512(b *testing.B) { benchmarkGet(b, 512) }
 
 func benchmarkGet(b *testing.B, shards int) {
 
-	hash := New(50, nil)
+	hash := New(50, nil, nil)
 
 	var buckets []string
 	for i := 0; i < shards; i++ {

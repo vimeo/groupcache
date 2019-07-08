@@ -327,8 +327,8 @@ func TestPeers(t *testing.T) {
 
 			universe := NewUniverseWithOpts(testproto, "fetcher0", hashOpts)
 			dummyCtx := context.TODO()
-
-			universe.Set("fetcher0", "fetcher1", "fetcher2", "fetcher3")
+			fetchers := map[string]struct{}{"fetcher0": struct{}{}, "fetcher1": struct{}{}, "fetcher2": struct{}{}, "fetcher3": struct{}{}}
+			universe.Set(fetchers)
 			getter := func(_ context.Context, key string, dest Sink) error {
 				// these are local hits
 				testproto.TestFetchers["fetcher0"].hits++

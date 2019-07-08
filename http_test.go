@@ -43,19 +43,19 @@ func TestHTTPHandler(t *testing.T) {
 		nGets     = 100
 	)
 
-	var peerAddresses []string
+	peerAddresses := make(map[string]struct{})
 	var peerListeners []net.Listener
 
 	for i := 0; i < nRoutines; i++ {
 		newListener := pickFreeAddr(t)
-		peerAddresses = append(peerAddresses, newListener.Addr().String())
+		peerAddresses[newListener.Addr().String()] = struct{}{}
 		peerListeners = append(peerListeners, newListener)
 	}
 
 	universe := NewUniverse(NewHTTPFetchProtocol(nil), "shouldBeIgnored")
 	serveMux := http.NewServeMux()
 	RegisterHTTPHandler(universe, nil, serveMux)
-	err := universe.Set(addrToURL(peerAddresses)...)
+	err := universe.Set(addrToURL(peerAddresses))
 	if err != nil {
 		t.Errorf("Error setting peers: %s", err)
 	}
@@ -85,12 +85,12 @@ func TestHTTPHandler(t *testing.T) {
 
 }
 
-func makeHTTPServerUniverse(ctx context.Context, t testing.TB, addresses []string, listener net.Listener) {
+func makeHTTPServerUniverse(ctx context.Context, t testing.TB, addresses map[string]struct{}, listener net.Listener) {
 	universe := NewUniverse(NewHTTPFetchProtocol(nil), "http://"+listener.Addr().String())
 	serveMux := http.NewServeMux()
 	wrappedHandler := &ochttp.Handler{Handler: serveMux}
 	RegisterHTTPHandler(universe, nil, serveMux)
-	err := universe.Set(addrToURL(addresses)...)
+	err := universe.Set(addrToURL(addresses))
 	if err != nil {
 		t.Errorf("Error setting peers: %s", err)
 	}
@@ -127,10 +127,10 @@ func pickFreeAddr(t *testing.T) net.Listener {
 	return listener
 }
 
-func addrToURL(addr []string) []string {
-	url := make([]string, len(addr))
+func addrToURL(addr map[string]struct{}) map[string]struct{} {
+	url := make(map[string]struct{})
 	for i := range addr {
-		url[i] = "http://" + addr[i]
+		url["http://"+i] = struct{}{}
 	}
 	return url
 }
