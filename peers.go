@@ -28,8 +28,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/vimeo/groupcache/consistenthash"
-	pb "github.com/vimeo/groupcache/groupcachepb"
+	"github.com/vimeo/galaxycache/consistenthash"
+	pb "github.com/vimeo/galaxycache/groupcachepb"
 )
 
 const defaultReplicas = 50

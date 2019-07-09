@@ -33,8 +33,8 @@ import (
 
 	"github.com/golang/protobuf/proto"
 
-	pb "github.com/vimeo/groupcache/groupcachepb"
-	testpb "github.com/vimeo/groupcache/testpb"
+	pb "github.com/vimeo/galaxycache/groupcachepb"
+	testpb "github.com/vimeo/galaxycache/testpb"
 )
 
 const (

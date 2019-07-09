@@ -33,9 +33,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	pb "github.com/vimeo/groupcache/groupcachepb"
-	"github.com/vimeo/groupcache/lru"
-	"github.com/vimeo/groupcache/singleflight"
+	pb "github.com/vimeo/galaxycache/groupcachepb"
+	"github.com/vimeo/galaxycache/lru"
+	"github.com/vimeo/galaxycache/singleflight"
 
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
