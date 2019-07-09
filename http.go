@@ -24,9 +24,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/golang/protobuf/proto"
-	pb "github.com/vimeo/galaxycache/galaxycachepb"
-
 	"go.opencensus.io/stats"
 )
 
@@ -135,13 +132,12 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Write the value to the response body as a proto message.
-	body, err := proto.Marshal(&pb.GetResponse{Value: value})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/x-protobuf")
-	w.Write(body)
+	w.Write(value)
 }
 
 type httpFetcher struct {
