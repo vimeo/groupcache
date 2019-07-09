@@ -167,7 +167,7 @@ func (h *httpFetcher) Fetch(ctx context.Context, galaxy string, key string) ([]b
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("server returned: %v", res.Status)
+		return nil, fmt.Errorf("server returned HTTP response status code: %v", res.Status)
 	}
 	data, err := ioutil.ReadAll(res.Body)
 	if err != nil {
