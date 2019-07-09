@@ -21,7 +21,7 @@ import (
 	"context"
 	"fmt"
 
-	pb "github.com/vimeo/groupcache/groupcachepb"
+	pb "github.com/vimeo/galaxycache/groupcachepb"
 	"google.golang.org/grpc"
 )
 
