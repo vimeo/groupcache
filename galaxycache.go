@@ -33,7 +33,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	pb "github.com/vimeo/galaxycache/groupcachepb"
+	pb "github.com/vimeo/galaxycache/galaxycachepb"
 	"github.com/vimeo/galaxycache/lru"
 	"github.com/vimeo/galaxycache/singleflight"
 

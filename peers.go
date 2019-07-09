@@ -29,7 +29,7 @@ import (
 	"sync"
 
 	"github.com/vimeo/galaxycache/consistenthash"
-	pb "github.com/vimeo/galaxycache/groupcachepb"
+	pb "github.com/vimeo/galaxycache/galaxycachepb"
 )
 
 const defaultReplicas = 50

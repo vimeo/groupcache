@@ -27,7 +27,7 @@ import (
 	"sync"
 
 	"github.com/golang/protobuf/proto"
-	pb "github.com/vimeo/galaxycache/groupcachepb"
+	pb "github.com/vimeo/galaxycache/galaxycachepb"
 
 	"go.opencensus.io/stats"
 )

@@ -33,7 +33,7 @@ import (
 
 	"github.com/golang/protobuf/proto"
 
-	pb "github.com/vimeo/galaxycache/groupcachepb"
+	pb "github.com/vimeo/galaxycache/galaxycachepb"
 	testpb "github.com/vimeo/galaxycache/testpb"
 )
 
