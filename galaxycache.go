@@ -129,8 +129,12 @@ func (universe *Universe) GetGalaxy(name string) *Galaxy {
 // Set updates the Universe's list of peers (contained in the PeerPicker).
 // Each PeerURL value should be a valid base URL,
 // for example "http://example.net:8000".
-func (universe *Universe) Set(peerURLs ...string) {
-	universe.peerPicker.set(peerURLs...)
+func (universe *Universe) Set(peerURLs ...string) error {
+	return universe.peerPicker.set(peerURLs...)
+}
+
+func (universe *Universe) Shutdown() error {
+	return universe.peerPicker.shutdown()
 }
 
 // A Galaxy is a cache namespace and associated data spread over
@@ -307,7 +311,7 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Sink) (value ByteVie
 			g.Stats.PeerErrors.Add(1)
 			stats.Record(ctx, MPeerErrors.M(1))
 			// TODO(bradfitz): log the peer's error? keep
-			// log of the past few for /galaxycachez?  It's
+			// log of the past few for /galaxycache?  It's
 			// probably boring (normal task movement), so not
 			// worth logging I imagine.
 		}

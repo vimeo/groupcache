@@ -55,7 +55,10 @@ func TestHTTPHandler(t *testing.T) {
 	universe := NewUniverse(NewHTTPFetchProtocol(nil), "shouldBeIgnored")
 	serveMux := http.NewServeMux()
 	RegisterHTTPHandler(universe, nil, serveMux)
-	universe.Set(addrToURL(peerAddresses)...)
+	err := universe.Set(addrToURL(peerAddresses)...)
+	if err != nil {
+		t.Errorf("Error setting peers: %s", err)
+	}
 
 	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
 		return fmt.Errorf("oh no! Local get occurred")
@@ -66,7 +69,7 @@ func TestHTTPHandler(t *testing.T) {
 	defer cancel()
 
 	for _, listener := range peerListeners {
-		go makeServerUniverse(ctx, t, peerAddresses, listener)
+		go makeHTTPServerUniverse(ctx, t, peerAddresses, listener)
 	}
 
 	for _, key := range testKeys(nGets) {
@@ -82,13 +85,15 @@ func TestHTTPHandler(t *testing.T) {
 
 }
 
-func makeServerUniverse(ctx context.Context, t testing.TB, addresses []string, listener net.Listener) {
+func makeHTTPServerUniverse(ctx context.Context, t testing.TB, addresses []string, listener net.Listener) {
 	universe := NewUniverse(NewHTTPFetchProtocol(nil), "http://"+listener.Addr().String())
 	serveMux := http.NewServeMux()
 	wrappedHandler := &ochttp.Handler{Handler: serveMux}
 	RegisterHTTPHandler(universe, nil, serveMux)
-	universe.Set(addrToURL(addresses)...)
-
+	err := universe.Set(addrToURL(addresses)...)
+	if err != nil {
+		t.Errorf("Error setting peers: %s", err)
+	}
 	getter := GetterFunc(func(ctx context.Context, key string, dest Sink) error {
 		dest.SetString(":" + key)
 		return nil
