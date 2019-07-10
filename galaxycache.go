@@ -22,7 +22,7 @@ limitations under the License.
 // or finally gets the data.  In the common case, many concurrent
 // cache misses across a set of peers for the same key result in just
 // one cache fill.
-package galaxycache
+package galaxycache // import "github.com/vimeo/galaxycache"
 
 import (
 	"context"
