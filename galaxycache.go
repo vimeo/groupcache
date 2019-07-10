@@ -26,7 +26,6 @@ package galaxycache // import "github.com/vimeo/galaxycache"
 
 import (
 	"context"
-	"errors"
 	"math/rand"
 	"strconv"
 	"sync"
@@ -49,14 +48,14 @@ type BackendGetter interface {
 	// uniquely describe the loaded data, without an implicit
 	// current time, and without relying on cache expiration
 	// mechanisms.
-	Get(ctx context.Context, key string, dest Sink) error
+	Get(ctx context.Context, key string, dest New_Sink) error
 }
 
 // A GetterFunc implements BackendGetter with a function.
-type GetterFunc func(ctx context.Context, key string, dest Sink) error
+type GetterFunc func(ctx context.Context, key string, dest New_Sink) error
 
 // Get implements Get from BackendGetter
-func (f GetterFunc) Get(ctx context.Context, key string, dest Sink) error {
+func (f GetterFunc) Get(ctx context.Context, key string, dest New_Sink) error {
 	return f(ctx, key, dest)
 }
 
@@ -206,7 +205,7 @@ func (g *Galaxy) Name() string {
 // to Fetch from it; otherwise, if the calling instance is the key's
 // canonical owner, call the BackendGetter to retrieve the value
 // (which will now be cached locally)
-func (g *Galaxy) Get(ctx context.Context, key string, dest Sink) error {
+func (g *Galaxy) Get(ctx context.Context, key string, dest New_Sink) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -223,10 +222,10 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Sink) error {
 	// TODO(@odeke-em): Remove .Stats
 	g.Stats.Gets.Add(1)
 	stats.Record(ctx, MGets.M(1))
-	if dest == nil {
-		span.SetStatus(trace.Status{Code: trace.StatusCodeInvalidArgument, Message: "nil dest sink"})
-		return errors.New("galaxycache: nil dest Sink")
-	}
+	// if dest == nil {
+	// 	span.SetStatus(trace.Status{Code: trace.StatusCodeInvalidArgument, Message: "nil dest sink"})
+	// 	return errors.New("galaxycache: nil dest Sink")
+	// }
 	value, cacheHit := g.lookupCache(key)
 	stats.Record(ctx, MKeyLength.M(int64(len(key))))
 
@@ -234,8 +233,8 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Sink) error {
 		span.Annotatef(nil, "Cache hit")
 		// TODO(@odeke-em): Remove .Stats
 		g.Stats.CacheHits.Add(1)
-		stats.Record(ctx, MCacheHits.M(1), MValueLength.M(int64(value.Len())))
-		return setSinkView(dest, value)
+		stats.Record(ctx, MCacheHits.M(1), MValueLength.M(int64(len(value))))
+		return dest.UnmarshalBinary(value) // Need for byteview?
 	}
 
 	stats.Record(ctx, MCacheMisses.M(1))
@@ -251,15 +250,15 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Sink) error {
 		stats.Record(ctx, MLoadErrors.M(1))
 		return err
 	}
-	stats.Record(ctx, MValueLength.M(int64(value.Len())))
+	stats.Record(ctx, MValueLength.M(int64(len(value))))
 	if destPopulated {
 		return nil
 	}
-	return setSinkView(dest, value)
+	return dest.UnmarshalBinary(value)
 }
 
 // load loads key either by invoking the getter locally or by sending it to another machine.
-func (g *Galaxy) load(ctx context.Context, key string, dest Sink) (value ByteView, destPopulated bool, err error) {
+func (g *Galaxy) load(ctx context.Context, key string, dest New_Sink) (value []byte, destPopulated bool, err error) {
 	// TODO(@odeke-em): Remove .Stats
 	g.Stats.Loads.Add(1)
 	stats.Record(ctx, MLoads.M(1))
@@ -296,7 +295,7 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Sink) (value ByteVie
 		g.Stats.LoadsDeduped.Add(1)
 		stats.Record(ctx, MLoadsDeduped.M(1))
 
-		var value ByteView
+		var value []byte // necessary?
 		var err error
 		if peer, ok := g.peerPicker.pickPeer(key); ok {
 			value, err = g.getFromPeer(ctx, peer, key)
@@ -329,25 +328,25 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Sink) (value ByteVie
 		return value, nil
 	})
 	if err == nil {
-		value = viewi.(ByteView)
+		value = viewi.([]byte)
 	}
 	return
 }
 
-func (g *Galaxy) getLocally(ctx context.Context, key string, dest Sink) (ByteView, error) {
+func (g *Galaxy) getLocally(ctx context.Context, key string, dest New_Sink) ([]byte, error) {
 	err := g.getter.Get(ctx, key, dest)
 	if err != nil {
-		return ByteView{}, err
+		return nil, err
 	}
-	return dest.view()
+	return dest.MarshalBinary()
 }
 
-func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string) (ByteView, error) {
+func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string) ([]byte, error) {
 	data, err := peer.Fetch(ctx, g.name, key)
 	if err != nil {
-		return ByteView{}, err
+		return nil, err
 	}
-	value := ByteView{b: data}
+	value := data
 	// TODO(bradfitz): use res.MinuteQps or something smart to
 	// conditionally populate hotCache.  For now just do it some
 	// percentage of the time.
@@ -357,7 +356,7 @@ func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string
 	return value, nil
 }
 
-func (g *Galaxy) lookupCache(key string) (value ByteView, ok bool) {
+func (g *Galaxy) lookupCache(key string) (value []byte, ok bool) {
 	if g.cacheBytes <= 0 {
 		return
 	}
@@ -369,7 +368,7 @@ func (g *Galaxy) lookupCache(key string) (value ByteView, ok bool) {
 	return
 }
 
-func (g *Galaxy) populateCache(key string, value ByteView, cache *cache) {
+func (g *Galaxy) populateCache(key string, value []byte, cache *cache) {
 	if g.cacheBytes <= 0 {
 		return
 	}
@@ -443,7 +442,7 @@ func (c *cache) stats() CacheStats {
 	}
 }
 
-func (c *cache) add(key string, value ByteView) {
+func (c *cache) add(key string, value []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.lru == nil {
@@ -456,10 +455,10 @@ func (c *cache) add(key string, value ByteView) {
 		}
 	}
 	c.lru.Add(key, value)
-	c.nbytes += int64(len(key)) + int64(value.Len())
+	c.nbytes += int64(len(key)) + int64(len(value))
 }
 
-func (c *cache) get(key string) (value ByteView, ok bool) {
+func (c *cache) get(key string) (value []byte, ok bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.nget++
@@ -471,7 +470,7 @@ func (c *cache) get(key string) (value ByteView, ok bool) {
 		return
 	}
 	c.nhit++
-	return vi.(ByteView), true
+	return vi.([]byte), true
 }
 
 func (c *cache) removeOldest() {
