@@ -42,6 +42,13 @@ type Sink interface {
 	view() (ByteView, error)
 }
 
+// New_Sink implements both the BinaryMarshaler and BinaryUnmarshaler
+// interfaces
+type New_Sink interface {
+	MarshalBinary() ([]byte, error)
+	UnmarshalBinary(data []byte) error
+}
+
 func cloneBytes(b []byte) []byte {
 	c := make([]byte, len(b))
 	copy(c, b)

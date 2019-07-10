@@ -20,6 +20,7 @@ package galaxycache
 
 import (
 	"context"
+	"encoding"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -49,7 +50,7 @@ func testInitSetup() (*Universe, context.Context, chan string) {
 
 func testSetupStringGalaxy(cacheFills *AtomicInt) (*Galaxy, context.Context, chan string) {
 	universe, ctx, stringc := testInitSetup()
-	stringGalaxy := universe.NewGalaxy(stringGalaxyName, cacheSize, GetterFunc(func(_ context.Context, key string, dest Sink) error {
+	stringGalaxy := universe.NewGalaxy(stringGalaxyName, cacheSize, GetterFunc(func(_ context.Context, key string, dest encoding.BinaryUnmarshaler) error {
 		if key == fromChan {
 			key = <-stringc
 		}

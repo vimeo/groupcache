@@ -125,8 +125,9 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	galaxy.Stats.ServerRequests.Add(1)
 	stats.Record(ctx, MServerRequests.M(1))
 	var value []byte
-	err := galaxy.Get(ctx, key, AllocatingByteSliceSink(&value))
+	err := galaxy.Get(ctx, key, nil)
 	if err != nil {
+		fmt.Errorf("Unmarshal error: ", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
