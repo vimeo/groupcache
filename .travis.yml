@@ -1,5 +1,5 @@
 language: go
-go_import_path: github.com/golang/groupcache
+go_import_path: github.com/vimeo/galaxycache
 
 os: linux
 dist: trusty
