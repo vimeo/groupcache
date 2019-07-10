@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 // Package consistenthash provides an implementation of a ring hash.
-package consistenthash
+package consistenthash // import "github.com/vimeo/galaxycache/consistenthash"
 
 import (
 	"hash/crc32"

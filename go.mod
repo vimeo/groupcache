@@ -1,4 +1,4 @@
-module github.com/vimeo/groupcache
+module github.com/vimeo/galaxycache
 
 go 1.12
 

@@ -22,7 +22,7 @@ limitations under the License.
 // or finally gets the data.  In the common case, many concurrent
 // cache misses across a set of peers for the same key result in just
 // one cache fill.
-package galaxycache
+package galaxycache // import "github.com/vimeo/galaxycache"
 
 import (
 	"context"
@@ -33,9 +33,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	pb "github.com/vimeo/groupcache/groupcachepb"
-	"github.com/vimeo/groupcache/lru"
-	"github.com/vimeo/groupcache/singleflight"
+	pb "github.com/vimeo/galaxycache/galaxycachepb"
+	"github.com/vimeo/galaxycache/lru"
+	"github.com/vimeo/galaxycache/singleflight"
 
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
