@@ -17,17 +17,12 @@ limitations under the License.
 package galaxycache
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
-
-	"github.com/golang/protobuf/proto"
-	pb "github.com/vimeo/galaxycache/galaxycachepb"
 
 	"go.opencensus.io/stats"
 )
@@ -135,15 +130,8 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	// Write the value to the response body as a proto message.
-	body, err := proto.Marshal(&pb.GetResponse{Value: value})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/x-protobuf")
-	w.Write(body)
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Write(value)
 }
 
 type httpFetcher struct {
@@ -151,21 +139,17 @@ type httpFetcher struct {
 	baseURL   string
 }
 
-var bufferPool = sync.Pool{
-	New: func() interface{} { return new(bytes.Buffer) },
-}
-
 // Fetch here implements the RemoteFetcher interface for sending a GET request over HTTP to a peer
-func (h *httpFetcher) Fetch(ctx context.Context, in *pb.GetRequest, out *pb.GetResponse) error {
+func (h *httpFetcher) Fetch(ctx context.Context, galaxy string, key string) ([]byte, error) {
 	u := fmt.Sprintf(
 		"%v%v/%v",
 		h.baseURL,
-		url.QueryEscape(in.GetGalaxy()),
-		url.QueryEscape(in.GetKey()),
+		url.QueryEscape(galaxy),
+		url.QueryEscape(key),
 	)
 	req, err := http.NewRequest("GET", u, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	tr := http.DefaultTransport
 	if h.transport != nil {
@@ -173,24 +157,17 @@ func (h *httpFetcher) Fetch(ctx context.Context, in *pb.GetRequest, out *pb.GetR
 	}
 	res, err := tr.RoundTrip(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("server returned: %v", res.Status)
+		return nil, fmt.Errorf("server returned HTTP response status code: %v", res.Status)
 	}
-	b := bufferPool.Get().(*bytes.Buffer)
-	b.Reset()
-	defer bufferPool.Put(b)
-	_, err = io.Copy(b, res.Body)
+	data, err := ioutil.ReadAll(res.Body)
 	if err != nil {
-		return fmt.Errorf("reading response body: %v", err)
+		return nil, fmt.Errorf("reading response body: %v", err)
 	}
-	err = proto.Unmarshal(b.Bytes(), out)
-	if err != nil {
-		return fmt.Errorf("decoding response body: %v", err)
-	}
-	return nil
+	return data, nil
 }
 
 // Close here implements the RemoteFetcher interface for closing (does nothing for HTTP)

@@ -33,7 +33,6 @@ import (
 
 	"github.com/golang/protobuf/proto"
 
-	pb "github.com/vimeo/galaxycache/galaxycachepb"
 	testpb "github.com/vimeo/galaxycache/testpb"
 )
 
@@ -240,13 +239,12 @@ func (fetcher *TestFetcher) Close() error {
 
 type testFetchers []RemoteFetcher
 
-func (fetcher *TestFetcher) Fetch(ctx context.Context, in *pb.GetRequest, out *pb.GetResponse) error {
+func (fetcher *TestFetcher) Fetch(ctx context.Context, galaxy string, key string) ([]byte, error) {
 	if fetcher.fail {
-		return errors.New("simulated error from peer")
+		return nil, errors.New("simulated error from peer")
 	}
 	fetcher.hits++
-	out.Value = []byte("got:" + in.GetKey())
-	return nil
+	return []byte("got:" + key), nil
 }
 
 func (proto *TestProtocol) NewFetcher(url string) (RemoteFetcher, error) {

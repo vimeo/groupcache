@@ -29,7 +29,6 @@ import (
 	"sync"
 
 	"github.com/vimeo/galaxycache/consistenthash"
-	pb "github.com/vimeo/galaxycache/galaxycachepb"
 )
 
 const defaultReplicas = 50
@@ -38,7 +37,7 @@ const defaultReplicas = 50
 // other peers; the PeerPicker contains a map of these fetchers corresponding
 // to each other peer address
 type RemoteFetcher interface {
-	Fetch(context context.Context, in *pb.GetRequest, out *pb.GetResponse) error
+	Fetch(context context.Context, galaxy string, key string) ([]byte, error)
 	// Close closes a client-side connection (may be a nop)
 	Close() error
 }
