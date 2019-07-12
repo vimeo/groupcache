@@ -18,7 +18,7 @@ package galaxycache
 
 import "testing"
 
-func TestByteCodecTarget(t *testing.T) {
+func TestByteCodec(t *testing.T) {
 	var byteCodec ByteCodec
 
 	inBytes := []byte("some bytes")
@@ -39,6 +39,30 @@ func TestByteCodecTarget(t *testing.T) {
 	}
 	if &inBytes[0] == &marshaledBytes[0] {
 		t.Errorf("inBytes and marshaledBytes share memory")
+	}
+
+}
+
+func TestStringCodec(t *testing.T) {
+	var stringCodec StringCodec
+
+	inBytes := []byte("some bytes")
+	stringCodec.UnmarshalBinary(inBytes)
+	inBytes[0] = 'a' // change the original byte slice to ensure copy is made
+	want := "some bytes"
+	if string(stringCodec) != want {
+		t.Errorf("UnmarshalBinary resulted in %q; want %q", stringCodec, want)
+	}
+
+	marshaledStringBytes, err := stringCodec.MarshalBinary()
+	if err != nil {
+		t.Errorf("Error marshaling from stringCodec: %s", err)
+	}
+	if string(marshaledStringBytes) != want {
+		t.Errorf("MarshalBinary resulted in %q; want %q", marshaledStringBytes, want)
+	}
+	if &inBytes[0] == &marshaledStringBytes[0] {
+		t.Errorf("inBytes and marshaledStringBytes share memory")
 	}
 
 }
