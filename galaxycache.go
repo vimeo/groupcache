@@ -26,6 +26,7 @@ package galaxycache // import "github.com/vimeo/galaxycache"
 
 import (
 	"context"
+	"errors"
 	"math/rand"
 	"strconv"
 	"sync"
@@ -222,10 +223,10 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 	// TODO(@odeke-em): Remove .Stats
 	g.Stats.Gets.Add(1)
 	stats.Record(ctx, MGets.M(1))
-	// if dest == nil {
-	// 	span.SetStatus(trace.Status{Code: trace.StatusCodeInvalidArgument, Message: "nil dest sink"})
-	// 	return errors.New("galaxycache: nil dest Sink")
-	// }
+	if dest == nil {
+		span.SetStatus(trace.Status{Code: trace.StatusCodeInvalidArgument, Message: "no Codec was provided"})
+		return errors.New("galaxycache: no Codec was provided")
+	}
 	value, cacheHit := g.lookupCache(key)
 	stats.Record(ctx, MKeyLength.M(int64(len(key))))
 
@@ -234,7 +235,7 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 		// TODO(@odeke-em): Remove .Stats
 		g.Stats.CacheHits.Add(1)
 		stats.Record(ctx, MCacheHits.M(1), MValueLength.M(int64(len(value))))
-		return dest.UnmarshalBinary(value) // Need for byteview?
+		return dest.UnmarshalBinary(value)
 	}
 
 	stats.Record(ctx, MCacheMisses.M(1))
@@ -295,7 +296,7 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value []byte
 		g.Stats.LoadsDeduped.Add(1)
 		stats.Record(ctx, MLoadsDeduped.M(1))
 
-		var value []byte // necessary?
+		var value []byte
 		var err error
 		if peer, ok := g.peerPicker.pickPeer(key); ok {
 			value, err = g.getFromPeer(ctx, peer, key)
@@ -447,8 +448,9 @@ func (c *cache) add(key string, value []byte) {
 	defer c.mu.Unlock()
 	if c.lru == nil {
 		c.lru = &lru.Cache{
-			OnEvicted: func(key lru.Key) {
-				c.nbytes -= int64(len(key.(string))) + int64(len(value))
+			OnEvicted: func(key lru.Key, value interface{}) {
+				val := value.([]byte)
+				c.nbytes -= int64(len(key.(string))) + int64(len(val))
 				c.nevict++
 			},
 		}

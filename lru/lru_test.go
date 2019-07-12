@@ -75,7 +75,7 @@ func TestRemove(t *testing.T) {
 
 func TestEvict(t *testing.T) {
 	evictedKeys := make([]Key, 0)
-	onEvictedFun := func(key Key) {
+	onEvictedFun := func(key Key, value interface{}) {
 		evictedKeys = append(evictedKeys, key)
 	}
 
