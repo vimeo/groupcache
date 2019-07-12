@@ -3,7 +3,6 @@ go_import_path: github.com/vimeo/galaxycache
 
 os: linux
 dist: trusty
-sudo: false
 
 script:
   - go test ./...
@@ -11,6 +10,8 @@ script:
 go:
   - 1.9.x
   - 1.10.x
+  - 1.11.x
+  - 1.12.x
   - master
 
 cache:
