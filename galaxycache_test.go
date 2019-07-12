@@ -375,29 +375,6 @@ func TestPeers(t *testing.T) {
 
 }
 
-// TODO(willg): Changed the order of assignment here to make this work, not
-// entirely sure of the purpose of this test but it basically still works as
-// it was
-func TestTruncatingByteSliceTarget(t *testing.T) {
-	var cacheFills AtomicInt
-	stringGalaxy, ctx, _ := testSetupStringGalaxy(&cacheFills)
-	var buf ByteCodec
-	if err := stringGalaxy.Get(ctx, "short", &buf); err != nil {
-		t.Fatal(err)
-	}
-	s := buf[:]
-	if want := "ECHO:short"; string(s) != want {
-		t.Errorf("short key got %q; want %q", s, want)
-	}
-	if err := stringGalaxy.Get(ctx, "truncated", &buf); err != nil {
-		t.Fatal(err)
-	}
-	s = buf[:6]
-	if want := "ECHO:t"; string(s) != want {
-		t.Errorf("truncated key got %q; want %q", s, want)
-	}
-}
-
 func TestByteCodecTarget(t *testing.T) {
 	var byteCodec ByteCodec
 
