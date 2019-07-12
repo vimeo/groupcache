@@ -32,6 +32,7 @@ import (
 
 	"github.com/golang/protobuf/proto"
 
+	"github.com/vimeo/galaxycache/protocodec"
 	testpb "github.com/vimeo/galaxycache/testpb"
 )
 
@@ -133,7 +134,7 @@ func TestGetDupSuppressProto(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		go func() {
 			tm := new(testpb.TestMessage)
-			psink := ProtoCodec{Msg: tm}
+			psink := protocodec.ProtoCodec{Msg: tm}
 			if err := protoGalaxy.Get(ctx, fromChan, &psink); err != nil {
 				tm.Name = proto.String("ERROR:" + err.Error())
 			}
