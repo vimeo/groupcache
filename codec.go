@@ -79,5 +79,5 @@ func (c *ProtoCodec) MarshalBinary() ([]byte, error) {
 // UnmarshalBinary on a ProtoCodec unmarshals provided data into
 // the proto message
 func (c *ProtoCodec) UnmarshalBinary(data []byte) error {
-	return proto.Unmarshal(cloneBytes(data), c.Msg) // redundant clone?
+	return proto.Unmarshal(data, c.Msg)
 }
