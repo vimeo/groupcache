@@ -66,10 +66,13 @@ func testSetupProtoGalaxy(cacheFills *AtomicInt) (*Galaxy, context.Context, chan
 			key = <-stringc
 		}
 		cacheFills.Add(1)
-		bytes, _ := proto.Marshal(&testpb.TestMessage{
+		bytes, err := proto.Marshal(&testpb.TestMessage{
 			Name: proto.String("ECHO:" + key),
 			City: proto.String("SOME-CITY"),
 		})
+		if err != nil {
+			return fmt.Errorf("Error marshaling test message: %s", err)
+		}
 		return dest.UnmarshalBinary(bytes)
 	}))
 	return protoGalaxy, ctx, stringc
