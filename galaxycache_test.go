@@ -137,7 +137,7 @@ func TestGetDupSuppressProto(t *testing.T) {
 			if err := protoGalaxy.Get(ctx, fromChan, &psink); err != nil {
 				tm.Name = proto.String("ERROR:" + err.Error())
 			}
-			resc <- psink.Msg.(*testpb.TestMessage)
+			resc <- tm
 		}()
 	}
 
