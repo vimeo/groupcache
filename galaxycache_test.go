@@ -132,7 +132,7 @@ func TestGetDupSuppressProto(t *testing.T) {
 	resc := make(chan *testpb.TestMessage, 2)
 	for i := 0; i < 2; i++ {
 		go func() {
-			tm := new(testpb.TestMessage) // necessary? maybe not?
+			tm := new(testpb.TestMessage)
 			psink := ProtoCodec{Msg: tm}
 			if err := protoGalaxy.Get(ctx, fromChan, &psink); err != nil {
 				tm.Name = proto.String("ERROR:" + err.Error())
