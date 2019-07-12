@@ -375,19 +375,6 @@ func TestPeers(t *testing.T) {
 
 }
 
-func TestByteCodecTarget(t *testing.T) {
-	var byteCodec ByteCodec
-
-	inBytes := []byte("some bytes")
-	byteCodec.UnmarshalBinary(inBytes)
-	if want := "some bytes"; string(byteCodec) != want {
-		t.Errorf("UnmarshalBinary resulted in %q; want %q", byteCodec, want)
-	}
-	if &inBytes[0] == &byteCodec[0] {
-		t.Error("inBytes and byteCodec share memory")
-	}
-}
-
 // orderedFlightGroup allows the caller to force the schedule of when
 // orig.Do will be called.  This is useful to serialize calls such
 // that singleflight cannot dedup them.
