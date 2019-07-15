@@ -58,7 +58,7 @@ type GRPCPeerServer struct {
 // RegisterGRPCServer creates a new GRPC server and GRPCHandler and registers them for RPC use;
 // the purpose of the GRPCHandler is to keep track of the parent universe in order to access the groups for Get calls
 func RegisterGRPCServer(universe *Universe, grpcServer *grpc.Server) {
-	pb.RegisterPeerServer(grpcServer, &GRPCPeerServer{parentUniverse: universe})
+	pb.RegisterGalaxyCacheServer(grpcServer, &GRPCPeerServer{parentUniverse: universe})
 }
 
 // GetFromPeer implements the generated pb.GalaxycacheServer interface, making an internal Get() after receiving a remote call from a peer
@@ -82,7 +82,7 @@ func (gp *GRPCPeerServer) GetFromPeer(ctx context.Context, req *pb.GetRequest) (
 
 // Fetch here implements the RemoteFetcher interface for sending Gets to peers over an RPC connection
 func (g *grpcFetcher) Fetch(ctx context.Context, galaxy string, key string) ([]byte, error) {
-	client := pb.NewPeerClient(g.conn)
+	client := pb.NewGalaxyCacheClient(g.conn)
 	resp, err := client.GetFromPeer(ctx, &pb.GetRequest{
 		Galaxy: galaxy,
 		Key:    key})
