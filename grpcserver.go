@@ -43,7 +43,6 @@ func RegisterGRPCServer(universe *Universe, grpcServer *grpc.Server) {
 func (gp *GRPCGalaxyCacheServer) GetFromPeer(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
 	group := gp.universe.GetGalaxy(req.Galaxy)
 	if group == nil {
-		// log.Warnf("Unable to find group [%s]", req.Group)
 		return nil, fmt.Errorf("Unable to find group [%s]", req.Galaxy)
 	}
 
