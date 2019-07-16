@@ -35,6 +35,7 @@ type GRPCFetchProtocol struct {
 type grpcFetcher struct {
 	address string
 	conn    *grpc.ClientConn
+	client  pb.GalaxyCacheClient
 }
 
 // NewGRPCFetchProtocol creates a GRPC fetch protocol to be
@@ -51,7 +52,8 @@ func (gp *GRPCFetchProtocol) NewFetcher(address string) (RemoteFetcher, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &grpcFetcher{address: address, conn: conn}, nil
+	client := pb.NewGalaxyCacheClient(conn)
+	return &grpcFetcher{address: address, conn: conn, client: client}, nil
 }
 
 // GRPCGalaxyCacheServer implements the GalaxyCacheServer
@@ -90,8 +92,7 @@ func (gp *GRPCGalaxyCacheServer) GetFromPeer(ctx context.Context, req *pb.GetReq
 // Fetch here implements the RemoteFetcher interface for
 // sending Gets to peers over an RPC connection
 func (g *grpcFetcher) Fetch(ctx context.Context, galaxy string, key string) ([]byte, error) {
-	client := pb.NewGalaxyCacheClient(g.conn)
-	resp, err := client.GetFromPeer(ctx, &pb.GetRequest{
+	resp, err := g.client.GetFromPeer(ctx, &pb.GetRequest{
 		Galaxy: galaxy,
 		Key:    key})
 	if err != nil {
