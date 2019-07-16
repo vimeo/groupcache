@@ -96,7 +96,7 @@ func (g *grpcFetcher) Fetch(ctx context.Context, galaxy string, key string) ([]b
 		Galaxy: galaxy,
 		Key:    key})
 	if err != nil {
-		return nil, fmt.Errorf("Failed to GET [%s]: %v", galaxy, err)
+		return nil, fmt.Errorf("Failed to fetch from peer over RPC [%s, %s]: %v", galaxy, g.address, err)
 	}
 
 	return resp.Value, nil
