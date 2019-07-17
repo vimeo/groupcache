@@ -7,15 +7,15 @@ For API docs and examples, see http://godoc.org/github.com/vimeo/galaxycache
 
 ## Summary of changes
 
-The purpose of our improvements span a few different categories: 
+Our changes include the following:
 * Improvements to testing by removing global state
 * Improvement to connection efficiency between peers with the addition of gRPC
-* Added an interface for choosing which keys get hot cached
+* Added an interface for choosing which keys get hot cached (in progress)
 * Made some core functionality more generic (e.g. replaced the Sink object with a Codec marshaler interface, removed ByteView in favor of a simpler []byte)
 
 We also changed the naming scheme of objects and methods to clarify their purpose with the help of a space-themed scenario:
 
-   Each process within a set of peer processes contains a _Universe_ which encapsulates a map of _Galaxies_ (previously called Groups). Each Universe contains the same set of Galaxies, but each star (or _key_) has a single associated authoritative peer (determined by the consistent hash function). When Get is called for a key in a Galaxy, the local cache is checked first. On a cache miss, the _PeerPicker_ object delegates to the peer authoritative over the requested key. The data is _Fetched_ from a remote peer if the local process is not the authority. That other peer then performs a Get to either find the data from its own local cache or use the specified _BackendGetter_, to get the data from elsewhere, such as by querying a database.
+Each process within a set of peer processes contains a _Universe_ which encapsulates a map of _Galaxies_ (previously called Groups). Each Universe contains the same set of Galaxies, but each _key_ (think of it as a "star") has a single associated authoritative peer (determined by the consistent hash function). When Get is called for a key in a Galaxy, the local cache is checked first. On a cache miss, the _PeerPicker_ object delegates to the peer authoritative over the requested key. The data is _Fetched_ from a remote peer if the local process is not the authority. That other peer then performs a Get to either find the data from its own local cache or use the specified _BackendGetter_ to get the data from elsewhere, such as by querying a database.
 
 
 ### New architecture and naming scheme
