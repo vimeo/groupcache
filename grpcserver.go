@@ -41,15 +41,15 @@ func RegisterGRPCServer(universe *Universe, grpcServer *grpc.Server) {
 // interface, making an internal Get() after receiving a
 // remote call from a peer
 func (gp *GRPCGalaxyCacheServer) GetFromPeer(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
-	group := gp.universe.GetGalaxy(req.Galaxy)
-	if group == nil {
-		return nil, fmt.Errorf("Unable to find group [%s]", req.Galaxy)
+	galaxy := gp.universe.GetGalaxy(req.Galaxy)
+	if galaxy == nil {
+		return nil, fmt.Errorf("Unable to find galaxy [%s]", req.Galaxy)
 	}
 
-	group.Stats.ServerRequests.Add(1) // keep track of the num of req
+	galaxy.Stats.ServerRequests.Add(1) // keep track of the num of req
 
 	var value ByteCodec
-	err := group.Get(ctx, req.Key, &value)
+	err := galaxy.Get(ctx, req.Key, &value)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to retrieve [%s]: %v", req, err)
 	}
