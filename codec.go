@@ -46,6 +46,22 @@ func (c *ByteCodec) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
+// CopyingByteCodec is a byte slice type that implements Codec
+// and returns a copy of the bytes when marshaled
+type CopyingByteCodec []byte
+
+// MarshalBinary on a CopyingByteCodec returns a copy of the bytes
+func (c *CopyingByteCodec) MarshalBinary() ([]byte, error) {
+	return cloneBytes(*c), nil
+}
+
+// UnmarshalBinary on a CopyingByteCodec sets the ByteCodec to
+// a copy of the provided data
+func (c *CopyingByteCodec) UnmarshalBinary(data []byte) error {
+	*c = cloneBytes(data)
+	return nil
+}
+
 // StringCodec is a string type that implements Codec
 type StringCodec string
 
