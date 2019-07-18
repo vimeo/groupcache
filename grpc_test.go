@@ -28,7 +28,6 @@ import (
 )
 
 func TestGRPCPeerServer(t *testing.T) {
-	dummyCtx := context.TODO()
 
 	const (
 		nRoutines = 5
@@ -51,8 +50,7 @@ func TestGRPCPeerServer(t *testing.T) {
 			t.Errorf("Error on shutdown: %s", shutdownErr)
 		}
 	}()
-	grpcServer := grpc.NewServer()
-	RegisterGRPCServer(universe, grpcServer)
+
 	err := universe.Set(peerAddresses...)
 	if err != nil {
 		t.Errorf("Error setting peers: %s", err)
@@ -67,12 +65,12 @@ func TestGRPCPeerServer(t *testing.T) {
 	defer cancel()
 
 	for _, listener := range peerListeners {
-		go makeGRPCServerUniverse(ctx, t, peerAddresses, listener)
+		go runTestPeerGRPCServer(ctx, t, peerAddresses, listener)
 	}
 
 	for _, key := range testKeys(nGets) {
 		var value StringCodec
-		if err := g.Get(dummyCtx, key, &value); err != nil {
+		if err := g.Get(ctx, key, &value); err != nil {
 			t.Fatal(err)
 		}
 		if suffix := ":" + key; !strings.HasSuffix(string(value), suffix) {
@@ -80,10 +78,9 @@ func TestGRPCPeerServer(t *testing.T) {
 		}
 		t.Logf("Get key=%q, value=%q (peer:key)", key, value)
 	}
-	grpcServer.GracefulStop()
 }
 
-func makeGRPCServerUniverse(ctx context.Context, t testing.TB, addresses []string, listener net.Listener) {
+func runTestPeerGRPCServer(ctx context.Context, t testing.TB, addresses []string, listener net.Listener) {
 	universe := NewUniverse(NewGRPCFetchProtocol(grpc.WithInsecure()), listener.Addr().String())
 	grpcServer := grpc.NewServer()
 	RegisterGRPCServer(universe, grpcServer)
