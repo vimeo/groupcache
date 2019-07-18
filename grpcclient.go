@@ -1,6 +1,5 @@
 /*
- Copyright 2019 Will Greenberg
- Adapted from https://github.com/charithe/gcgrpcpool/blob/master/gcgrpcpool.go
+ Copyright 2019 Vimeo Inc.
 
  Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
@@ -22,6 +21,7 @@ import (
 	"fmt"
 
 	pb "github.com/vimeo/galaxycache/galaxycachepb"
+
 	"google.golang.org/grpc"
 )
 
@@ -38,8 +38,10 @@ type grpcFetcher struct {
 	client  pb.GalaxyCacheClient
 }
 
-// NewGRPCFetchProtocol creates a GRPC fetch protocol to be
-// passed into a Universe constructor
+// NewGRPCFetchProtocol creates a fetch-protocol implementation
+// using GRPC for communicating with peers. Users without TLS
+// certificates on the peers operating as servers should specify
+// grpc.WithInsecure() as one of the arguments.
 func NewGRPCFetchProtocol(dialOpts ...grpc.DialOption) *GRPCFetchProtocol {
 	return &GRPCFetchProtocol{PeerDialOptions: dialOpts}
 }
