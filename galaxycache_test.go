@@ -29,11 +29,6 @@ import (
 	"testing"
 	"time"
 	"unsafe"
-
-	"github.com/golang/protobuf/proto"
-
-	"github.com/vimeo/galaxycache/protocodec"
-	testpb "github.com/vimeo/galaxycache/testpb"
 )
 
 const (
@@ -60,28 +55,9 @@ func setupStringGalaxyTest(cacheFills *AtomicInt) (*Galaxy, context.Context, cha
 	return stringGalaxy, ctx, stringc
 }
 
-func setupProtoGalaxyTest(cacheFills *AtomicInt) (*Galaxy, context.Context, chan string) {
-	universe, ctx, stringc := initSetup()
-	protoGalaxy := universe.NewGalaxy(protoGalaxyName, cacheSize, GetterFunc(func(_ context.Context, key string, dest Codec) error {
-		if key == fromChan {
-			key = <-stringc
-		}
-		cacheFills.Add(1)
-		bytes, err := proto.Marshal(&testpb.TestMessage{
-			Name: proto.String("ECHO:" + key),
-			City: proto.String("SOME-CITY"),
-		})
-		if err != nil {
-			return fmt.Errorf("Error marshaling test message: %s", err)
-		}
-		return dest.UnmarshalBinary(bytes)
-	}))
-	return protoGalaxy, ctx, stringc
-}
-
 // tests that a BackendGetter's Get method is only called once with two
-// outstanding callers. This is the string variant.
-func TestGetDupSuppressString(t *testing.T) {
+// outstanding callers
+func TestGetDupSuppress(t *testing.T) {
 	var cacheFills AtomicInt
 	stringGalaxy, ctx, stringc := setupStringGalaxyTest(&cacheFills)
 	// Start two BackendGetters. The first should block (waiting reading
@@ -115,52 +91,6 @@ func TestGetDupSuppressString(t *testing.T) {
 		case v := <-resc:
 			if v != "ECHO:foo" {
 				t.Errorf("got %q; want %q", v, "ECHO:foo")
-			}
-		case <-time.After(5 * time.Second):
-			t.Errorf("timeout waiting on getter #%d of 2", i+1)
-		}
-	}
-}
-
-// tests that a BackendGetter's Get method is only called once with two
-// outstanding callers.  This is the proto variant.
-func TestGetDupSuppressProto(t *testing.T) {
-	var cacheFills AtomicInt
-	protoGalaxy, ctx, stringc := setupProtoGalaxyTest(&cacheFills)
-	// Start two getters. The first should block (waiting reading
-	// from stringc) and the second should latch on to the first
-	// one.
-	resc := make(chan *testpb.TestMessage, 2)
-	for i := 0; i < 2; i++ {
-		go func() {
-			tm := new(testpb.TestMessage)
-			psink := protocodec.ProtoCodec{Msg: tm}
-			if err := protoGalaxy.Get(ctx, fromChan, &psink); err != nil {
-				tm.Name = proto.String("ERROR:" + err.Error())
-			}
-			resc <- tm
-		}()
-	}
-
-	// Wait a bit so both goroutines get merged together via
-	// singleflight.
-	// TODO(bradfitz): decide whether there are any non-offensive
-	// debug/test hooks that could be added to singleflight to
-	// make a sleep here unnecessary.
-	time.Sleep(250 * time.Millisecond)
-
-	// Unblock the first getter, which should unblock the second
-	// as well.
-	stringc <- "Fluffy"
-	want := &testpb.TestMessage{
-		Name: proto.String("ECHO:Fluffy"),
-		City: proto.String("SOME-CITY"),
-	}
-	for i := 0; i < 2; i++ {
-		select {
-		case v := <-resc:
-			if !proto.Equal(v, want) {
-				t.Errorf(" Got: %+v\nWant: %+v", v, want)
 			}
 		case <-time.After(5 * time.Second):
 			t.Errorf("timeout waiting on getter #%d of 2", i+1)
