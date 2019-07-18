@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package galaxycache
+package httppeers
 
 import (
 	"context"
@@ -23,6 +23,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	gc "github.com/vimeo/galaxycache"
 
 	"go.opencensus.io/stats"
 )
@@ -69,7 +71,7 @@ func NewHTTPFetchProtocol(opts *HTTPOptions) *HTTPFetchProtocol {
 
 // NewFetcher implements the Protocol interface for HTTPProtocol by constructing
 // a new fetcher to fetch from peers via HTTP
-func (hp *HTTPFetchProtocol) NewFetcher(url string) (RemoteFetcher, error) {
+func (hp *HTTPFetchProtocol) NewFetcher(url string) (gc.RemoteFetcher, error) {
 	return &httpFetcher{transport: hp.transport, baseURL: url + hp.basePath}, nil
 }
 
@@ -77,7 +79,7 @@ func (hp *HTTPFetchProtocol) NewFetcher(url string) (RemoteFetcher, error) {
 // request; it contains a pointer to its parent Universe in order to access
 // its galaxies
 type HTTPHandler struct {
-	universe *Universe
+	universe *gc.Universe
 	basePath string
 }
 
@@ -86,7 +88,7 @@ type HTTPHandler struct {
 // If both opts and serveMux are nil, defaultBasePath and DefaultServeMux
 // will be used. *You must use the same base path for the HTTPFetchProtocol
 // and the HTTPHandler on the same Universe*.
-func RegisterHTTPHandler(universe *Universe, opts *HTTPOptions, serveMux *http.ServeMux) {
+func RegisterHTTPHandler(universe *gc.Universe, opts *HTTPOptions, serveMux *http.ServeMux) {
 	basePath := defaultBasePath
 	if opts != nil {
 		basePath = opts.BasePath
@@ -123,8 +125,8 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// TODO: remove galaxy.Stats from here
 	galaxy.Stats.ServerRequests.Add(1)
-	stats.Record(ctx, MServerRequests.M(1))
-	var value ByteCodec
+	stats.Record(ctx, gc.MServerRequests.M(1))
+	var value gc.ByteCodec
 	err := galaxy.Get(ctx, key, &value)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

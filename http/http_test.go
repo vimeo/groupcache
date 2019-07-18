@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package galaxycache
+package httppeers
 
 import (
 	"context"
@@ -25,6 +25,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	gc "github.com/vimeo/galaxycache"
 
 	"go.opencensus.io/plugin/ochttp"
 	"go.opencensus.io/stats/view"
@@ -52,7 +54,7 @@ func TestHTTPHandler(t *testing.T) {
 		peerListeners = append(peerListeners, newListener)
 	}
 
-	universe := NewUniverse(NewHTTPFetchProtocol(nil), "shouldBeIgnored")
+	universe := gc.NewUniverse(NewHTTPFetchProtocol(nil), "shouldBeIgnored")
 	serveMux := http.NewServeMux()
 	RegisterHTTPHandler(universe, nil, serveMux)
 	err := universe.Set(addrToURL(peerAddresses)...)
@@ -60,7 +62,7 @@ func TestHTTPHandler(t *testing.T) {
 		t.Errorf("Error setting peers: %s", err)
 	}
 
-	getter := GetterFunc(func(ctx context.Context, key string, dest Codec) error {
+	getter := gc.GetterFunc(func(ctx context.Context, key string, dest gc.Codec) error {
 		return fmt.Errorf("oh no! Local get occurred")
 	})
 	g := universe.NewGalaxy("peerFetchTest", 1<<20, getter)
@@ -73,7 +75,7 @@ func TestHTTPHandler(t *testing.T) {
 	}
 
 	for _, key := range testKeys(nGets) {
-		var value StringCodec
+		var value gc.StringCodec
 		if err := g.Get(ctx, key, &value); err != nil {
 			t.Fatal(err)
 		}
@@ -86,7 +88,7 @@ func TestHTTPHandler(t *testing.T) {
 }
 
 func makeHTTPServerUniverse(ctx context.Context, t testing.TB, addresses []string, listener net.Listener) {
-	universe := NewUniverse(NewHTTPFetchProtocol(nil), "http://"+listener.Addr().String())
+	universe := gc.NewUniverse(NewHTTPFetchProtocol(nil), "http://"+listener.Addr().String())
 	serveMux := http.NewServeMux()
 	wrappedHandler := &ochttp.Handler{Handler: serveMux}
 	RegisterHTTPHandler(universe, nil, serveMux)
@@ -94,7 +96,7 @@ func makeHTTPServerUniverse(ctx context.Context, t testing.TB, addresses []strin
 	if err != nil {
 		t.Errorf("Error setting peers: %s", err)
 	}
-	getter := GetterFunc(func(ctx context.Context, key string, dest Codec) error {
+	getter := gc.GetterFunc(func(ctx context.Context, key string, dest gc.Codec) error {
 		dest.UnmarshalBinary([]byte(":" + key))
 		return nil
 	})
