@@ -14,12 +14,13 @@
  limitations under the License.
 */
 
-package galaxycache
+package grpcpeers
 
 import (
 	"context"
 	"fmt"
 
+	gc "github.com/vimeo/galaxycache"
 	pb "github.com/vimeo/galaxycache/galaxycachepb"
 
 	"google.golang.org/grpc"
@@ -49,7 +50,7 @@ func NewGRPCFetchProtocol(dialOpts ...grpc.DialOption) *GRPCFetchProtocol {
 // NewFetcher implements the FetchProtocol interface for
 // GRPCFetchProtocol by constructing a new fetcher to fetch
 // from peers via GRPC
-func (gp *GRPCFetchProtocol) NewFetcher(address string) (RemoteFetcher, error) {
+func (gp *GRPCFetchProtocol) NewFetcher(address string) (gc.RemoteFetcher, error) {
 	conn, err := grpc.Dial(address, gp.PeerDialOptions...)
 	if err != nil {
 		return nil, err

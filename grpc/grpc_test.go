@@ -15,7 +15,7 @@
  limitations under the License.
 */
 
-package galaxycache
+package grpcpeers
 
 import (
 	"context"
@@ -24,6 +24,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	gc "github.com/vimeo/galaxycache"
 
 	"google.golang.org/grpc"
 )
@@ -44,7 +46,7 @@ func TestGRPCPeerServer(t *testing.T) {
 		peerListeners = append(peerListeners, newListener)
 	}
 
-	universe := NewUniverse(NewGRPCFetchProtocol(grpc.WithInsecure()), "shouldBeIgnored")
+	universe := gc.NewUniverse(NewGRPCFetchProtocol(grpc.WithInsecure()), "shouldBeIgnored")
 	defer func() {
 		shutdownErr := universe.Shutdown()
 		if shutdownErr != nil {
@@ -57,7 +59,7 @@ func TestGRPCPeerServer(t *testing.T) {
 		t.Errorf("Error setting peers: %s", err)
 	}
 
-	getter := GetterFunc(func(ctx context.Context, key string, dest Codec) error {
+	getter := gc.GetterFunc(func(ctx context.Context, key string, dest gc.Codec) error {
 		return fmt.Errorf("oh no! Local get occurred")
 	})
 	g := universe.NewGalaxy("peerFetchTest", 1<<20, getter)
@@ -70,7 +72,7 @@ func TestGRPCPeerServer(t *testing.T) {
 	}
 
 	for _, key := range testKeys(nGets) {
-		var value StringCodec
+		var value gc.StringCodec
 		if err := g.Get(ctx, key, &value); err != nil {
 			t.Fatal(err)
 		}
@@ -82,7 +84,7 @@ func TestGRPCPeerServer(t *testing.T) {
 }
 
 func runTestPeerGRPCServer(ctx context.Context, t testing.TB, addresses []string, listener net.Listener) {
-	universe := NewUniverse(NewGRPCFetchProtocol(grpc.WithInsecure()), listener.Addr().String())
+	universe := gc.NewUniverse(NewGRPCFetchProtocol(grpc.WithInsecure()), listener.Addr().String())
 	grpcServer := grpc.NewServer()
 	RegisterGRPCServer(universe, grpcServer)
 	err := universe.Set(addresses...)
@@ -96,7 +98,7 @@ func runTestPeerGRPCServer(ctx context.Context, t testing.TB, addresses []string
 		t.Errorf("Error setting peers: %s", err)
 	}
 
-	getter := GetterFunc(func(ctx context.Context, key string, dest Codec) error {
+	getter := gc.GetterFunc(func(ctx context.Context, key string, dest gc.Codec) error {
 		dest.UnmarshalBinary([]byte(":" + key))
 		return nil
 	})
