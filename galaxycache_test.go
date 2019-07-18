@@ -33,7 +33,6 @@ import (
 
 const (
 	stringGalaxyName = "string-galaxy"
-	protoGalaxyName  = "proto-galaxy"
 	fromChan         = "from-chan"
 	cacheSize        = 1 << 20
 )
