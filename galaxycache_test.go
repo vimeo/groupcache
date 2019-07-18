@@ -43,12 +43,12 @@ const (
 	cacheSize        = 1 << 20
 )
 
-func testInitSetup() (*Universe, context.Context, chan string) {
+func initSetup() (*Universe, context.Context, chan string) {
 	return NewUniverse(&TestProtocol{}, "test"), context.TODO(), make(chan string)
 }
 
-func testSetupStringGalaxy(cacheFills *AtomicInt) (*Galaxy, context.Context, chan string) {
-	universe, ctx, stringc := testInitSetup()
+func setupStringGalaxyTest(cacheFills *AtomicInt) (*Galaxy, context.Context, chan string) {
+	universe, ctx, stringc := initSetup()
 	stringGalaxy := universe.NewGalaxy(stringGalaxyName, cacheSize, GetterFunc(func(_ context.Context, key string, dest Codec) error {
 		if key == fromChan {
 			key = <-stringc
@@ -60,8 +60,8 @@ func testSetupStringGalaxy(cacheFills *AtomicInt) (*Galaxy, context.Context, cha
 	return stringGalaxy, ctx, stringc
 }
 
-func testSetupProtoGalaxy(cacheFills *AtomicInt) (*Galaxy, context.Context, chan string) {
-	universe, ctx, stringc := testInitSetup()
+func setupProtoGalaxyTest(cacheFills *AtomicInt) (*Galaxy, context.Context, chan string) {
+	universe, ctx, stringc := initSetup()
 	protoGalaxy := universe.NewGalaxy(protoGalaxyName, cacheSize, GetterFunc(func(_ context.Context, key string, dest Codec) error {
 		if key == fromChan {
 			key = <-stringc
@@ -83,7 +83,7 @@ func testSetupProtoGalaxy(cacheFills *AtomicInt) (*Galaxy, context.Context, chan
 // outstanding callers. This is the string variant.
 func TestGetDupSuppressString(t *testing.T) {
 	var cacheFills AtomicInt
-	stringGalaxy, ctx, stringc := testSetupStringGalaxy(&cacheFills)
+	stringGalaxy, ctx, stringc := setupStringGalaxyTest(&cacheFills)
 	// Start two BackendGetters. The first should block (waiting reading
 	// from stringc) and the second should latch on to the first
 	// one.
@@ -126,7 +126,7 @@ func TestGetDupSuppressString(t *testing.T) {
 // outstanding callers.  This is the proto variant.
 func TestGetDupSuppressProto(t *testing.T) {
 	var cacheFills AtomicInt
-	protoGalaxy, ctx, stringc := testSetupProtoGalaxy(&cacheFills)
+	protoGalaxy, ctx, stringc := setupProtoGalaxyTest(&cacheFills)
 	// Start two getters. The first should block (waiting reading
 	// from stringc) and the second should latch on to the first
 	// one.
@@ -176,7 +176,7 @@ func countFills(f func(), cacheFills *AtomicInt) int64 {
 
 func TestCaching(t *testing.T) {
 	var cacheFills AtomicInt
-	stringGalaxy, ctx, _ := testSetupStringGalaxy(&cacheFills)
+	stringGalaxy, ctx, _ := setupStringGalaxyTest(&cacheFills)
 	fills := countFills(func() {
 		for i := 0; i < 10; i++ {
 			var s StringCodec
@@ -192,7 +192,7 @@ func TestCaching(t *testing.T) {
 
 func TestCacheEviction(t *testing.T) {
 	var cacheFills AtomicInt
-	stringGalaxy, ctx, _ := testSetupStringGalaxy(&cacheFills)
+	stringGalaxy, ctx, _ := setupStringGalaxyTest(&cacheFills)
 	testKey := "TestCacheEviction-key"
 	getTestKey := func() {
 		var res StringCodec
@@ -397,7 +397,7 @@ func (g *orderedFlightGroup) Do(key string, fn func() (interface{}, error)) (int
 // TestNoDedup tests invariants on the cache size when singleflight is
 // unable to dedup calls.
 func TestNoDedup(t *testing.T) {
-	universe, dummyCtx, _ := testInitSetup()
+	universe, dummyCtx, _ := initSetup()
 	const testkey = "testkey"
 	const testval = "testval"
 	g := universe.NewGalaxy("testgalaxy", 1024, GetterFunc(func(_ context.Context, key string, dest Codec) error {
