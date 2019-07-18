@@ -49,7 +49,10 @@ func TestHTTPHandler(t *testing.T) {
 	var peerListeners []net.Listener
 
 	for i := 0; i < nRoutines; i++ {
-		newListener := pickFreeAddr(t)
+		newListener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
 		peerAddresses = append(peerAddresses, newListener.Addr().String())
 		peerListeners = append(peerListeners, newListener)
 	}
@@ -119,14 +122,6 @@ func testKeys(n int) (keys []string) {
 		keys[i] = strconv.Itoa(i)
 	}
 	return
-}
-
-func pickFreeAddr(t *testing.T) net.Listener {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return listener
 }
 
 func addrToURL(addr []string) []string {
