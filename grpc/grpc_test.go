@@ -107,10 +107,15 @@ func runTestPeerGRPCServer(ctx context.Context, t testing.TB, addresses []string
 	})
 	universe.NewGalaxy("peerFetchTest", 1<<20, getter)
 	go func() {
-		defer listener.Close()
+		defer func() {
+			err := listener.Close()
+			if err != nil {
+				t.Errorf("Failed to close listener: %s", err)
+			}
+		}()
 		err := grpcServer.Serve(listener)
 		if err != nil {
-			t.Errorf("serve failed: %s", err)
+			t.Errorf("Serve failed: %s", err)
 		}
 	}()
 
