@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"net"
 	"strconv"
-	"strings"
 	"testing"
 
 	gc "github.com/vimeo/galaxycache"
@@ -79,8 +78,8 @@ func TestGRPCPeerServer(t *testing.T) {
 		if err := g.Get(ctx, key, &value); err != nil {
 			t.Fatal(err)
 		}
-		if suffix := ":" + key; !strings.HasSuffix(string(value), suffix) {
-			t.Errorf("Get(%q) = %q, want value ending in %q", key, value, suffix)
+		if string(value) != ":"+key {
+			t.Errorf("Unexpected value: Get(%q) = %q, expected %q", key, value, ":"+key)
 		}
 		t.Logf("Get key=%q, value=%q (peer:key)", key, value)
 	}
