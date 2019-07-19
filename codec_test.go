@@ -45,6 +45,34 @@ func TestByteCodec(t *testing.T) {
 
 }
 
+func TestCopyingByteCodec(t *testing.T) {
+	var copyingByteCodec CopyingByteCodec
+
+	inBytes := []byte(testBytes)
+	copyingByteCodec.UnmarshalBinary(inBytes)
+	if string(copyingByteCodec) != testBytes {
+		t.Errorf("UnmarshalBinary resulted in %q; want %q", copyingByteCodec, testBytes)
+	}
+	if &inBytes[0] == &copyingByteCodec[0] {
+		t.Error("inBytes and copyingByteCodec share memory")
+	}
+
+	marshaledBytes, err := copyingByteCodec.MarshalBinary()
+	if err != nil {
+		t.Errorf("Error marshaling from copyingByteCodec: %s", err)
+	}
+	if string(marshaledBytes) != string(inBytes) {
+		t.Errorf("MarshalBinary resulted in %q; want %q", marshaledBytes, inBytes)
+	}
+	if &inBytes[0] == &marshaledBytes[0] {
+		t.Errorf("inBytes and marshaledBytes share memory")
+	}
+	if &marshaledBytes[0] == &copyingByteCodec[0] {
+		t.Errorf("Marshaling did not copy the bytes")
+	}
+
+}
+
 func TestStringCodec(t *testing.T) {
 	var stringCodec StringCodec
 
