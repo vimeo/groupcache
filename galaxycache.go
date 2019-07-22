@@ -189,11 +189,6 @@ type Galaxy struct {
 	Stats Stats
 }
 
-type galaxyOpts struct {
-	hcRatio  int
-	promoter *Promoter
-}
-
 // GalaxyOption is an interface for implementing functional galaxy options
 type GalaxyOption interface {
 	apply(*Galaxy)
