@@ -114,6 +114,8 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 		hcStats: &HCStats{
 			HCCapacity: cacheBytes / 8, // TODO(willg): make this optional w/ default
 		},
+		keyStats:  make(map[string]*KeyStats),
+		promoter:  &defaultPromoter{},
 		loadGroup: &singleflight.Group{},
 	}
 	universe.galaxies[name] = g
@@ -165,6 +167,12 @@ type Galaxy struct {
 
 	hcStats *HCStats
 
+	// keyStats is a map of keys to a stats struct which keeps track
+	// of the hotness of a certain key locally and remote (when applicable)
+	keyStats map[string]*KeyStats
+
+	promoter Promoter
+
 	// loadGroup ensures that each key is only fetched once
 	// (either locally or remotely), regardless of the number of
 	// concurrent callers.
@@ -177,7 +185,16 @@ type Galaxy struct {
 }
 
 type Promoter interface {
-	ShouldPromote(key string, data []byte, stats KeyStats)
+	ShouldPromote(key string, data []byte, stats KeyStats) bool
+}
+
+type defaultPromoter struct{}
+
+func (p *defaultPromoter) ShouldPromote(key string, data []byte, stats KeyStats) bool {
+	if rand.Intn(10) == 0 {
+		return true
+	}
+	return false
 }
 
 type KeyStats struct {
@@ -366,10 +383,12 @@ func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string
 		return nil, err
 	}
 	value := data
-	// TODO(bradfitz): use res.MinuteQps or something smart to
-	// conditionally populate hotCache.  For now just do it some
-	// percentage of the time.
-	if rand.Intn(10) == 0 {
+	if _, ok := g.keyStats[key]; !ok {
+		g.keyStats[key] = &KeyStats{
+			hcStats: g.hcStats,
+		}
+	}
+	if g.promoter.ShouldPromote(key, value, *g.keyStats[key]) {
 		g.populateCache(key, value, &g.hotCache)
 	}
 	return value, nil
