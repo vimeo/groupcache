@@ -19,12 +19,14 @@ package grpcpeerconn
 
 import (
 	"context"
-	"fmt"
+
+	"google.golang.org/grpc/codes"
 
 	gc "github.com/vimeo/galaxycache"
 	pb "github.com/vimeo/galaxycache/galaxycachepb"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/status"
 )
 
 // GRPCGalaxyCacheServer implements the GalaxyCacheServer
@@ -45,7 +47,7 @@ func RegisterGRPCServer(universe *gc.Universe, grpcServer *grpc.Server) {
 func (gp *GRPCGalaxyCacheServer) GetFromPeer(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
 	galaxy := gp.universe.GetGalaxy(req.Galaxy)
 	if galaxy == nil {
-		return nil, fmt.Errorf("Unable to find galaxy [%s]", req.Galaxy)
+		return nil, status.Errorf(codes.InvalidArgument, "Unable to find galaxy [%s]", req.Galaxy)
 	}
 
 	galaxy.Stats.ServerRequests.Add(1) // keep track of the num of req
@@ -53,7 +55,7 @@ func (gp *GRPCGalaxyCacheServer) GetFromPeer(ctx context.Context, req *pb.GetReq
 	var value gc.ByteCodec
 	err := galaxy.Get(ctx, req.Key, &value)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to retrieve [%s]: %v", req, err)
+		return nil, status.Errorf(status.Code(err), "Failed to retrieve [%s]: %v", req, err)
 	}
 
 	return &pb.GetResponse{Value: value}, nil
