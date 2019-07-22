@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"sync"
 	"testing"
 
 	gc "github.com/vimeo/galaxycache"
@@ -30,6 +31,7 @@ import (
 )
 
 func TestGRPCPeerServer(t *testing.T) {
+	var wg sync.WaitGroup
 
 	const (
 		nRoutines = 5
@@ -67,10 +69,9 @@ func TestGRPCPeerServer(t *testing.T) {
 	g := universe.NewGalaxy("peerFetchTest", 1<<20, getter)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	for _, listener := range peerListeners {
-		go runTestPeerGRPCServer(ctx, t, peerAddresses, listener)
+		go runTestPeerGRPCServer(ctx, t, peerAddresses, listener, &wg)
 	}
 
 	for _, key := range testKeys(nGets) {
@@ -83,9 +84,11 @@ func TestGRPCPeerServer(t *testing.T) {
 		}
 		t.Logf("Get key=%q, value=%q (peer:key)", key, value)
 	}
+	cancel()
+	wg.Wait()
 }
 
-func runTestPeerGRPCServer(ctx context.Context, t testing.TB, addresses []string, listener net.Listener) {
+func runTestPeerGRPCServer(ctx context.Context, t testing.TB, addresses []string, listener net.Listener, wg *sync.WaitGroup) {
 	universe := gc.NewUniverse(NewGRPCFetchProtocol(grpc.WithInsecure()), listener.Addr().String())
 	grpcServer := grpc.NewServer()
 	RegisterGRPCServer(universe, grpcServer)
@@ -105,8 +108,9 @@ func runTestPeerGRPCServer(ctx context.Context, t testing.TB, addresses []string
 		return nil
 	})
 	universe.NewGalaxy("peerFetchTest", 1<<20, getter)
+	wg.Add(1)
 	go func() {
-		defer listener.Close() // TODO(willg): handle error without logging post test end
+		defer wg.Done()
 		err := grpcServer.Serve(listener)
 		if err != nil {
 			t.Errorf("Serve failed: %s", err)
