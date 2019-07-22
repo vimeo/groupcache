@@ -15,7 +15,7 @@
  limitations under the License.
 */
 
-package grpcpeerconn
+package grpc
 
 import (
 	"context"
