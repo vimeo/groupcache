@@ -96,7 +96,9 @@ func RegisterHTTPHandler(universe *gc.Universe, opts *HTTPOptions, serveMux *htt
 	}
 	newHTTPHandler := &HTTPHandler{basePath: basePath, universe: universe}
 	if serveMux == nil {
-		http.Handle(basePath, ochttp.WithRouteTag(newHTTPHandler, basePath))
+		http.Handle(basePath, &ochttp.Handler{
+			Handler: ochttp.WithRouteTag(newHTTPHandler, basePath),
+		})
 	} else {
 		serveMux.Handle(basePath, ochttp.WithRouteTag(newHTTPHandler, basePath))
 	}
