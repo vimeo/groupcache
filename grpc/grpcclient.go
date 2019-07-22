@@ -18,13 +18,13 @@ package grpc
 
 import (
 	"context"
-	"fmt"
 
 	gc "github.com/vimeo/galaxycache"
 	pb "github.com/vimeo/galaxycache/galaxycachepb"
 	"go.opencensus.io/plugin/ocgrpc"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/status"
 )
 
 // GRPCFetchProtocol specifies GRPC specific options for
@@ -68,7 +68,7 @@ func (g *grpcFetcher) Fetch(ctx context.Context, galaxy string, key string) ([]b
 		Galaxy: galaxy,
 		Key:    key})
 	if err != nil {
-		return nil, fmt.Errorf("Failed to fetch from peer over RPC [%q, %q]: %s", galaxy, g.address, err)
+		return nil, status.Errorf(status.Code(err), "Failed to fetch from peer over RPC [%q, %q]: %s", galaxy, g.address, err)
 	}
 
 	return resp.Value, nil
