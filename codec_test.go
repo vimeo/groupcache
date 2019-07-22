@@ -16,30 +16,35 @@ limitations under the License.
 
 package galaxycache
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+)
 
 const testBytes = "some bytes"
 
 func TestCodec(t *testing.T) {
-	var byteCodec ByteCodec
-	var copyingByteCodec CopyingByteCodec
 	var stringCodec StringCodec
 
 	testCases := []struct {
-		testName string
-		codec    Codec
+		testName  string
+		codec     Codec
+		checkCopy bool
 	}{
 		{
-			testName: "ByteCodec",
-			codec:    &byteCodec,
+			testName:  "ByteCodec",
+			codec:     &ByteCodec{},
+			checkCopy: false,
 		},
 		{
-			testName: "CopyingByteCodec",
-			codec:    &copyingByteCodec,
+			testName:  "CopyingByteCodec",
+			codec:     &CopyingByteCodec{},
+			checkCopy: true,
 		},
 		{
-			testName: "StringCodec",
-			codec:    &stringCodec,
+			testName:  "StringCodec",
+			codec:     &stringCodec,
+			checkCopy: true,
 		},
 	}
 
@@ -48,24 +53,21 @@ func TestCodec(t *testing.T) {
 			inBytes := []byte(testBytes)
 			tc.codec.UnmarshalBinary(inBytes)
 			inBytes[0] = 'a' // change the original byte slice to ensure copy was made
-			if string(tc.codec.GetBytes()) != testBytes {
-				t.Errorf("UnmarshalBinary resulted in %q; want %q", tc.codec, testBytes)
-			}
-
 			marshaledBytes, err := tc.codec.MarshalBinary()
 			if err != nil {
 				t.Errorf("Error marshaling from byteCodec: %s", err)
 			}
 			if string(marshaledBytes) != testBytes {
-				t.Errorf("MarshalBinary resulted in %q; want %q", marshaledBytes, testBytes)
-			}
-			if &inBytes[0] == &marshaledBytes[0] {
-				t.Errorf("inBytes and marshaledBytes share memory")
+				t.Errorf("Unmarshal/Marshal resulted in %q; want %q", marshaledBytes, testBytes)
 			}
 
-			if tc.testName == "CopyingByteCodec" {
-				codecBytes := tc.codec.GetBytes()
-				if &marshaledBytes[0] == &codecBytes[0] {
+			if tc.checkCopy {
+				marshaledBytes[0] = 'a'
+				secondMarshaledBytes, errM := tc.codec.MarshalBinary()
+				if errM != nil {
+					t.Errorf("Error marshaling from byteCodec: %s", errM)
+				}
+				if bytes.Equal(marshaledBytes, secondMarshaledBytes) {
 					t.Errorf("Marshaling did not copy the bytes")
 				}
 			}

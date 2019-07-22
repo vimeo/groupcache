@@ -21,7 +21,6 @@ package galaxycache
 type Codec interface {
 	MarshalBinary() ([]byte, error)
 	UnmarshalBinary(data []byte) error
-	GetBytes() []byte // for testing
 }
 
 // Note: to ensure that unmarshaling is a read-only operation, bytes
@@ -47,11 +46,6 @@ func (c *ByteCodec) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
-// GetBytes returns the underlying byte slice of ByteCodec
-func (c *ByteCodec) GetBytes() []byte {
-	return *c
-}
-
 // CopyingByteCodec is a byte slice type that implements Codec
 // and returns a copy of the bytes when marshaled
 type CopyingByteCodec []byte
@@ -68,11 +62,6 @@ func (c *CopyingByteCodec) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
-// GetBytes returns the underlying byte slice of CopyingByteCodec
-func (c *CopyingByteCodec) GetBytes() []byte {
-	return *c
-}
-
 // StringCodec is a string type that implements Codec
 type StringCodec string
 
@@ -87,9 +76,4 @@ func (c *StringCodec) MarshalBinary() ([]byte, error) {
 func (c *StringCodec) UnmarshalBinary(data []byte) error {
 	*c = StringCodec(cloneBytes(data))
 	return nil
-}
-
-// GetBytes returns the underlying byte slice of StringCodec
-func (c *StringCodec) GetBytes() []byte {
-	return []byte(*c)
 }
