@@ -22,6 +22,7 @@ import (
 
 	gc "github.com/vimeo/galaxycache"
 	pb "github.com/vimeo/galaxycache/galaxycachepb"
+	"go.opencensus.io/plugin/ocgrpc"
 
 	"google.golang.org/grpc"
 )
@@ -44,6 +45,7 @@ type grpcFetcher struct {
 // certificates on the peers operating as servers should specify
 // grpc.WithInsecure() as one of the arguments.
 func NewGRPCFetchProtocol(dialOpts ...grpc.DialOption) *GRPCFetchProtocol {
+	dialOpts = append(dialOpts, grpc.WithStatsHandler(&ocgrpc.ClientHandler{}))
 	return &GRPCFetchProtocol{PeerDialOptions: dialOpts}
 }
 
