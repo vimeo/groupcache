@@ -96,7 +96,7 @@ func NewUniverseWithOpts(protocol FetchProtocol, selfURL string, options *HashOp
 // completes.
 //
 // The galaxy name must be unique for each BackendGetter.
-func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter BackendGetter) *Galaxy {
+func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter BackendGetter, opts ...GalaxyOption) *Galaxy {
 	if getter == nil {
 		panic("nil Getter")
 	}
@@ -111,13 +111,16 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 		getter:     getter,
 		peerPicker: universe.peerPicker,
 		cacheBytes: cacheBytes,
-		hcStats: &HCStats{
-			HCCapacity: cacheBytes / 8, // TODO(willg): make this optional w/ default
-		},
-		keyStats:  make(map[string]*KeyStats),
-		promoter:  &defaultPromoter{},
-		loadGroup: &singleflight.Group{},
+		hcStats:    &HCStats{},
+		keyStats:   make(map[string]*KeyStats),
+		promoter:   &defaultPromoter{},
+		hcRatio:    8,
+		loadGroup:  &singleflight.Group{},
 	}
+	for _, opt := range opts {
+		opt.apply(g)
+	}
+	g.hcStats.HCCapacity = g.cacheBytes / g.hcRatio
 	universe.galaxies[name] = g
 	return g
 }
@@ -148,6 +151,7 @@ type Galaxy struct {
 	getter     BackendGetter
 	peerPicker *PeerPicker
 	cacheBytes int64 // limit for sum of mainCache and hotCache size
+	hcRatio    int64
 
 	// mainCache is a cache of the keys for which this process
 	// (amongst its peers) is authoritative. That is, this cache
@@ -184,6 +188,41 @@ type Galaxy struct {
 	Stats Stats
 }
 
+type galaxyOpts struct {
+	hcRatio  int
+	promoter *Promoter
+}
+
+type GalaxyOption interface {
+	apply(*Galaxy)
+}
+
+type funcGalaxyOption struct {
+	f func(*Galaxy)
+}
+
+func (fdo *funcGalaxyOption) apply(do *Galaxy) {
+	fdo.f(do)
+}
+
+func newFuncGalaxyOption(f func(*Galaxy)) *funcGalaxyOption {
+	return &funcGalaxyOption{
+		f: f,
+	}
+}
+
+func WithPromoter(p Promoter) GalaxyOption {
+	return newFuncGalaxyOption(func(g *Galaxy) {
+		g.promoter = p
+	})
+}
+
+func WithHotCacheRatio(r int64) GalaxyOption {
+	return newFuncGalaxyOption(func(g *Galaxy) {
+		g.hcRatio = r
+	})
+}
+
 type Promoter interface {
 	ShouldPromote(key string, data []byte, stats KeyStats) bool
 }
@@ -191,6 +230,7 @@ type Promoter interface {
 type defaultPromoter struct{}
 
 func (p *defaultPromoter) ShouldPromote(key string, data []byte, stats KeyStats) bool {
+	// TODO(willg): make this smart, use KeyStats
 	if rand.Intn(10) == 0 {
 		return true
 	}
@@ -205,7 +245,7 @@ type KeyStats struct {
 
 type HCStats struct {
 	HottestHotQPS  float64
-	ColdestCodeQPS float64
+	ColdestColdQPS float64
 	HCSize         int64
 	HCCapacity     int64
 }
