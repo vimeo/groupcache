@@ -82,6 +82,18 @@ func (c *Cache) Get(key Key) (value interface{}, ok bool) {
 	return
 }
 
+// HottestKey returns the most recently used key
+func (c *Cache) HottestKey() Key {
+	value := c.ll.Front().Value
+	return value.(*entry).key
+}
+
+// ColdestKey returns the least recently used key
+func (c *Cache) ColdestKey() Key {
+	value := c.ll.Back().Value
+	return value.(*entry).key
+}
+
 // Remove removes the provided key from the cache.
 func (c *Cache) Remove(key Key) {
 	if c.cache == nil {
