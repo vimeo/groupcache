@@ -111,7 +111,10 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 		getter:     getter,
 		peerPicker: universe.peerPicker,
 		cacheBytes: cacheBytes,
-		loadGroup:  &singleflight.Group{},
+		hcStats: &HCStats{
+			HCCapacity: cacheBytes / 8, // TODO(willg): make this optional w/ default
+		},
+		loadGroup: &singleflight.Group{},
 	}
 	universe.galaxies[name] = g
 	return g
@@ -160,6 +163,8 @@ type Galaxy struct {
 	// of key/value pairs that can be stored globally.
 	hotCache cache
 
+	hcStats *HCStats
+
 	// loadGroup ensures that each key is only fetched once
 	// (either locally or remotely), regardless of the number of
 	// concurrent callers.
@@ -169,6 +174,23 @@ type Galaxy struct {
 
 	// Stats are statistics on the galaxy.
 	Stats Stats
+}
+
+type Promoter interface {
+	ShouldPromote(key string, data []byte, stats KeyStats)
+}
+
+type KeyStats struct {
+	keyQPS       float64
+	remoteKeyQPS float64
+	hcStats      *HCStats
+}
+
+type HCStats struct {
+	HottestHotQPS  float64
+	ColdestCodeQPS float64
+	HCSize         int64
+	HCCapacity     int64
 }
 
 // flightGroup is defined as an interface which flightgroup.Group
