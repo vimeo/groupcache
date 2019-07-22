@@ -26,6 +26,7 @@ import (
 
 	gc "github.com/vimeo/galaxycache"
 
+	"go.opencensus.io/plugin/ochttp"
 	"go.opencensus.io/stats"
 )
 
@@ -95,9 +96,9 @@ func RegisterHTTPHandler(universe *gc.Universe, opts *HTTPOptions, serveMux *htt
 	}
 	newHTTPHandler := &HTTPHandler{basePath: basePath, universe: universe}
 	if serveMux == nil {
-		http.Handle(basePath, newHTTPHandler)
+		http.Handle(basePath, ochttp.WithRouteTag(newHTTPHandler, basePath))
 	} else {
-		serveMux.Handle(basePath, newHTTPHandler)
+		serveMux.Handle(basePath, ochttp.WithRouteTag(newHTTPHandler, basePath))
 	}
 }
 
