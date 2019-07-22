@@ -140,6 +140,7 @@ func (universe *Universe) Set(peerURLs ...string) error {
 	return universe.peerPicker.set(peerURLs...)
 }
 
+// Shutdown closes all open fetcher connections
 func (universe *Universe) Shutdown() error {
 	return universe.peerPicker.shutdown()
 }
@@ -193,6 +194,7 @@ type galaxyOpts struct {
 	promoter *Promoter
 }
 
+// GalaxyOption is an interface for implementing functional galaxy options
 type GalaxyOption interface {
 	apply(*Galaxy)
 }
@@ -211,18 +213,23 @@ func newFuncGalaxyOption(f func(*Galaxy)) *funcGalaxyOption {
 	}
 }
 
+// WithPromoter allows the client to specify a promoter for the galaxy
 func WithPromoter(p Promoter) GalaxyOption {
 	return newFuncGalaxyOption(func(g *Galaxy) {
 		g.promoter = p
 	})
 }
 
+// WithHotCacheRatio allows the client to specify a ratio for the main-to-hot
+// cache sizes for the galaxy
 func WithHotCacheRatio(r int64) GalaxyOption {
 	return newFuncGalaxyOption(func(g *Galaxy) {
 		g.hcRatio = r
 	})
 }
 
+// Promoter is the interface for determining whether a key/value pair should be
+// added to the hot cache
 type Promoter interface {
 	ShouldPromote(key string, data []byte, stats KeyStats) bool
 }
@@ -237,12 +244,15 @@ func (p *defaultPromoter) ShouldPromote(key string, data []byte, stats KeyStats)
 	return false
 }
 
+// KeyStats keeps track of the hotness of a key
 type KeyStats struct {
 	keyQPS       float64
 	remoteKeyQPS float64
 	hcStats      *HCStats
 }
 
+// HCStats keeps track of the size, capacity, and coldest/hottest
+// elements in the hot cache
 type HCStats struct {
 	HottestHotQPS  float64
 	ColdestColdQPS float64
