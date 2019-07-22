@@ -89,6 +89,10 @@ type HTTPHandler struct {
 // If both opts and serveMux are nil, defaultBasePath and DefaultServeMux
 // will be used. *You must use the same base path for the HTTPFetchProtocol
 // and the HTTPHandler on the same Universe*.
+//
+// If a serveMux is not specified, opencensus metrics will automatically
+// wrap the handler. It is recommended to configure opencensus yourself
+// if specifying a serveMux.
 func RegisterHTTPHandler(universe *gc.Universe, opts *HTTPOptions, serveMux *http.ServeMux) {
 	basePath := defaultBasePath
 	if opts != nil {
