@@ -38,14 +38,14 @@ type HTTPFetchProtocol struct {
 	// Transport optionally specifies an http.RoundTripper for the client
 	// to use when it makes a request.
 	// If nil, the client uses http.DefaultTransport.
-	transport func(context.Context) http.RoundTripper
+	transport http.RoundTripper
 	basePath  string
 }
 
 // HTTPOptions specifies a base path for serving and fetching.
 // *ONLY SPECIFY IF NOT USING THE DEFAULT "/_galaxycache/" BASE PATH*.
 type HTTPOptions struct {
-	Transport func(context.Context) http.RoundTripper
+	Transport http.RoundTripper
 	BasePath  string
 }
 
@@ -58,15 +58,18 @@ func NewHTTPFetchProtocol(opts *HTTPOptions) *HTTPFetchProtocol {
 	newProto := &HTTPFetchProtocol{
 		basePath: defaultBasePath,
 	}
+
 	if opts == nil {
+		newProto.transport = &ochttp.Transport{}
 		return newProto
+	}
+	newProto.transport = &ochttp.Transport{
+		Base: opts.Transport,
 	}
 	if opts.BasePath != "" {
 		newProto.basePath = opts.BasePath
 	}
-	if opts.Transport != nil {
-		newProto.transport = opts.Transport
-	}
+
 	return newProto
 }
 
@@ -144,7 +147,7 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type httpFetcher struct {
-	transport func(context.Context) http.RoundTripper
+	transport http.RoundTripper
 	baseURL   string
 }
 
@@ -160,11 +163,7 @@ func (h *httpFetcher) Fetch(ctx context.Context, galaxy string, key string) ([]b
 	if err != nil {
 		return nil, err
 	}
-	tr := http.DefaultTransport
-	if h.transport != nil {
-		tr = h.transport(ctx)
-	}
-	res, err := tr.RoundTrip(req)
+	res, err := h.transport.RoundTrip(req.WithContext(ctx))
 	if err != nil {
 		return nil, err
 	}
