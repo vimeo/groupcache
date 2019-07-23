@@ -27,7 +27,6 @@ package galaxycache // import "github.com/vimeo/galaxycache"
 import (
 	"context"
 	"errors"
-	"math/rand"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -221,38 +220,6 @@ func WithHotCacheRatio(r int64) GalaxyOption {
 	return newFuncGalaxyOption(func(g *Galaxy) {
 		g.hcRatio = r
 	})
-}
-
-// Promoter is the interface for determining whether a key/value pair should be
-// added to the hot cache
-type Promoter interface {
-	ShouldPromote(key string, data []byte, stats KeyStats) bool
-}
-
-type defaultPromoter struct{}
-
-func (p *defaultPromoter) ShouldPromote(key string, data []byte, stats KeyStats) bool {
-	// TODO(willg): make this smart, use KeyStats
-	if rand.Intn(10) == 0 {
-		return true
-	}
-	return false
-}
-
-// KeyStats keeps track of the hotness of a key
-type KeyStats struct {
-	keyQPS       float64
-	remoteKeyQPS float64
-	hcStats      *HCStats
-}
-
-// HCStats keeps track of the size, capacity, and coldest/hottest
-// elements in the hot cache
-type HCStats struct {
-	HottestHotQPS  float64
-	ColdestColdQPS float64
-	HCSize         int64
-	HCCapacity     int64
 }
 
 // flightGroup is defined as an interface which flightgroup.Group
