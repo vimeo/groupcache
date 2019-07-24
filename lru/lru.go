@@ -83,13 +83,13 @@ func (c *Cache) Get(key Key) (value interface{}, ok bool) {
 }
 
 // HottestKey returns the most recently used key
-func (c *Cache) HottestKey() Key {
+func (c *Cache) HottestQPS() Key {
 	value := c.ll.Front().Value
 	return value.(*entry).key
 }
 
 // ColdestKey returns the least recently used key
-func (c *Cache) ColdestKey() Key {
+func (c *Cache) ColdestQPS() Key {
 	value := c.ll.Back().Value
 	return value.(*entry).key
 }
