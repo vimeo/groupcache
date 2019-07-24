@@ -280,21 +280,19 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 		span.End()
 	}()
 
-	g.mu.Lock()
-	if _, ok := g.keyStats[key]; !ok {
-		g.keyStats[key] = &KeyStats{
-			hcStats: g.hcStats,
-			dAvg: &dampedAvg{
-				period: time.Second,
-			},
-		}
-	}
-	g.mu.Unlock()
+	// g.mu.Lock()
+	// if _, ok := g.keyStats[key]; !ok {
+	// 	g.keyStats[key] = &KeyStats{
+	// 		hcStats: g.hcStats,
+	// 		dAvg: &dampedAvg{
+	// 			period: time.Second,
+	// 		},
+	// 	}
+	// }
+	// g.mu.Unlock()
 
 	// Increment the damped average for the key to make it "hotter"
-	g.keyStats[key].dAvg.IncrementHeat(time.Now(), 1)
-
-	// g.updateHotCacheStats()
+	// g.keyStats[key].dAvg.IncrementHeat(time.Now(), 1)
 
 	// TODO(@odeke-em): Remove .Stats
 	g.Stats.Gets.Add(1)
@@ -424,11 +422,11 @@ func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string
 		return nil, err
 	}
 	value := data
-	// if _, ok := g.keyStats[key]; !ok {
-	// 	g.keyStats[key] = &KeyStats{
-	// 		hcStats: g.hcStats,
-	// 	}
-	// }
+	if _, ok := g.keyStats[key]; !ok {
+		g.keyStats[key] = &KeyStats{
+			hcStats: g.hcStats,
+		}
+	}
 	if g.promoter.ShouldPromote(key, value, *g.keyStats[key]) {
 		g.populateCache(key, value, &g.hotCache)
 	}
@@ -444,6 +442,9 @@ func (g *Galaxy) lookupCache(key string) (value []byte, ok bool) {
 		return
 	}
 	value, ok = g.hotCache.get(key)
+	if ok {
+		// g.hotCache.get(key) -> increment heat on keyStats within hotcache entry
+	}
 	return
 }
 
