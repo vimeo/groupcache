@@ -35,13 +35,13 @@ import (
 // Promoter is the interface for determining whether a key/value pair should be
 // added to the hot cache
 type Promoter interface {
-	ShouldPromote(key string, data []byte, stats KeyStats) bool
+	ShouldPromote(key string, data []byte, stats Stats) bool
 }
 
 type defaultPromoter struct{}
 
-func (p *defaultPromoter) ShouldPromote(key string, data []byte, stats KeyStats) bool {
-	// TODO(willg): make this smart, use KeyStats
+func (p *defaultPromoter) ShouldPromote(key string, data []byte, stats Stats) bool {
+	// TODO(willg): make this smart, use Stats
 	if rand.Intn(10) == 0 {
 		return true
 	}
@@ -53,7 +53,6 @@ type KeyStats struct {
 	keyQPS       float64
 	remoteKeyQPS float64
 	dAvg         *dampedAvg
-	hcStats      *HCStats
 }
 
 // HCStats keeps track of the size, capacity, and coldest/hottest
@@ -63,6 +62,13 @@ type HCStats struct {
 	ColdestHotQPS float64
 	HCSize        int64
 	HCCapacity    int64
+}
+
+// Stats contains both the KeyStats and a pointer to the galaxy-wide
+// HCStats
+type Stats struct {
+	kStats  KeyStats
+	hcStats *HCStats
 }
 
 // Avg is for calculating a running average.

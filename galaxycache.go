@@ -186,7 +186,7 @@ type Galaxy struct {
 	_ int32 // force Stats to be 8-byte aligned on 32-bit platforms
 
 	// Stats are statistics on the galaxy.
-	Stats Stats
+	Stats GalaxyStats
 }
 
 // GalaxyOption is an interface for implementing functional galaxy options
@@ -232,7 +232,7 @@ type flightGroup interface {
 }
 
 // Stats are per-galaxy statistics.
-type Stats struct {
+type GalaxyStats struct {
 	Gets           AtomicInt // any Get request, including from peers
 	CacheHits      AtomicInt // either cache was good
 	PeerLoads      AtomicInt // either remote load or remote cache hit (not an error)
@@ -252,6 +252,7 @@ func (g *Galaxy) Name() string {
 func (g *Galaxy) updateHotCacheStats() {
 	hottestKey := g.hotCache.lru.HottestQPS().(string)
 	coldestKey := g.hotCache.lru.ColdestQPS().(string)
+	// TODO(willg): add check for empty string keys (no elements in cache)
 	newHCS := &HCStats{
 		HottestHotQPS: g.keyStats[hottestKey].dAvg.Val(time.Now()),
 		ColdestHotQPS: g.keyStats[coldestKey].dAvg.Val(time.Now()),
@@ -423,11 +424,13 @@ func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string
 	}
 	value := data
 	if _, ok := g.keyStats[key]; !ok {
-		g.keyStats[key] = &KeyStats{
-			hcStats: g.hcStats,
-		}
+		g.keyStats[key] = &KeyStats{}
 	}
-	if g.promoter.ShouldPromote(key, value, *g.keyStats[key]) {
+	stats := Stats{
+		kStats:  *g.keyStats[key], // TODO(willg): is dereferencing (immutable pass) good for promotion logic?
+		hcStats: g.hcStats,
+	}
+	if g.promoter.ShouldPromote(key, value, stats) {
 		g.populateCache(key, value, &g.hotCache)
 	}
 	return value, nil
