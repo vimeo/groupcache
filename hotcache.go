@@ -26,10 +26,9 @@ limitations under the License.
 package galaxycache
 
 import (
-	"math"
 	"math/rand"
-	"sync"
-	"time"
+
+	"github.com/vimeo/galaxycache/lru"
 )
 
 // Promoter is the interface for determining whether a key/value pair should be
@@ -48,13 +47,6 @@ func (p *defaultPromoter) ShouldPromote(key string, data []byte, stats Stats) bo
 	return false
 }
 
-// KeyStats keeps track of the hotness of a key
-type KeyStats struct {
-	keyQPS       float64
-	remoteKeyQPS float64
-	dAvg         *dampedAvg
-}
-
 // HCStats keeps track of the size, capacity, and coldest/hottest
 // elements in the hot cache
 type HCStats struct {
@@ -67,76 +59,6 @@ type HCStats struct {
 // Stats contains both the KeyStats and a pointer to the galaxy-wide
 // HCStats
 type Stats struct {
-	kStats  KeyStats
+	kStats  *lru.KeyStats
 	hcStats *HCStats
-}
-
-// Avg is for calculating a running average.
-//
-// Avg is not intended for concurrent use through its methods.
-// Avg must be used with external synchronization.
-type avg struct {
-	sum float64
-	ct  float64
-}
-
-func (a *avg) add(v float64) {
-	a.sum += v
-	a.ct++
-}
-
-func (a *avg) val() float64 {
-	return a.sum / a.ct
-}
-
-// DampedAvg is an average that recombines the current state with the previous.
-type dampedAvg struct {
-	sync.Mutex
-	period time.Duration
-	t      time.Time
-	prev   float64
-	cur    avg
-}
-
-// must be between 0 and 1, the fraction of the new value that comes from
-// current rather than previous.
-// if `samples` is the number of samples into the damped weighted average you
-// want to maximize the fraction of the contribution after; x is the damping
-// constant complement (this way we don't have to multiply out (1-x) ^ samples)
-// f(x) = (1 - x) * x ^ samples = x ^samples - x ^(samples + 1)
-// f'(x) = samples * x ^ (samples - 1) - (samples + 1) * x ^ samples
-// this yields a critical point at x = (samples - 1) / samples
-const dampingConstant = (1.0 / 30.0) // 5 minutes (30 samples at a 10s interval)
-const dampingConstantComplement = 1.0 - dampingConstant
-
-func (a *dampedAvg) IncrementHeat(now time.Time, v float64) {
-	a.Lock()
-	defer a.Unlock()
-	if a.t.IsZero() {
-		// Use the first value we get as the seed for prev.
-		a.prev = v
-		a.t = now
-		return
-	}
-	a.maybeFlush(now)
-
-	a.cur.add(v)
-}
-
-func (a *dampedAvg) maybeFlush(now time.Time) {
-	if now.Sub(a.t) >= a.period && a.cur.ct > 0 {
-		a.t = now
-		prev, cur := a.prev, a.cur.val()
-		exponent := math.Floor(float64(now.Sub(a.t))/float64(a.period)) - 1
-		a.prev = ((dampingConstant * cur) + (dampingConstantComplement * prev)) * math.Pow(dampingConstantComplement, exponent)
-		a.cur = avg{}
-	}
-}
-
-func (a *dampedAvg) Val(now time.Time) float64 {
-	a.Lock()
-	a.maybeFlush(now)
-	prev := a.prev
-	a.Unlock()
-	return prev
 }

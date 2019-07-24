@@ -111,7 +111,6 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 		peerPicker: universe.peerPicker,
 		cacheBytes: cacheBytes,
 		hcStats:    &HCStats{},
-		keyStats:   make(map[string]*KeyStats),
 		promoter:   &defaultPromoter{},
 		hcRatio:    8, // default cacheBytes / 8 hotcache size
 		loadGroup:  &singleflight.Group{},
@@ -171,10 +170,6 @@ type Galaxy struct {
 	hotCache cache
 
 	hcStats *HCStats
-
-	// keyStats is a map of keys to a stats struct which keeps track
-	// of the hotness of a certain key locally and remote (when applicable)
-	keyStats map[string]*KeyStats
 
 	promoter Promoter
 
@@ -250,15 +245,16 @@ func (g *Galaxy) Name() string {
 }
 
 func (g *Galaxy) updateHotCacheStats() {
-	hottestKey := g.hotCache.lru.HottestQPS().(string)
-	coldestKey := g.hotCache.lru.ColdestQPS().(string)
+	hottestQPS := g.hotCache.lru.HottestQPS(time.Now())
+	coldestQPS := g.hotCache.lru.ColdestQPS(time.Now())
 	// TODO(willg): add check for empty string keys (no elements in cache)
 	newHCS := &HCStats{
-		HottestHotQPS: g.keyStats[hottestKey].dAvg.Val(time.Now()),
-		ColdestHotQPS: g.keyStats[coldestKey].dAvg.Val(time.Now()),
+		HottestHotQPS: hottestQPS,
+		ColdestHotQPS: coldestQPS,
 		HCSize:        (g.cacheBytes / g.hcRatio) - g.hotCache.bytes(),
 		HCCapacity:    g.cacheBytes / g.hcRatio,
 	}
+
 	g.hcStats = newHCS
 }
 
@@ -280,20 +276,6 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 		stats.Record(ctx, MRoundtripLatencyMilliseconds.M(sinceInMilliseconds(startTime)))
 		span.End()
 	}()
-
-	// g.mu.Lock()
-	// if _, ok := g.keyStats[key]; !ok {
-	// 	g.keyStats[key] = &KeyStats{
-	// 		hcStats: g.hcStats,
-	// 		dAvg: &dampedAvg{
-	// 			period: time.Second,
-	// 		},
-	// 	}
-	// }
-	// g.mu.Unlock()
-
-	// Increment the damped average for the key to make it "hotter"
-	// g.keyStats[key].dAvg.IncrementHeat(time.Now(), 1)
 
 	// TODO(@odeke-em): Remove .Stats
 	g.Stats.Gets.Add(1)
@@ -423,11 +405,15 @@ func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string
 		return nil, err
 	}
 	value := data
-	if _, ok := g.keyStats[key]; !ok {
-		g.keyStats[key] = &KeyStats{}
+	kStats, ok := g.hotCache.getKeyStats(key)
+	g.updateHotCacheStats()
+	if !ok {
+		g.populateCache(key, nil, &g.hotCache)
+		kStats, _ = g.hotCache.getKeyStats(key) // gets the new stats and increments heat
 	}
+
 	stats := Stats{
-		kStats:  *g.keyStats[key], // TODO(willg): is dereferencing (immutable pass) good for promotion logic?
+		kStats:  kStats,
 		hcStats: g.hcStats,
 	}
 	if g.promoter.ShouldPromote(key, value, stats) {
@@ -445,8 +431,8 @@ func (g *Galaxy) lookupCache(key string) (value []byte, ok bool) {
 		return
 	}
 	value, ok = g.hotCache.get(key)
-	if ok {
-		// g.hotCache.get(key) -> increment heat on keyStats within hotcache entry
+	if value == nil { // might just be a candidate, not holding data yet
+		return nil, false
 	}
 	return
 }
@@ -502,9 +488,8 @@ func (g *Galaxy) CacheStats(which CacheType) CacheStats {
 	}
 }
 
-// cache is a wrapper around an *lru.Cache that adds synchronization,
-// makes values always be ByteView, and counts the size of all keys and
-// values.
+// cache is a wrapper around an *lru.Cache that adds synchronization
+// and counts the size of all keys and values.
 type cache struct {
 	mu         sync.RWMutex
 	nbytes     int64 // of all keys and values
@@ -554,6 +539,21 @@ func (c *cache) get(key string) (value []byte, ok bool) {
 	}
 	c.nhit++
 	return vi.([]byte), true
+}
+
+func (c *cache) getKeyStats(key string) (kStats *lru.KeyStats, ok bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.nget++
+	if c.lru == nil {
+		return
+	}
+	kStats, ok = c.lru.GetKeyStats(key)
+	if !ok {
+		return
+	}
+	c.nhit++
+	return
 }
 
 func (c *cache) removeOldest() {

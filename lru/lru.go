@@ -17,7 +17,12 @@ limitations under the License.
 // Package lru implements an LRU cache.
 package lru // import "github.com/vimeo/galaxycache/lru"
 
-import "container/list"
+import (
+	"container/list"
+	"math"
+	"sync"
+	"time"
+)
 
 // Cache is an LRU cache. It is not safe for concurrent access.
 type Cache struct {
@@ -36,9 +41,87 @@ type Cache struct {
 // A Key may be any value that is comparable. See http://golang.org/ref/spec#Comparison_operators
 type Key interface{}
 
+// KeyStats keeps track of the hotness of a key
+type KeyStats struct {
+	keyQPS       float64
+	remoteKeyQPS float64
+	dAvg         *dampedAvg
+}
+
+// Avg is for calculating a running average.
+//
+// Avg is not intended for concurrent use through its methods.
+// Avg must be used with external synchronization.
+type avg struct {
+	sum float64
+	ct  float64
+}
+
+func (a *avg) add(v float64) {
+	a.sum += v
+	a.ct++
+}
+
+func (a *avg) val() float64 {
+	return a.sum / a.ct
+}
+
+// DampedAvg is an average that recombines the current state with the previous.
+type dampedAvg struct {
+	sync.Mutex
+	period time.Duration
+	t      time.Time
+	prev   float64
+	cur    avg
+}
+
+// must be between 0 and 1, the fraction of the new value that comes from
+// current rather than previous.
+// if `samples` is the number of samples into the damped weighted average you
+// want to maximize the fraction of the contribution after; x is the damping
+// constant complement (this way we don't have to multiply out (1-x) ^ samples)
+// f(x) = (1 - x) * x ^ samples = x ^samples - x ^(samples + 1)
+// f'(x) = samples * x ^ (samples - 1) - (samples + 1) * x ^ samples
+// this yields a critical point at x = (samples - 1) / samples
+const dampingConstant = (1.0 / 30.0) // 5 minutes (30 samples at a 10s interval)
+const dampingConstantComplement = 1.0 - dampingConstant
+
+func (a *dampedAvg) IncrementHeat(now time.Time, v float64) {
+	a.Lock()
+	defer a.Unlock()
+	if a.t.IsZero() {
+		// Use the first value we get as the seed for prev.
+		a.prev = v
+		a.t = now
+		return
+	}
+	a.maybeFlush(now)
+
+	a.cur.add(v)
+}
+
+func (a *dampedAvg) maybeFlush(now time.Time) {
+	if now.Sub(a.t) >= a.period && a.cur.ct > 0 {
+		a.t = now
+		prev, cur := a.prev, a.cur.val()
+		exponent := math.Floor(float64(now.Sub(a.t))/float64(a.period)) - 1
+		a.prev = ((dampingConstant * cur) + (dampingConstantComplement * prev)) * math.Pow(dampingConstantComplement, exponent)
+		a.cur = avg{}
+	}
+}
+
+func (a *dampedAvg) Val(now time.Time) float64 {
+	a.Lock()
+	a.maybeFlush(now)
+	prev := a.prev
+	a.Unlock()
+	return prev
+}
+
 type entry struct {
-	key   Key
-	value interface{}
+	key    Key
+	kStats *KeyStats
+	value  interface{}
 }
 
 // New creates a new Cache.
@@ -63,41 +146,66 @@ func (c *Cache) Add(key Key, value interface{}) {
 		ele.Value.(*entry).value = value
 		return
 	}
-	ele := c.ll.PushFront(&entry{key, value})
+	kStats := &KeyStats{
+		dAvg: &dampedAvg{
+			period: time.Second,
+		},
+	}
+	// kStats.dAvg.IncrementHeat(time.Now(), 1)
+	ele := c.ll.PushFront(&entry{key, kStats, value})
 	c.cache[key] = ele
 	if c.MaxEntries != 0 && c.ll.Len() > c.MaxEntries {
 		c.RemoveOldest()
 	}
 }
 
-// Get looks up a key's value from the cache.
+// func (c *Cache) InitKeyStats(key string) {
+// 	if ele, hit := c.cache[key]; hit {
+// 		ele.Value.(*entry).kStats = &KeyStats{}
+// 	}
+// }
+
+// Get looks up a key's value from the cache and increments its heat.
 func (c *Cache) Get(key Key) (value interface{}, ok bool) {
 	if c.cache == nil {
 		return
 	}
 	if ele, hit := c.cache[key]; hit {
 		c.ll.MoveToFront(ele)
+		ele.Value.(*entry).kStats.dAvg.IncrementHeat(time.Now(), 1)
 		return ele.Value.(*entry).value, true
 	}
 	return
 }
 
+func (c *Cache) GetKeyStats(key Key) (kStats *KeyStats, ok bool) {
+	if c.cache == nil {
+		return
+	}
+	if ele, hit := c.cache[key]; hit {
+		c.ll.MoveToFront(ele)
+		ele.Value.(*entry).kStats.dAvg.IncrementHeat(time.Now(), 1)
+		return ele.Value.(*entry).kStats, true
+	}
+	return
+}
+
 // HottestQPS returns the most recently used key
-func (c *Cache) HottestQPS() Key {
-	if c.ll.Front() == nil {
-		return ""
+func (c *Cache) HottestQPS(now time.Time) float64 {
+	if c == nil {
+		return 0
 	}
 	value := c.ll.Front().Value
-	return value.(*entry).key
+	return value.(*entry).kStats.dAvg.Val(now)
 }
 
 // ColdestQPS returns the least recently used key
-func (c *Cache) ColdestQPS() Key {
-	if c.ll.Back() == nil {
-		return ""
+func (c *Cache) ColdestQPS(now time.Time) float64 {
+	if c == nil {
+		return 0
 	}
 	value := c.ll.Back().Value
-	return value.(*entry).key
+	return value.(*entry).kStats.dAvg.Val(now)
 }
 
 // Remove removes the provided key from the cache.
