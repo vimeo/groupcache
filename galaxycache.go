@@ -113,7 +113,7 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 		hcStats:    &HCStats{},
 		keyStats:   make(map[string]*KeyStats),
 		promoter:   &defaultPromoter{},
-		hcRatio:    8,
+		hcRatio:    8, // default cacheBytes / 8 hotcache size
 		loadGroup:  &singleflight.Group{},
 	}
 	for _, opt := range opts {
@@ -150,6 +150,7 @@ type Galaxy struct {
 	name       string
 	getter     BackendGetter
 	peerPicker *PeerPicker
+	mu         sync.RWMutex
 	cacheBytes int64 // limit for sum of mainCache and hotCache size
 	hcRatio    int64
 
@@ -248,6 +249,18 @@ func (g *Galaxy) Name() string {
 	return g.name
 }
 
+func (g *Galaxy) updateHotCacheStats() {
+	hottestKey := g.hotCache.lru.HottestQPS().(string)
+	coldestKey := g.hotCache.lru.ColdestQPS().(string)
+	newHCS := &HCStats{
+		HottestHotQPS: g.keyStats[hottestKey].dAvg.Val(time.Now()),
+		ColdestHotQPS: g.keyStats[coldestKey].dAvg.Val(time.Now()),
+		HCSize:        (g.cacheBytes / g.hcRatio) - g.hotCache.bytes(),
+		HCCapacity:    g.cacheBytes / g.hcRatio,
+	}
+	g.hcStats = newHCS
+}
+
 // Get as defined here is the primary "get" called on a galaxy to
 // find the value for the given key, using the following logic:
 // - First, try the local cache; if its a cache hit, we're done
@@ -266,6 +279,22 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 		stats.Record(ctx, MRoundtripLatencyMilliseconds.M(sinceInMilliseconds(startTime)))
 		span.End()
 	}()
+
+	g.mu.Lock()
+	if _, ok := g.keyStats[key]; !ok {
+		g.keyStats[key] = &KeyStats{
+			hcStats: g.hcStats,
+			dAvg: &dampedAvg{
+				period: time.Second,
+			},
+		}
+	}
+	g.mu.Unlock()
+
+	// Increment the damped average for the key to make it "hotter"
+	g.keyStats[key].dAvg.IncrementHeat(time.Now(), 1)
+
+	// g.updateHotCacheStats()
 
 	// TODO(@odeke-em): Remove .Stats
 	g.Stats.Gets.Add(1)
@@ -395,11 +424,11 @@ func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string
 		return nil, err
 	}
 	value := data
-	if _, ok := g.keyStats[key]; !ok {
-		g.keyStats[key] = &KeyStats{
-			hcStats: g.hcStats,
-		}
-	}
+	// if _, ok := g.keyStats[key]; !ok {
+	// 	g.keyStats[key] = &KeyStats{
+	// 		hcStats: g.hcStats,
+	// 	}
+	// }
 	if g.promoter.ShouldPromote(key, value, *g.keyStats[key]) {
 		g.populateCache(key, value, &g.hotCache)
 	}
