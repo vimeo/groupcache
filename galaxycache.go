@@ -247,7 +247,7 @@ func (g *Galaxy) Name() string {
 func (g *Galaxy) updateHotCacheStats() {
 	hottestQPS := g.hotCache.lru.HottestQPS(time.Now())
 	coldestQPS := g.hotCache.lru.ColdestQPS(time.Now())
-	// TODO(willg): add check for empty string keys (no elements in cache)
+	// fmt.Printf("hottestQPS: %f, coldestQPS: %f\n", hottestQPS, coldestQPS)
 	newHCS := &HCStats{
 		HottestHotQPS: hottestQPS,
 		ColdestHotQPS: coldestQPS,
@@ -416,7 +416,7 @@ func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string
 		kStats:  kStats,
 		hcStats: g.hcStats,
 	}
-	if g.promoter.ShouldPromote(key, value, stats) {
+	if g.promoter.ShouldPromote(key, value, &stats) {
 		g.populateCache(key, value, &g.hotCache)
 	}
 	return value, nil
@@ -533,7 +533,7 @@ func (c *cache) get(key string) (value []byte, ok bool) {
 	if c.lru == nil {
 		return
 	}
-	vi, ok := c.lru.Get(key)
+	vi, ok := c.lru.Get(key, time.Now())
 	if !ok {
 		return
 	}
@@ -548,7 +548,7 @@ func (c *cache) getKeyStats(key string) (kStats *lru.KeyStats, ok bool) {
 	if c.lru == nil {
 		return
 	}
-	kStats, ok = c.lru.GetKeyStats(key)
+	kStats, ok = c.lru.GetKeyStats(key, time.Now())
 	if !ok {
 		return
 	}

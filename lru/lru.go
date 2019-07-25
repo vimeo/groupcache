@@ -45,7 +45,7 @@ type Key interface{}
 type KeyStats struct {
 	keyQPS       float64
 	remoteKeyQPS float64
-	dAvg         *dampedAvg
+	dQPS         *dampedQPS
 }
 
 // Avg is for calculating a running average.
@@ -63,16 +63,16 @@ func (a *avg) add(v float64) {
 }
 
 func (a *avg) val() float64 {
-	return a.sum / a.ct
+	return a.sum
 }
 
-// DampedAvg is an average that recombines the current state with the previous.
-type dampedAvg struct {
+// dampedQPS is an average that recombines the current state with the previous.
+type dampedQPS struct {
 	sync.Mutex
 	period time.Duration
 	t      time.Time
 	prev   float64
-	cur    avg
+	ct     float64
 }
 
 // must be between 0 and 1, the fraction of the new value that comes from
@@ -86,31 +86,32 @@ type dampedAvg struct {
 const dampingConstant = (1.0 / 30.0) // 5 minutes (30 samples at a 10s interval)
 const dampingConstantComplement = 1.0 - dampingConstant
 
-func (a *dampedAvg) IncrementHeat(now time.Time, v float64) {
+func (a *dampedQPS) IncrementHeat(now time.Time) {
 	a.Lock()
 	defer a.Unlock()
 	if a.t.IsZero() {
 		// Use the first value we get as the seed for prev.
-		a.prev = v
+		a.prev = 1
+		a.ct++
 		a.t = now
 		return
 	}
 	a.maybeFlush(now)
-
-	a.cur.add(v)
+	a.ct++
 }
 
-func (a *dampedAvg) maybeFlush(now time.Time) {
-	if now.Sub(a.t) >= a.period && a.cur.ct > 0 {
-		a.t = now
-		prev, cur := a.prev, a.cur.val()
+func (a *dampedQPS) maybeFlush(now time.Time) {
+	if now.Sub(a.t) >= a.period {
+		prev, cur := a.prev, a.ct
 		exponent := math.Floor(float64(now.Sub(a.t))/float64(a.period)) - 1
 		a.prev = ((dampingConstant * cur) + (dampingConstantComplement * prev)) * math.Pow(dampingConstantComplement, exponent)
-		a.cur = avg{}
+		a.ct = 0
+		a.t = now
 	}
+
 }
 
-func (a *dampedAvg) Val(now time.Time) float64 {
+func (a *dampedQPS) Val(now time.Time) float64 {
 	a.Lock()
 	a.maybeFlush(now)
 	prev := a.prev
@@ -147,11 +148,10 @@ func (c *Cache) Add(key Key, value interface{}) {
 		return
 	}
 	kStats := &KeyStats{
-		dAvg: &dampedAvg{
+		dQPS: &dampedQPS{
 			period: time.Second,
 		},
 	}
-	// kStats.dAvg.IncrementHeat(time.Now(), 1)
 	ele := c.ll.PushFront(&entry{key, kStats, value})
 	c.cache[key] = ele
 	if c.MaxEntries != 0 && c.ll.Len() > c.MaxEntries {
@@ -166,25 +166,26 @@ func (c *Cache) Add(key Key, value interface{}) {
 // }
 
 // Get looks up a key's value from the cache and increments its heat.
-func (c *Cache) Get(key Key) (value interface{}, ok bool) {
+func (c *Cache) Get(key Key, now time.Time) (value interface{}, ok bool) {
 	if c.cache == nil {
 		return
 	}
 	if ele, hit := c.cache[key]; hit {
 		c.ll.MoveToFront(ele)
-		ele.Value.(*entry).kStats.dAvg.IncrementHeat(time.Now(), 1)
+		ele.Value.(*entry).kStats.dQPS.IncrementHeat(now)
 		return ele.Value.(*entry).value, true
 	}
 	return
 }
 
-func (c *Cache) GetKeyStats(key Key) (kStats *KeyStats, ok bool) {
+func (c *Cache) GetKeyStats(key Key, now time.Time) (kStats *KeyStats, ok bool) {
 	if c.cache == nil {
 		return
 	}
 	if ele, hit := c.cache[key]; hit {
 		c.ll.MoveToFront(ele)
-		ele.Value.(*entry).kStats.dAvg.IncrementHeat(time.Now(), 1)
+		// fmt.Printf("Increment heat for %q\n", key)
+		ele.Value.(*entry).kStats.dQPS.IncrementHeat(now)
 		return ele.Value.(*entry).kStats, true
 	}
 	return
@@ -196,7 +197,7 @@ func (c *Cache) HottestQPS(now time.Time) float64 {
 		return 0
 	}
 	value := c.ll.Front().Value
-	return value.(*entry).kStats.dAvg.Val(now)
+	return value.(*entry).kStats.dQPS.Val(now)
 }
 
 // ColdestQPS returns the least recently used key
@@ -205,7 +206,7 @@ func (c *Cache) ColdestQPS(now time.Time) float64 {
 		return 0
 	}
 	value := c.ll.Back().Value
-	return value.(*entry).kStats.dAvg.Val(now)
+	return value.(*entry).kStats.dQPS.Val(now)
 }
 
 // Remove removes the provided key from the cache.
