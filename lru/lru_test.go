@@ -106,10 +106,16 @@ func TestHotcache(t *testing.T) {
 		secsToVal             time.Duration
 		keyToAdd              interface{}
 	}{
-		{"heat_burst_1_sec", 10000, 5, 1, 15, simpleStruct{1, "hi"}},
-		{"heat_burst_2_secs", 10000, 5, 2, 15, simpleStruct{1, "hi"}},
-		{"heat_burst_5_secs", 10000, 5, 5, 15, simpleStruct{1, "hi"}},
-		{"heat_burst_30_secs", 10000, 5, 30, 15, simpleStruct{1, "hi"}},
+		{"10k_heat_burst_1_sec", 10000, 5, 1, 15, simpleStruct{1, "hi"}},
+		{"10k_heat_burst_2_secs", 10000, 5, 2, 15, simpleStruct{1, "hi"}},
+		{"10k_heat_burst_5_secs", 10000, 5, 5, 15, simpleStruct{1, "hi"}},
+		{"10k_heat_burst_30_secs", 10000, 5, 30, 15, simpleStruct{1, "hi"}},
+		{"10k_heat_burst_45_secs", 10000, 10, 45, 15, simpleStruct{1, "hi"}},
+		{"1k_heat_burst_1_secs", 1000, 5, 1, 15, simpleStruct{1, "hi"}},
+		{"1k_heat_burst_2_secs", 1000, 5, 2, 15, simpleStruct{1, "hi"}},
+		{"1k_heat_burst_5_secs", 1000, 5, 5, 15, simpleStruct{1, "hi"}},
+		{"1k_heat_burst_30_secs", 1000, 5, 30, 15, simpleStruct{1, "hi"}},
+		{"1k_heat_burst_45_secs", 1000, 10, 45, 15, simpleStruct{1, "hi"}},
 	}
 
 	for _, tc := range hcTests {
@@ -119,19 +125,19 @@ func TestHotcache(t *testing.T) {
 			now := time.Now()
 			for k := 0; k < tc.numHeatBursts; k++ {
 				for k := 0; k < tc.numGets; k++ {
-					lru.cache[tc.keyToAdd].Value.(*entry).kStats.dAvg.IncrementHeat(now)
+					lru.cache[tc.keyToAdd].Value.(*entry).kStats.dQPS.IncrementHeat(now)
 					now = now.Add(time.Nanosecond)
 				}
-				t.Logf("QPS on %d gets in 1 second on burst #%d: %f\n", tc.numGets, k+1, lru.cache[tc.keyToAdd].Value.(*entry).kStats.dAvg.prev)
+				t.Logf("QPS on %d gets in 1 second on burst #%d: %f\n", tc.numGets, k+1, lru.cache[tc.keyToAdd].Value.(*entry).kStats.dQPS.prev)
 				now = now.Add(time.Second * tc.secsBetweenHeatBursts)
 			}
-			val := lru.cache[tc.keyToAdd].Value.(*entry).kStats.dAvg.Val(now)
+			val := lru.cache[tc.keyToAdd].Value.(*entry).kStats.dQPS.Val(now)
 			t.Logf("QPS after all bursts: %f\n", val)
 			now = now.Add(time.Second * 5)
-			lru.cache[tc.keyToAdd].Value.(*entry).kStats.dAvg.IncrementHeat(now)
-			t.Logf("QPS on 1 additional get after %d seconds: %f\n", 5, lru.cache[tc.keyToAdd].Value.(*entry).kStats.dAvg.prev)
+			lru.cache[tc.keyToAdd].Value.(*entry).kStats.dQPS.IncrementHeat(now)
+			t.Logf("QPS on 1 additional get after %d seconds: %f\n", 5, lru.cache[tc.keyToAdd].Value.(*entry).kStats.dQPS.prev)
 			now = now.Add(time.Second * tc.secsToVal)
-			val = lru.cache[tc.keyToAdd].Value.(*entry).kStats.dAvg.Val(now)
+			val = lru.cache[tc.keyToAdd].Value.(*entry).kStats.dQPS.Val(now)
 			t.Logf("QPS on Val() get after %d seconds: %f\n", tc.secsToVal, val)
 		})
 	}

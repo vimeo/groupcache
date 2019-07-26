@@ -43,27 +43,8 @@ type Key interface{}
 
 // KeyStats keeps track of the hotness of a key
 type KeyStats struct {
-	keyQPS       float64
-	remoteKeyQPS float64
-	dQPS         *dampedQPS
-}
-
-// Avg is for calculating a running average.
-//
-// Avg is not intended for concurrent use through its methods.
-// Avg must be used with external synchronization.
-type avg struct {
-	sum float64
-	ct  float64
-}
-
-func (a *avg) add(v float64) {
-	a.sum += v
-	a.ct++
-}
-
-func (a *avg) val() float64 {
-	return a.sum
+	remoteDQPS float64
+	dQPS       *dampedQPS
 }
 
 // dampedQPS is an average that recombines the current state with the previous.
@@ -90,8 +71,6 @@ func (a *dampedQPS) IncrementHeat(now time.Time) {
 	a.Lock()
 	defer a.Unlock()
 	if a.t.IsZero() {
-		// Use the first value we get as the seed for prev.
-		a.prev = 1
 		a.ct++
 		a.t = now
 		return
@@ -108,7 +87,6 @@ func (a *dampedQPS) maybeFlush(now time.Time) {
 		a.ct = 0
 		a.t = now
 	}
-
 }
 
 func (a *dampedQPS) Val(now time.Time) float64 {
