@@ -247,7 +247,7 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 	destPopulated := false
 	value, destPopulated, err := g.load(ctx, key, dest)
 	if err != nil {
-		span.SetStatus(trace.Status{Code: trace.StatusCodeUnknown, Message: "Failed to load key"})
+		span.SetStatus(trace.Status{Code: trace.StatusCodeUnknown, Message: "Failed to load key: " + err.Error()})
 		stats.Record(ctx, MLoadErrors.M(1))
 		return err
 	}
