@@ -66,7 +66,8 @@ func (gp *GRPCFetchProtocol) NewFetcher(address string) (gc.RemoteFetcher, error
 func (g *grpcFetcher) Fetch(ctx context.Context, galaxy string, key string) ([]byte, error) {
 	resp, err := g.client.GetFromPeer(ctx, &pb.GetRequest{
 		Galaxy: galaxy,
-		Key:    key})
+		Key:    key,
+	})
 	if err != nil {
 		return nil, status.Errorf(status.Code(err), "Failed to fetch from peer over RPC [%q, %q]: %s", galaxy, g.address, err)
 	}
