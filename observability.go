@@ -40,6 +40,7 @@ var (
 var (
 	MGets            = stats.Int64("gets", "The number of Get requests", unitDimensionless)
 	MCacheHits       = stats.Int64("cache_hits", "The number of times that either cache was good", unitDimensionless)
+	MHotcacheHits    = stats.Int64("hotcache_hits", "The number of times that the hotcache cache was good", unitDimensionless)
 	MCacheMisses     = stats.Int64("cache_misses", "The number of times that either cache was not good", unitDimensionless)
 	MPeerLoads       = stats.Int64("peer_loads", "The number of remote loads or remote cache hits", unitDimensionless)
 	MPeerErrors      = stats.Int64("peer_errors", "The number of remote errors", unitDimensionless)
