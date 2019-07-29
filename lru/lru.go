@@ -166,7 +166,6 @@ func (c *Cache) GetKeyStats(key Key, now time.Time) (kStats *KeyStats, ok bool) 
 	}
 	if ele, hit := c.cache[key]; hit {
 		c.ll.MoveToFront(ele)
-		// fmt.Printf("Increment heat for %q\n", key)
 		ele.Value.(*entry).kStats.dQPS.incrementHeat(now)
 		return ele.Value.(*entry).kStats, true
 	}
