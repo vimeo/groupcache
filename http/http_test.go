@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package galaxycache
+package http
 
 import (
 	"context"
@@ -25,6 +25,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	gc "github.com/vimeo/galaxycache"
 
 	"go.opencensus.io/plugin/ochttp"
 	"go.opencensus.io/stats/view"
@@ -47,12 +49,15 @@ func TestHTTPHandler(t *testing.T) {
 	var peerListeners []net.Listener
 
 	for i := 0; i < nRoutines; i++ {
-		newListener := pickFreeAddr(t)
+		newListener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
 		peerAddresses = append(peerAddresses, newListener.Addr().String())
 		peerListeners = append(peerListeners, newListener)
 	}
 
-	universe := NewUniverse(NewHTTPFetchProtocol(nil), "shouldBeIgnored")
+	universe := gc.NewUniverse(NewHTTPFetchProtocol(nil), "shouldBeIgnored")
 	serveMux := http.NewServeMux()
 	RegisterHTTPHandler(universe, nil, serveMux)
 	err := universe.Set(addrToURL(peerAddresses)...)
@@ -60,7 +65,7 @@ func TestHTTPHandler(t *testing.T) {
 		t.Errorf("Error setting peers: %s", err)
 	}
 
-	getter := GetterFunc(func(ctx context.Context, key string, dest Codec) error {
+	getter := gc.GetterFunc(func(ctx context.Context, key string, dest gc.Codec) error {
 		return fmt.Errorf("oh no! Local get occurred")
 	})
 	g := universe.NewGalaxy("peerFetchTest", 1<<20, getter)
@@ -73,7 +78,7 @@ func TestHTTPHandler(t *testing.T) {
 	}
 
 	for _, key := range testKeys(nGets) {
-		var value StringCodec
+		var value gc.StringCodec
 		if err := g.Get(ctx, key, &value); err != nil {
 			t.Fatal(err)
 		}
@@ -86,7 +91,7 @@ func TestHTTPHandler(t *testing.T) {
 }
 
 func makeHTTPServerUniverse(ctx context.Context, t testing.TB, addresses []string, listener net.Listener) {
-	universe := NewUniverse(NewHTTPFetchProtocol(nil), "http://"+listener.Addr().String())
+	universe := gc.NewUniverse(NewHTTPFetchProtocol(nil), "http://"+listener.Addr().String())
 	serveMux := http.NewServeMux()
 	wrappedHandler := &ochttp.Handler{Handler: serveMux}
 	RegisterHTTPHandler(universe, nil, serveMux)
@@ -94,7 +99,7 @@ func makeHTTPServerUniverse(ctx context.Context, t testing.TB, addresses []strin
 	if err != nil {
 		t.Errorf("Error setting peers: %s", err)
 	}
-	getter := GetterFunc(func(ctx context.Context, key string, dest Codec) error {
+	getter := gc.GetterFunc(func(ctx context.Context, key string, dest gc.Codec) error {
 		dest.UnmarshalBinary([]byte(":" + key))
 		return nil
 	})
@@ -117,14 +122,6 @@ func testKeys(n int) (keys []string) {
 		keys[i] = strconv.Itoa(i)
 	}
 	return
-}
-
-func pickFreeAddr(t *testing.T) net.Listener {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return listener
 }
 
 func addrToURL(addr []string) []string {

@@ -29,6 +29,5 @@ message GetResponse {
 }
 
 service GalaxyCache {
-  rpc Get(GetRequest) returns (GetResponse) {
-  }
+  rpc GetFromPeer(GetRequest) returns (GetResponse) {}
 }
