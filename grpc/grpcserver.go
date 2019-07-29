@@ -1,6 +1,5 @@
 /*
  Copyright 2019 Vimeo Inc.
- Adapted from https://github.com/charithe/gcgrpcpool/blob/master/gcgrpcpool.go
 
  Licensed under the Apache License, Version 2.0 (the "License");
  you may not use this file except in compliance with the License.
