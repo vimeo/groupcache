@@ -71,7 +71,7 @@ type dampedQPS struct {
 const dampingConstant = (1.0 / 30.0) // 5 minutes (30 samples at a 10s interval)
 const dampingConstantComplement = 1.0 - dampingConstant
 
-func (a *dampedQPS) incrementHeat(now time.Time) {
+func (a *dampedQPS) logAccess(now time.Time) {
 	a.Lock()
 	defer a.Unlock()
 	if a.t.IsZero() {
@@ -154,7 +154,7 @@ func (c *Cache) Get(key Key, now time.Time) (value interface{}, ok bool) {
 	}
 	if ele, hit := c.cache[key]; hit {
 		c.ll.MoveToFront(ele)
-		ele.Value.(*entry).kStats.dQPS.incrementHeat(now)
+		ele.Value.(*entry).kStats.dQPS.logAccess(now)
 		return ele.Value.(*entry).value, true
 	}
 	return
@@ -166,7 +166,7 @@ func (c *Cache) GetKeyStats(key Key, now time.Time) (kStats *KeyStats, ok bool) 
 	}
 	if ele, hit := c.cache[key]; hit {
 		c.ll.MoveToFront(ele)
-		ele.Value.(*entry).kStats.dQPS.incrementHeat(now)
+		ele.Value.(*entry).kStats.dQPS.logAccess(now)
 		return ele.Value.(*entry).kStats, true
 	}
 	return
