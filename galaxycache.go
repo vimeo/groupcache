@@ -31,6 +31,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unsafe"
 
 	"github.com/vimeo/galaxycache/lru"
 	"github.com/vimeo/galaxycache/singleflight"
@@ -105,15 +106,19 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 	if _, dup := universe.galaxies[name]; dup {
 		panic("duplicate registration of galaxy " + name)
 	}
+	ccache := &cache{
+		lru: lru.New(100), // default to 100 candidate entries
+	}
 	g := &Galaxy{
-		name:       name,
-		getter:     getter,
-		peerPicker: universe.peerPicker,
-		cacheBytes: cacheBytes,
-		hcStats:    &HCStats{},
-		promoter:   &defaultPromoter{},
-		hcRatio:    8, // default cacheBytes / 8 hotcache size
-		loadGroup:  &singleflight.Group{},
+		name:           name,
+		getter:         getter,
+		peerPicker:     universe.peerPicker,
+		cacheBytes:     cacheBytes,
+		candidateCache: ccache,
+		hcStats:        &HCStats{},
+		promoter:       &defaultPromoter{},
+		hcRatio:        8, // default cacheBytes / 8 hotcache size
+		loadGroup:      &singleflight.Group{},
 	}
 	for _, opt := range opts {
 		opt.apply(g)
@@ -169,6 +174,8 @@ type Galaxy struct {
 	// of key/value pairs that can be stored globally.
 	hotCache cache
 
+	candidateCache *cache
+
 	hcStats *HCStats
 
 	promoter Promoter
@@ -218,6 +225,14 @@ func WithHotCacheRatio(r int64) GalaxyOption {
 	})
 }
 
+func WithMaxCandidates(n int) GalaxyOption {
+	return newFuncGalaxyOption(func(g *Galaxy) {
+		g.candidateCache = &cache{
+			lru: lru.New(n),
+		}
+	})
+}
+
 // flightGroup is defined as an interface which flightgroup.Group
 // satisfies.  We define this so that we may test with an alternate
 // implementation.
@@ -246,16 +261,15 @@ func (g *Galaxy) Name() string {
 }
 
 func (g *Galaxy) updateHotCacheStats() {
-	hottestQPS := g.hotCache.lru.HottestQPS(time.Now())
-	coldestQPS := g.hotCache.lru.ColdestQPS(time.Now())
-	// fmt.Printf("hottestQPS: %f, coldestQPS: %f\n", hottestQPS, coldestQPS)
+	hottest := g.hotCache.lru.HottestElement(time.Now())
+	coldest := g.hotCache.lru.ColdestElement(time.Now())
 	newHCS := &HCStats{
-		HottestHotQPS: hottestQPS,
-		ColdestHotQPS: coldestQPS,
+		HottestHotQPS: hottest.(*valueWithStats).stats.Val(),
+		ColdestHotQPS: coldest.(*valueWithStats).stats.Val(),
 		HCSize:        (g.cacheBytes / g.hcRatio) - g.hotCache.bytes(),
 		HCCapacity:    g.cacheBytes / g.hcRatio,
 	}
-
+	// fmt.Printf("hottestQPS: %f, coldestQPS: %f\n", newHCS.HottestHotQPS, newHCS.ColdestHotQPS)
 	g.hcStats = newHCS
 }
 
@@ -406,15 +420,15 @@ func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string
 		return nil, err
 	}
 	value := data
-	kStats, ok := g.hotCache.getKeyStats(key)
+	kStats, ok := g.candidateCache.getKeyStats(key)
 	if !ok {
-		g.populateCache(key, nil, &g.hotCache)
-		kStats, _ = g.hotCache.getKeyStats(key) // gets the new stats and increments heat
+		g.populateCache(key, nil, g.candidateCache)
+		kStats, _ = g.candidateCache.getKeyStats(key) // gets the new stats and increments heat
 	}
-	g.updateHotCacheStats()
+	// g.updateHotCacheStats()
 
 	stats := Stats{
-		kStats:  kStats,
+		KeyQPS:  kStats.Val(),
 		hcStats: g.hcStats,
 	}
 	if g.promoter.ShouldPromote(key, value, stats) {
@@ -432,9 +446,6 @@ func (g *Galaxy) lookupCache(key string) (value []byte, ok bool) {
 		return
 	}
 	value, ok = g.hotCache.get(key)
-	if value == nil { // might just be a candidate, not holding data yet
-		return nil, false
-	}
 	g.Stats.HotcacheHits.Add(1)
 	return
 }
@@ -512,28 +523,31 @@ func (c *cache) stats() CacheStats {
 	}
 }
 
-func (c *cache) add(key string, value []byte) {
+func (c *cache) add(key string, data []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.lru == nil {
 		c.lru = &lru.Cache{
 			OnEvicted: func(key lru.Key, value interface{}) {
-				val := value.([]byte)
-				c.nbytes -= int64(len(key.(string))) + int64(len(val))
+				val := value.(*valueWithStats)
+				c.nbytes -= int64(len(key.(string))) + int64(len(val.data)+int(unsafe.Sizeof(val.stats)))
 				c.nevict++
 			},
 		}
 	}
-	if _, ok := c.lru.Get(key, time.Now()); ok { // promoting a hotcache candidate (hacky solution for now)
-		c.lru.Add(key, value)
-		c.nbytes += int64(len(value))
-		return
+	value := &valueWithStats{
+		data: data,
+		stats: &KeyStats{
+			dQPS: &dampedQPS{
+				period: time.Second,
+			},
+		},
 	}
 	c.lru.Add(key, value)
-	c.nbytes += int64(len(key)) + int64(len(value))
+	c.nbytes += int64(len(key)) + int64(len(value.data)+int(unsafe.Sizeof(value.stats))) // TODO(willg): acceptable?
 }
 
-func (c *cache) get(key string) (value []byte, ok bool) {
+func (c *cache) get(key string) (data []byte, ok bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.nget++
@@ -545,22 +559,22 @@ func (c *cache) get(key string) (value []byte, ok bool) {
 		return
 	}
 	c.nhit++
-	return vi.([]byte), true
+	return vi.(*valueWithStats).data, true
 }
 
-func (c *cache) getKeyStats(key string) (kStats *lru.KeyStats, ok bool) {
+func (c *cache) getKeyStats(key string) (kStats *KeyStats, ok bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.nget++
 	if c.lru == nil {
 		return
 	}
-	kStats, ok = c.lru.GetKeyStats(key, time.Now())
+	vi, ok := c.lru.Get(key, time.Now())
 	if !ok {
 		return
 	}
 	c.nhit++
-	return
+	return vi.(*valueWithStats).stats, true
 }
 
 func (c *cache) removeOldest() {

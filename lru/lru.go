@@ -19,8 +19,6 @@ package lru // import "github.com/vimeo/galaxycache/lru"
 
 import (
 	"container/list"
-	"math"
-	"sync"
 	"time"
 )
 
@@ -41,74 +39,9 @@ type Cache struct {
 // A Key may be any value that is comparable. See http://golang.org/ref/spec#Comparison_operators
 type Key interface{}
 
-// KeyStats keeps track of the hotness of a key
-type KeyStats struct {
-	remoteDQPS float64
-	dQPS       *dampedQPS
-}
-
-func (k *KeyStats) Val() float64 {
-	return k.dQPS.val(time.Now())
-}
-
-func (k *KeyStats) LogAccess() {
-	k.dQPS.logAccess(time.Now())
-}
-
-// dampedQPS is an average that recombines the current state with the previous.
-type dampedQPS struct {
-	sync.Mutex
-	period time.Duration
-	t      time.Time
-	prev   float64
-	ct     float64
-}
-
-// must be between 0 and 1, the fraction of the new value that comes from
-// current rather than previous.
-// if `samples` is the number of samples into the damped weighted average you
-// want to maximize the fraction of the contribution after; x is the damping
-// constant complement (this way we don't have to multiply out (1-x) ^ samples)
-// f(x) = (1 - x) * x ^ samples = x ^samples - x ^(samples + 1)
-// f'(x) = samples * x ^ (samples - 1) - (samples + 1) * x ^ samples
-// this yields a critical point at x = (samples - 1) / samples
-const dampingConstant = (1.0 / 30.0) // 5 minutes (30 samples at a 10s interval)
-const dampingConstantComplement = 1.0 - dampingConstant
-
-func (a *dampedQPS) logAccess(now time.Time) {
-	a.Lock()
-	defer a.Unlock()
-	if a.t.IsZero() {
-		a.ct++
-		a.t = now
-		return
-	}
-	a.maybeFlush(now)
-	a.ct++
-}
-
-func (a *dampedQPS) maybeFlush(now time.Time) {
-	if now.Sub(a.t) >= a.period {
-		prev, cur := a.prev, a.ct
-		exponent := math.Floor(float64(now.Sub(a.t))/float64(a.period)) - 1
-		a.prev = ((dampingConstant * cur) + (dampingConstantComplement * prev)) * math.Pow(dampingConstantComplement, exponent)
-		a.ct = 0
-		a.t = now
-	}
-}
-
-func (a *dampedQPS) val(now time.Time) float64 {
-	a.Lock()
-	a.maybeFlush(now)
-	prev := a.prev
-	a.Unlock()
-	return prev
-}
-
 type entry struct {
-	key    Key
-	kStats *KeyStats
-	value  interface{}
+	key   Key
+	value interface{}
 }
 
 // New creates a new Cache.
@@ -133,12 +66,7 @@ func (c *Cache) Add(key Key, value interface{}) {
 		ele.Value.(*entry).value = value
 		return
 	}
-	kStats := &KeyStats{
-		dQPS: &dampedQPS{
-			period: time.Second,
-		},
-	}
-	ele := c.ll.PushFront(&entry{key, kStats, value})
+	ele := c.ll.PushFront(&entry{key, value})
 	c.cache[key] = ele
 	if c.MaxEntries != 0 && c.ll.Len() > c.MaxEntries {
 		c.RemoveOldest()
@@ -164,34 +92,32 @@ func (c *Cache) Get(key Key, now time.Time) (value interface{}, ok bool) {
 	return
 }
 
-func (c *Cache) GetKeyStats(key Key, now time.Time) (kStats *KeyStats, ok bool) {
-	if c.cache == nil {
-		return
-	}
-	if ele, hit := c.cache[key]; hit {
-		c.ll.MoveToFront(ele)
-		// ele.Value.(*entry).kStats.dQPS.logAccess(now)
-		return ele.Value.(*entry).kStats, true
-	}
-	return
-}
+// func (c *Cache) GetKeyStats(key Key, now time.Time) (kStats *KeyStats, ok bool) {
+// 	if c.cache == nil {
+// 		return
+// 	}
+// 	if ele, hit := c.cache[key]; hit {
+// 		c.ll.MoveToFront(ele)
+// 		// ele.Value.(*entry).kStats.dQPS.logAccess(now)
+// 		return ele.Value.(*entry).kStats, true
+// 	}
+// 	return
+// }
 
-// HottestQPS returns the most recently used key
-func (c *Cache) HottestQPS(now time.Time) float64 {
+// HottestElement returns the most recently used element
+func (c *Cache) HottestElement(now time.Time) interface{} {
 	if c == nil {
 		return 0
 	}
-	value := c.ll.Front().Value
-	return value.(*entry).kStats.dQPS.val(now)
+	return c.ll.Front().Value.(*entry).value
 }
 
-// ColdestQPS returns the least recently used key
-func (c *Cache) ColdestQPS(now time.Time) float64 {
+// ColdestElement returns the least recently used element
+func (c *Cache) ColdestElement(now time.Time) interface{} {
 	if c == nil {
 		return 0
 	}
-	value := c.ll.Back().Value
-	return value.(*entry).kStats.dQPS.val(now)
+	return c.ll.Back().Value.(*entry).value
 }
 
 // Remove removes the provided key from the cache.

@@ -29,6 +29,8 @@ import (
 	"testing"
 	"time"
 	"unsafe"
+
+	"github.com/vimeo/galaxycache/lru"
 )
 
 const (
@@ -226,26 +228,28 @@ func TestPromotion(t *testing.T) {
 			galaxy := universe.NewGalaxy("test-galaxy", tc.cacheSize, GetterFunc(getter), WithPromoter(tc.promoter))
 			key := "to-get"
 			galaxy.getFromPeer(context.TODO(), fetcher, key)
-			value, ok := galaxy.hotCache.get(key)
+			_, okCandidate := galaxy.candidateCache.get(key)
+			value, okHot := galaxy.hotCache.get(key)
 			switch tc.testName {
 			case "candidate_promotion":
 				fallthrough
 			case "never_promote":
-				if !ok {
-					t.Error("Candidate not found in hotcache")
-				} else if value != nil {
-					t.Error("Found element, but should hold no data")
+				if !okCandidate {
+					t.Error("Candidate not found in candidate cache")
+				}
+				if okHot {
+					t.Error("Found candidate in hotcache")
 				}
 			case "always_promote":
-				if !ok {
+				if !okHot {
 					t.Error("Key not found in hotcache")
 				} else if value == nil {
-					t.Error("Found element, but no associated data")
+					t.Error("Found element in hotcache, but no associated data")
 				}
 			}
 			if tc.testName == "candidate_promotion" {
 				galaxy.getFromPeer(context.TODO(), fetcher, key)
-				value, ok = galaxy.hotCache.get(key)
+				value, okHot = galaxy.hotCache.get(key)
 				if string(value) != "got:to-get" {
 					t.Error("Did not promote from candidacy")
 				}
@@ -477,7 +481,7 @@ func TestNoDedup(t *testing.T) {
 	// If the singleflight callback doesn't double-check the cache again
 	// upon entry, we would increment nbytes twice but the entry would
 	// only be in the cache once.
-	const wantBytes = int64(len(testkey) + len(testval))
+	const wantBytes = int64(len(testkey) + len(testval) + int(unsafe.Sizeof(&KeyStats{})))
 	if g.mainCache.nbytes != wantBytes {
 		t.Errorf("cache has %d bytes, want %d", g.mainCache.nbytes, wantBytes)
 	}
@@ -488,6 +492,61 @@ func TestGalaxyStatsAlignment(t *testing.T) {
 	off := unsafe.Offsetof(g.Stats)
 	if off%8 != 0 {
 		t.Fatal("Stats structure is not 8-byte aligned.")
+	}
+}
+
+func TestHotcache(t *testing.T) {
+	var hcTests = []struct {
+		name                  string
+		numGets               int
+		numHeatBursts         int
+		secsBetweenHeatBursts time.Duration
+		secsToVal             time.Duration
+		keyToAdd              string
+	}{
+		{"10k_heat_burst_1_sec", 10000, 5, 1, 15, "hi"},
+		{"10k_heat_burst_2_secs", 10000, 5, 2, 15, "hi"},
+		{"10k_heat_burst_5_secs", 10000, 5, 5, 15, "hi"},
+		{"10k_heat_burst_30_secs", 10000, 5, 30, 15, "hi"},
+		{"10k_heat_burst_45_secs", 10000, 10, 45, 15, "hi"},
+		{"1k_heat_burst_1_secs", 1000, 5, 1, 15, "hi"},
+		{"1k_heat_burst_2_secs", 1000, 5, 2, 15, "hi"},
+		{"1k_heat_burst_5_secs", 1000, 5, 5, 15, "hi"},
+		{"1k_heat_burst_30_secs", 1000, 5, 30, 15, "hi"},
+		{"1k_heat_burst_45_secs", 1000, 10, 45, 15, "hi"},
+	}
+
+	for _, tc := range hcTests {
+		t.Run(tc.name, func(t *testing.T) {
+			var c cache
+			c.lru = &lru.Cache{
+				OnEvicted: func(key lru.Key, value interface{}) {
+					val := value.(*valueWithStats).data
+					c.nbytes -= int64(len(key.(string))) + int64(len(val))
+					c.nevict++
+				},
+			}
+			testVal := []byte("hello")
+			c.add(tc.keyToAdd, testVal)
+			now := time.Now()
+			kStats, _ := c.getKeyStats(tc.keyToAdd)
+			for k := 0; k < tc.numHeatBursts; k++ {
+				for k := 0; k < tc.numGets; k++ {
+					kStats.dQPS.logAccess(now)
+					now = now.Add(time.Nanosecond)
+				}
+				t.Logf("QPS on %d gets in 1 second on burst #%d: %f\n", tc.numGets, k+1, kStats.dQPS.prev)
+				now = now.Add(time.Second * tc.secsBetweenHeatBursts)
+			}
+			val := kStats.dQPS.val(now)
+			t.Logf("QPS after all bursts: %f\n", val)
+			now = now.Add(time.Second * 5)
+			kStats.dQPS.logAccess(now)
+			t.Logf("QPS on 1 additional get after %d seconds: %f\n", 5, kStats.dQPS.prev)
+			now = now.Add(time.Second * tc.secsToVal)
+			val = kStats.dQPS.val(now)
+			t.Logf("QPS on Val() get after %d seconds: %f\n", tc.secsToVal, val)
+		})
 	}
 }
 

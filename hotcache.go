@@ -26,9 +26,10 @@ limitations under the License.
 package galaxycache
 
 import (
+	"math"
 	"math/rand"
-
-	"github.com/vimeo/galaxycache/lru"
+	"sync"
+	"time"
 )
 
 // Promoter is the interface for determining whether a key/value pair should be
@@ -49,12 +50,17 @@ func (p *oneInTenPromoter) ShouldPromote(key string, data []byte, stats Stats) b
 }
 
 func (p *defaultPromoter) ShouldPromote(key string, data []byte, stats Stats) bool {
-	keyQPS := stats.kStats.Val()
+	keyQPS := stats.KeyQPS
 	// fmt.Printf("Key: %q, keyQPS: %f\n", key, keyQPS)
 	if keyQPS >= stats.hcStats.ColdestHotQPS {
 		return true
 	}
 	return false
+}
+
+type valueWithStats struct {
+	data  []byte
+	stats *KeyStats
 }
 
 // HCStats keeps track of the size, capacity, and coldest/hottest
@@ -66,9 +72,72 @@ type HCStats struct {
 	HCCapacity    int64
 }
 
-// Stats contains both the KeyStats and a pointer to the galaxy-wide
+// Stats contains both the KeyQPS and a pointer to the galaxy-wide
 // HCStats
 type Stats struct {
-	kStats  *lru.KeyStats
+	KeyQPS  float64
 	hcStats *HCStats
+}
+
+// KeyStats keeps track of the hotness of a key
+type KeyStats struct {
+	dQPS *dampedQPS
+}
+
+func (k *KeyStats) Val() float64 {
+	return k.dQPS.val(time.Now())
+}
+
+func (k *KeyStats) LogAccess() {
+	k.dQPS.logAccess(time.Now())
+}
+
+// dampedQPS is an average that recombines the current state with the previous.
+type dampedQPS struct {
+	sync.Mutex
+	period time.Duration
+	t      time.Time
+	prev   float64
+	ct     float64
+}
+
+// must be between 0 and 1, the fraction of the new value that comes from
+// current rather than previous.
+// if `samples` is the number of samples into the damped weighted average you
+// want to maximize the fraction of the contribution after; x is the damping
+// constant complement (this way we don't have to multiply out (1-x) ^ samples)
+// f(x) = (1 - x) * x ^ samples = x ^samples - x ^(samples + 1)
+// f'(x) = samples * x ^ (samples - 1) - (samples + 1) * x ^ samples
+// this yields a critical point at x = (samples - 1) / samples
+const dampingConstant = (1.0 / 30.0) // 5 minutes (30 samples at a 10s interval)
+const dampingConstantComplement = 1.0 - dampingConstant
+
+func (a *dampedQPS) logAccess(now time.Time) {
+	a.Lock()
+	defer a.Unlock()
+	if a.t.IsZero() {
+		a.ct++
+		a.t = now
+		return
+	}
+	a.maybeFlush(now)
+	a.ct++
+}
+
+func (a *dampedQPS) maybeFlush(now time.Time) {
+	if now.Sub(a.t) >= a.period {
+		prev, cur := a.prev, a.ct
+		exponent := math.Floor(float64(now.Sub(a.t))/float64(a.period)) - 1
+		a.prev = ((dampingConstant * cur) + (dampingConstantComplement * prev)) * math.Pow(dampingConstantComplement, exponent)
+		a.ct = 0
+		a.t = now
+	}
+}
+
+func (a *dampedQPS) val(now time.Time) float64 {
+	a.Lock()
+	a.maybeFlush(now)
+	prev := a.prev
+	a.Unlock()
+	return prev
 }
