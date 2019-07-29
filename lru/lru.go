@@ -47,8 +47,8 @@ type KeyStats struct {
 	dQPS       *dampedQPS
 }
 
-func (k *KeyStats) Val(now time.Time) float64 {
-	return k.dQPS.val(now)
+func (k *KeyStats) Val() float64 {
+	return k.dQPS.val(time.Now())
 }
 
 // dampedQPS is an average that recombines the current state with the previous.
