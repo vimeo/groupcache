@@ -51,6 +51,10 @@ func (k *KeyStats) Val() float64 {
 	return k.dQPS.val(time.Now())
 }
 
+func (k *KeyStats) LogAccess() {
+	k.dQPS.logAccess(time.Now())
+}
+
 // dampedQPS is an average that recombines the current state with the previous.
 type dampedQPS struct {
 	sync.Mutex
@@ -154,7 +158,7 @@ func (c *Cache) Get(key Key, now time.Time) (value interface{}, ok bool) {
 	}
 	if ele, hit := c.cache[key]; hit {
 		c.ll.MoveToFront(ele)
-		ele.Value.(*entry).kStats.dQPS.logAccess(now)
+		// ele.Value.(*entry).kStats.dQPS.logAccess(now)
 		return ele.Value.(*entry).value, true
 	}
 	return
@@ -166,7 +170,7 @@ func (c *Cache) GetKeyStats(key Key, now time.Time) (kStats *KeyStats, ok bool) 
 	}
 	if ele, hit := c.cache[key]; hit {
 		c.ll.MoveToFront(ele)
-		ele.Value.(*entry).kStats.dQPS.logAccess(now)
+		// ele.Value.(*entry).kStats.dQPS.logAccess(now)
 		return ele.Value.(*entry).kStats, true
 	}
 	return
