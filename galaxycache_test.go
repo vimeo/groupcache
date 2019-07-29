@@ -159,6 +159,103 @@ func TestCacheEviction(t *testing.T) {
 	}
 }
 
+type alwaysPromote struct {
+	promoted int
+}
+
+func (p *alwaysPromote) ShouldPromote(key string, data []byte, stats Stats) bool {
+	p.promoted++
+	return true
+}
+
+type neverPromote struct {
+	promoted int
+}
+
+func (p *neverPromote) ShouldPromote(key string, data []byte, stats Stats) bool {
+	p.promoted++
+	return false
+}
+
+type promoteFromCandidate struct {
+	promoted int
+}
+
+func (p *promoteFromCandidate) ShouldPromote(key string, data []byte, stats Stats) bool {
+	if p.promoted > 0 {
+		return true
+	}
+	p.promoted++
+	return false
+}
+
+// Ensures cache entries move properly through the stages of candidacy
+// to full hotcache member. Simulates a galaxy where elements are always promoted,
+// never promoted, etc
+func TestPromotion(t *testing.T) {
+	testCases := []struct {
+		testName  string
+		promoter  Promoter
+		cacheSize int64
+	}{
+		{
+			testName:  "never_promote",
+			promoter:  &neverPromote{},
+			cacheSize: 1 << 20,
+		},
+		{
+			testName:  "always_promote",
+			promoter:  &alwaysPromote{},
+			cacheSize: 1 << 20,
+		},
+		{
+			testName:  "candidate_promotion",
+			promoter:  &promoteFromCandidate{},
+			cacheSize: 1 << 20,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.testName, func(t *testing.T) {
+			fetcher := &TestFetcher{}
+			testProto := &TestProtocol{}
+			getter := func(_ context.Context, key string, dest Codec) error {
+				return dest.UnmarshalBinary([]byte("got:" + key))
+			}
+			universe := NewUniverse(testProto, "promotion-test")
+			galaxy := universe.NewGalaxy("test-galaxy", tc.cacheSize, GetterFunc(getter), WithPromoter(tc.promoter))
+			key := "to-get"
+			galaxy.getFromPeer(context.TODO(), fetcher, key)
+			value, ok := galaxy.hotCache.get(key)
+			switch tc.testName {
+			case "candidate_promotion":
+				fallthrough
+			case "never_promote":
+				if !ok {
+					t.Error("Candidate not found in hotcache")
+				} else if value != nil {
+					t.Error("Found element, but should hold no data")
+				}
+			case "always_promote":
+				if !ok {
+					t.Error("Key not found in hotcache")
+				} else if value == nil {
+					t.Error("Found element, but no associated data")
+				}
+			}
+			if tc.testName == "candidate_promotion" {
+				galaxy.getFromPeer(context.TODO(), fetcher, key)
+				value, ok = galaxy.hotCache.get(key)
+				if string(value) != "got:to-get" {
+					t.Error("Did not promote from candidacy")
+				}
+			}
+
+		})
+	}
+
+}
+
 // Testing types to use in TestPeers
 type TestProtocol struct {
 	TestFetchers map[string]*TestFetcher
@@ -269,7 +366,7 @@ func TestPeers(t *testing.T) {
 				return dest.UnmarshalBinary([]byte("got:" + key))
 			}
 
-			testGalaxy := universe.NewGalaxy("TestPeers-galaxy", tc.cacheSize, GetterFunc(getter))
+			testGalaxy := universe.NewGalaxy("TestPeers-galaxy", tc.cacheSize, GetterFunc(getter), WithPromoter(&oneInTenPromoter{}))
 
 			if tc.initFunc != nil {
 				tc.initFunc(testGalaxy, testproto.TestFetchers)
