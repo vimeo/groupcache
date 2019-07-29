@@ -131,13 +131,13 @@ func TestHotcache(t *testing.T) {
 				t.Logf("QPS on %d gets in 1 second on burst #%d: %f\n", tc.numGets, k+1, lru.cache[tc.keyToAdd].Value.(*entry).kStats.dQPS.prev)
 				now = now.Add(time.Second * tc.secsBetweenHeatBursts)
 			}
-			val := lru.cache[tc.keyToAdd].Value.(*entry).kStats.Val(now)
+			val := lru.cache[tc.keyToAdd].Value.(*entry).kStats.dQPS.val(now)
 			t.Logf("QPS after all bursts: %f\n", val)
 			now = now.Add(time.Second * 5)
 			lru.cache[tc.keyToAdd].Value.(*entry).kStats.dQPS.incrementHeat(now)
 			t.Logf("QPS on 1 additional get after %d seconds: %f\n", 5, lru.cache[tc.keyToAdd].Value.(*entry).kStats.dQPS.prev)
 			now = now.Add(time.Second * tc.secsToVal)
-			val = lru.cache[tc.keyToAdd].Value.(*entry).kStats.Val(now)
+			val = lru.cache[tc.keyToAdd].Value.(*entry).kStats.dQPS.val(now)
 			t.Logf("QPS on Val() get after %d seconds: %f\n", tc.secsToVal, val)
 		})
 	}
