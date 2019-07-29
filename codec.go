@@ -74,6 +74,6 @@ func (c *StringCodec) MarshalBinary() ([]byte, error) {
 // UnmarshalBinary on a StringCodec sets the StringCodec to
 // a stringified copy of the provided data
 func (c *StringCodec) UnmarshalBinary(data []byte) error {
-	*c = StringCodec(cloneBytes(data))
+	*c = StringCodec(data)
 	return nil
 }
