@@ -34,18 +34,24 @@ import (
 // Promoter is the interface for determining whether a key/value pair should be
 // added to the hot cache
 type Promoter interface {
-	ShouldPromote(key string, data []byte, stats *Stats) bool
+	ShouldPromote(key string, data []byte, stats Stats) bool
 }
+
+type oneInTenPromoter struct{}
 
 type defaultPromoter struct{}
 
-func (p *defaultPromoter) ShouldPromote(key string, data []byte, stats *Stats) bool {
-	// keyQPS := stats.kStats.DAvg.Val(time.Now())
-	// // fmt.Printf("Key: %q, keyQPS: %f\n", key, keyQPS)
-	// if keyQPS >= stats.hcStats.ColdestHotQPS {
-	// 	return true
-	// }
+func (p *oneInTenPromoter) ShouldPromote(key string, data []byte, stats Stats) bool {
 	if rand.Intn(10) == 0 {
+		return true
+	}
+	return false
+}
+
+func (p *defaultPromoter) ShouldPromote(key string, data []byte, stats Stats) bool {
+	keyQPS := stats.kStats.Val()
+	// fmt.Printf("Key: %q, keyQPS: %f\n", key, keyQPS)
+	if keyQPS >= stats.hcStats.ColdestHotQPS {
 		return true
 	}
 	return false

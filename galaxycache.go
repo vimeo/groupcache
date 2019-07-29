@@ -230,6 +230,7 @@ type flightGroup interface {
 type GalaxyStats struct {
 	Gets           AtomicInt // any Get request, including from peers
 	CacheHits      AtomicInt // either cache was good
+	HotcacheHits   AtomicInt
 	PeerLoads      AtomicInt // either remote load or remote cache hit (not an error)
 	PeerErrors     AtomicInt
 	Loads          AtomicInt // (gets - cacheHits)
@@ -406,17 +407,17 @@ func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string
 	}
 	value := data
 	kStats, ok := g.hotCache.getKeyStats(key)
-	g.updateHotCacheStats()
 	if !ok {
 		g.populateCache(key, nil, &g.hotCache)
 		kStats, _ = g.hotCache.getKeyStats(key) // gets the new stats and increments heat
 	}
+	g.updateHotCacheStats()
 
 	stats := Stats{
 		kStats:  kStats,
 		hcStats: g.hcStats,
 	}
-	if g.promoter.ShouldPromote(key, value, &stats) {
+	if g.promoter.ShouldPromote(key, value, stats) {
 		g.populateCache(key, value, &g.hotCache)
 	}
 	return value, nil
@@ -434,6 +435,7 @@ func (g *Galaxy) lookupCache(key string) (value []byte, ok bool) {
 	if value == nil { // might just be a candidate, not holding data yet
 		return nil, false
 	}
+	g.Stats.HotcacheHits.Add(1)
 	return
 }
 
@@ -523,7 +525,7 @@ func (c *cache) add(key string, value []byte) {
 		}
 	}
 	c.lru.Add(key, value)
-	c.nbytes += int64(len(key)) + int64(len(value))
+	c.nbytes += int64(len(key)) + int64(len(value)) // TODO(willg): adds the key len twice for every promoted hotcache entry -- combine the cache implementations (no wrapper)?
 }
 
 func (c *cache) get(key string) (value []byte, ok bool) {
