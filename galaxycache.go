@@ -524,8 +524,13 @@ func (c *cache) add(key string, value []byte) {
 			},
 		}
 	}
+	if _, ok := c.lru.Get(key, time.Now()); ok { // promoting a hotcache candidate (hacky solution for now)
+		c.lru.Add(key, value)
+		c.nbytes += int64(len(value))
+		return
+	}
 	c.lru.Add(key, value)
-	c.nbytes += int64(len(key)) + int64(len(value)) // TODO(willg): adds the key len twice for every promoted hotcache entry -- combine the cache implementations (no wrapper)?
+	c.nbytes += int64(len(key)) + int64(len(value))
 }
 
 func (c *cache) get(key string) (value []byte, ok bool) {
