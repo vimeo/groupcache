@@ -62,7 +62,7 @@ func TestCodec(t *testing.T) {
 			}
 
 			if tc.checkCopy {
-				marshaledBytes[0] = 'a'
+				marshaledBytes[0] = 'a' // change marshaled bytes to ensure full copy on marshal
 				secondMarshaledBytes, errM := tc.codec.MarshalBinary()
 				if errM != nil {
 					t.Errorf("Error marshaling from byteCodec: %s", errM)
