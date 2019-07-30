@@ -29,8 +29,6 @@ import (
 	"testing"
 	"time"
 	"unsafe"
-
-	"github.com/vimeo/galaxycache/lru"
 )
 
 const (
@@ -159,105 +157,6 @@ func TestCacheEviction(t *testing.T) {
 	if fills != 1 {
 		t.Fatalf("expected 1 cache fill after cache trashing; got %d", fills)
 	}
-}
-
-type alwaysPromote struct {
-	promoted int
-}
-
-func (p *alwaysPromote) ShouldPromote(key string, data []byte, stats Stats) bool {
-	p.promoted++
-	return true
-}
-
-type neverPromote struct {
-	promoted int
-}
-
-func (p *neverPromote) ShouldPromote(key string, data []byte, stats Stats) bool {
-	p.promoted++
-	return false
-}
-
-type promoteFromCandidate struct {
-	promoted int
-}
-
-func (p *promoteFromCandidate) ShouldPromote(key string, data []byte, stats Stats) bool {
-	if p.promoted > 0 {
-		return true
-	}
-	p.promoted++
-	return false
-}
-
-// Ensures cache entries move properly through the stages of candidacy
-// to full hotcache member. Simulates a galaxy where elements are always promoted,
-// never promoted, etc
-func TestPromotion(t *testing.T) {
-	testKey := "to-get"
-	testCases := []struct {
-		testName   string
-		promoter   Promoter
-		cacheSize  int64
-		checkCache func(key string, val *valWithStat, okCand bool, okHot bool, tf *TestFetcher, g *Galaxy)
-	}{
-		{
-			testName:  "never_promote",
-			promoter:  &neverPromote{},
-			cacheSize: 1 << 20,
-			checkCache: func(_ string, _ *valWithStat, okCand bool, okHot bool, _ *TestFetcher, _ *Galaxy) {
-				if !okCand {
-					t.Error("Candidate not found in candidate cache")
-				}
-				if okHot {
-					t.Error("Found candidate in hotcache")
-				}
-			},
-		},
-		{
-			testName:  "always_promote",
-			promoter:  &alwaysPromote{},
-			cacheSize: 1 << 20,
-			checkCache: func(_ string, val *valWithStat, _ bool, okHot bool, _ *TestFetcher, _ *Galaxy) {
-				if !okHot {
-					t.Error("Key not found in hotcache")
-				} else if val == nil {
-					t.Error("Found element in hotcache, but no associated data")
-				}
-			},
-		},
-		{
-			testName:  "candidate_promotion",
-			promoter:  &promoteFromCandidate{},
-			cacheSize: 1 << 20,
-			checkCache: func(key string, val *valWithStat, _ bool, okHot bool, tf *TestFetcher, g *Galaxy) {
-				g.getFromPeer(context.TODO(), tf, key)
-				val, okHot = g.hotCache.getFromCache(key)
-				if string(val.data) != "got:"+testKey {
-					t.Error("Did not promote from candidacy")
-				}
-			},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.testName, func(t *testing.T) {
-			fetcher := &TestFetcher{}
-			testProto := &TestProtocol{}
-			getter := func(_ context.Context, key string, dest Codec) error {
-				return dest.UnmarshalBinary([]byte("got:" + key))
-			}
-			universe := NewUniverse(testProto, "promotion-test")
-			galaxy := universe.NewGalaxy("test-galaxy", tc.cacheSize, GetterFunc(getter), WithPromoter(tc.promoter))
-			galaxy.getFromPeer(context.TODO(), fetcher, testKey)
-			_, okCandidate := galaxy.candidateCache.getCandidateStats(testKey)
-			value, okHot := galaxy.hotCache.getFromCache(testKey)
-			tc.checkCache(testKey, value, okCandidate, okHot, fetcher, galaxy)
-
-		})
-	}
-
 }
 
 // Testing types to use in TestPeers
@@ -518,25 +417,22 @@ func TestHotcache(t *testing.T) {
 
 	for _, tc := range hcTests {
 		t.Run(tc.name, func(t *testing.T) {
-			var c cache
-			c.lru = &lru.Cache{
-				OnEvicted: func(key lru.Key, value interface{}) {
-					val := value.(*valWithStat).data
-					c.nbytes -= int64(len(key.(string))) + int64(len(val))
-					c.nevict++
-				},
-			}
+			u := NewUniverse(&TestProtocol{}, "test-universe")
+			g := u.NewGalaxy("test-galaxy", 1<<20, GetterFunc(func(_ context.Context, key string, dest Codec) error {
+				return dest.UnmarshalBinary([]byte("hello"))
+			}))
 			kStats := &KeyStats{
 				dQPS: &dampedQPS{
 					period: time.Second,
 				},
 			}
-			valWithStats := &valWithStat{
+			value := &valWithStat{
 				data:  []byte("hello"),
 				stats: kStats,
 			}
-			c.lru.Add(tc.keyToAdd, valWithStats)
+			g.hotCache.add(tc.keyToAdd, value)
 			now := time.Now()
+			// blast the key in the hotcache with a bunch of hypothetical gets every few seconds
 			for k := 0; k < tc.numHeatBursts; k++ {
 				for k := 0; k < tc.numGets; k++ {
 					kStats.dQPS.touch(now)
@@ -547,6 +443,17 @@ func TestHotcache(t *testing.T) {
 			}
 			val := kStats.dQPS.val(now)
 			t.Logf("QPS after all bursts: %f\n", val)
+			value2 := &valWithStat{
+				data: []byte("hello there"),
+				stats: &KeyStats{
+					dQPS: &dampedQPS{
+						period: time.Second,
+					},
+				},
+			}
+			g.hotCache.add(tc.keyToAdd+"2", value2)
+			g.updateHotCacheStats()
+			t.Logf("Hottest QPS: %f, Coldest QPS: %f\n", g.hcStats.HottestHotQPS, g.hcStats.ColdestHotQPS)
 			now = now.Add(time.Second * 5)
 			kStats.dQPS.touch(now)
 			t.Logf("QPS on 1 additional get after %d seconds: %f\n", 5, kStats.dQPS.prev)
@@ -555,6 +462,105 @@ func TestHotcache(t *testing.T) {
 			t.Logf("QPS on Val() get after %d seconds: %f\n", tc.secsToVal, val)
 		})
 	}
+}
+
+type alwaysPromote struct {
+	promoted int
+}
+
+func (p *alwaysPromote) ShouldPromote(key string, data []byte, stats Stats) bool {
+	p.promoted++
+	return true
+}
+
+type neverPromote struct {
+	promoted int
+}
+
+func (p *neverPromote) ShouldPromote(key string, data []byte, stats Stats) bool {
+	p.promoted++
+	return false
+}
+
+type promoteFromCandidate struct {
+	promoted int
+}
+
+func (p *promoteFromCandidate) ShouldPromote(key string, data []byte, stats Stats) bool {
+	if p.promoted > 0 {
+		return true
+	}
+	p.promoted++
+	return false
+}
+
+// Ensures cache entries move properly through the stages of candidacy
+// to full hotcache member. Simulates a galaxy where elements are always promoted,
+// never promoted, etc
+func TestPromotion(t *testing.T) {
+	testKey := "to-get"
+	testCases := []struct {
+		testName   string
+		promoter   Promoter
+		cacheSize  int64
+		checkCache func(key string, val *valWithStat, okCand bool, okHot bool, tf *TestFetcher, g *Galaxy)
+	}{
+		{
+			testName:  "never_promote",
+			promoter:  &neverPromote{},
+			cacheSize: 1 << 20,
+			checkCache: func(_ string, _ *valWithStat, okCand bool, okHot bool, _ *TestFetcher, _ *Galaxy) {
+				if !okCand {
+					t.Error("Candidate not found in candidate cache")
+				}
+				if okHot {
+					t.Error("Found candidate in hotcache")
+				}
+			},
+		},
+		{
+			testName:  "always_promote",
+			promoter:  &alwaysPromote{},
+			cacheSize: 1 << 20,
+			checkCache: func(_ string, val *valWithStat, _ bool, okHot bool, _ *TestFetcher, _ *Galaxy) {
+				if !okHot {
+					t.Error("Key not found in hotcache")
+				} else if val == nil {
+					t.Error("Found element in hotcache, but no associated data")
+				}
+			},
+		},
+		{
+			testName:  "candidate_promotion",
+			promoter:  &promoteFromCandidate{},
+			cacheSize: 1 << 20,
+			checkCache: func(key string, val *valWithStat, _ bool, okHot bool, tf *TestFetcher, g *Galaxy) {
+				g.getFromPeer(context.TODO(), tf, key)
+				val, okHot = g.hotCache.getFromCache(key)
+				if string(val.data) != "got:"+testKey {
+					t.Error("Did not promote from candidacy")
+				}
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.testName, func(t *testing.T) {
+			fetcher := &TestFetcher{}
+			testProto := &TestProtocol{}
+			getter := func(_ context.Context, key string, dest Codec) error {
+				return dest.UnmarshalBinary([]byte("got:" + key))
+			}
+			universe := NewUniverse(testProto, "promotion-test")
+			galaxy := universe.NewGalaxy("test-galaxy", tc.cacheSize, GetterFunc(getter), WithPromoter(tc.promoter))
+			galaxy.getFromPeer(context.TODO(), fetcher, testKey)
+			_, okCandidate := galaxy.candidateCache.getCandidateStats(testKey)
+			value, okHot := galaxy.hotCache.getFromCache(testKey)
+			tc.checkCache(testKey, value, okCandidate, okHot, fetcher, galaxy)
+
+		})
+	}
+
 }
 
 // TODO(bradfitz): port the Google-internal full integration test into here,
