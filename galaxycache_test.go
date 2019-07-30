@@ -195,25 +195,49 @@ func (p *promoteFromCandidate) ShouldPromote(key string, data []byte, stats Stat
 // to full hotcache member. Simulates a galaxy where elements are always promoted,
 // never promoted, etc
 func TestPromotion(t *testing.T) {
+	testKey := "to-get"
 	testCases := []struct {
-		testName  string
-		promoter  Promoter
-		cacheSize int64
+		testName   string
+		promoter   Promoter
+		cacheSize  int64
+		checkCache func(key string, val *valWithStat, okCand bool, okHot bool, tf *TestFetcher, g *Galaxy)
 	}{
 		{
 			testName:  "never_promote",
 			promoter:  &neverPromote{},
 			cacheSize: 1 << 20,
+			checkCache: func(_ string, _ *valWithStat, okCand bool, okHot bool, _ *TestFetcher, _ *Galaxy) {
+				if !okCand {
+					t.Error("Candidate not found in candidate cache")
+				}
+				if okHot {
+					t.Error("Found candidate in hotcache")
+				}
+			},
 		},
 		{
 			testName:  "always_promote",
 			promoter:  &alwaysPromote{},
 			cacheSize: 1 << 20,
+			checkCache: func(_ string, val *valWithStat, _ bool, okHot bool, _ *TestFetcher, _ *Galaxy) {
+				if !okHot {
+					t.Error("Key not found in hotcache")
+				} else if val == nil {
+					t.Error("Found element in hotcache, but no associated data")
+				}
+			},
 		},
 		{
 			testName:  "candidate_promotion",
 			promoter:  &promoteFromCandidate{},
 			cacheSize: 1 << 20,
+			checkCache: func(key string, val *valWithStat, _ bool, okHot bool, tf *TestFetcher, g *Galaxy) {
+				g.getFromPeer(context.TODO(), tf, key)
+				val, okHot = g.hotCache.getFromCache(key)
+				if string(val.data) != "got:"+testKey {
+					t.Error("Did not promote from candidacy")
+				}
+			},
 		},
 	}
 
@@ -226,34 +250,10 @@ func TestPromotion(t *testing.T) {
 			}
 			universe := NewUniverse(testProto, "promotion-test")
 			galaxy := universe.NewGalaxy("test-galaxy", tc.cacheSize, GetterFunc(getter), WithPromoter(tc.promoter))
-			key := "to-get"
-			galaxy.getFromPeer(context.TODO(), fetcher, key)
-			_, okCandidate := galaxy.candidateCache.getCandidateStats(key)
-			value, okHot := galaxy.hotCache.getFromCache(key)
-			switch tc.testName {
-			case "candidate_promotion":
-				fallthrough
-			case "never_promote":
-				if !okCandidate {
-					t.Error("Candidate not found in candidate cache")
-				}
-				if okHot {
-					t.Error("Found candidate in hotcache")
-				}
-			case "always_promote":
-				if !okHot {
-					t.Error("Key not found in hotcache")
-				} else if value == nil {
-					t.Error("Found element in hotcache, but no associated data")
-				}
-			}
-			if tc.testName == "candidate_promotion" {
-				galaxy.getFromPeer(context.TODO(), fetcher, key)
-				value, okHot = galaxy.hotCache.getFromCache(key)
-				if string(value.data) != "got:to-get" {
-					t.Error("Did not promote from candidacy")
-				}
-			}
+			galaxy.getFromPeer(context.TODO(), fetcher, testKey)
+			_, okCandidate := galaxy.candidateCache.getCandidateStats(testKey)
+			value, okHot := galaxy.hotCache.getFromCache(testKey)
+			tc.checkCache(testKey, value, okCandidate, okHot, fetcher, galaxy)
 
 		})
 	}
