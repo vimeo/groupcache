@@ -87,8 +87,8 @@ func (k *KeyStats) Val() float64 {
 	return k.dQPS.val(time.Now())
 }
 
-func (k *KeyStats) LogAccess() {
-	k.dQPS.logAccess(time.Now())
+func (k *KeyStats) Touch() {
+	k.dQPS.touch(time.Now())
 }
 
 // dampedQPS is an average that recombines the current state with the previous.
@@ -111,7 +111,7 @@ type dampedQPS struct {
 const dampingConstant = (1.0 / 30.0) // 5 minutes (30 samples at a 10s interval)
 const dampingConstantComplement = 1.0 - dampingConstant
 
-func (a *dampedQPS) logAccess(now time.Time) {
+func (a *dampedQPS) touch(now time.Time) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.t.IsZero() {
