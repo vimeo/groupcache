@@ -73,12 +73,6 @@ func (c *Cache) Add(key Key, value interface{}) {
 	}
 }
 
-// func (c *Cache) InitKeyStats(key string) {
-// 	if ele, hit := c.cache[key]; hit {
-// 		ele.Value.(*entry).kStats = &KeyStats{}
-// 	}
-// }
-
 // Get looks up a key's value from the cache and increments its heat.
 func (c *Cache) Get(key Key, now time.Time) (value interface{}, ok bool) {
 	if c.cache == nil {
@@ -86,23 +80,10 @@ func (c *Cache) Get(key Key, now time.Time) (value interface{}, ok bool) {
 	}
 	if ele, hit := c.cache[key]; hit {
 		c.ll.MoveToFront(ele)
-		// ele.Value.(*entry).kStats.dQPS.logAccess(now)
 		return ele.Value.(*entry).value, true
 	}
 	return
 }
-
-// func (c *Cache) GetKeyStats(key Key, now time.Time) (kStats *KeyStats, ok bool) {
-// 	if c.cache == nil {
-// 		return
-// 	}
-// 	if ele, hit := c.cache[key]; hit {
-// 		c.ll.MoveToFront(ele)
-// 		// ele.Value.(*entry).kStats.dQPS.logAccess(now)
-// 		return ele.Value.(*entry).kStats, true
-// 	}
-// 	return
-// }
 
 // HottestElement returns the most recently used element
 func (c *Cache) HottestElement(now time.Time) interface{} {
