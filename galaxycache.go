@@ -466,11 +466,11 @@ func (g *Galaxy) lookupCache(key string) (value *valWithStat, ok bool) {
 	if g.cacheBytes <= 0 {
 		return
 	}
-	value, ok = g.mainCache.get(key)
+	value, ok = g.mainCache.getFromCache(key)
 	if ok {
 		return
 	}
-	value, ok = g.hotCache.get(key)
+	value, ok = g.hotCache.getFromCache(key)
 	g.Stats.HotcacheHits.Add(1)
 	return
 }
@@ -545,7 +545,7 @@ func (g *Galaxy) CacheStats(which CacheType) CacheStats {
 // cache is a wrapper around an *lru.Cache that adds synchronization
 // and counts the size of all keys and values.
 type cache struct {
-	mu         sync.RWMutex
+	mu         sync.Mutex
 	nbytes     int64 // of all keys and values
 	lru        *lru.Cache
 	nhit, nget int64
@@ -553,8 +553,8 @@ type cache struct {
 }
 
 func (c *cache) stats() CacheStats {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return CacheStats{
 		Bytes:     c.nbytes,
 		Items:     c.itemsLocked(),
@@ -584,10 +584,9 @@ func (c *cache) add(key string, value *valWithStat) {
 	c.nbytes += int64(len(key)) + int64(len(value.data)+int(unsafe.Sizeof(value.stats))) // TODO(willg): acceptable?
 }
 
-func (c *cache) get(key string) (value *valWithStat, ok bool) {
+func (c *cache) get(key string) (value interface{}, ok bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.nget++
 	if c.lru == nil {
 		return
 	}
@@ -595,23 +594,28 @@ func (c *cache) get(key string) (value *valWithStat, ok bool) {
 	if !ok {
 		return
 	}
+	value = vi
+	return
+}
+
+func (c *cache) getFromCache(key string) (value *valWithStat, ok bool) {
+	vi, ok := c.get(key)
+	c.nget++
+	if !ok {
+		return
+	}
 	c.nhit++
-	return vi.(*valWithStat), true
+	value = vi.(*valWithStat)
+	return
 }
 
 func (c *cache) getCandidateStats(key string) (kStats *KeyStats, ok bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.nget++
-	if c.lru == nil {
-		return
-	}
-	vi, ok := c.lru.Get(key, time.Now())
+	vi, ok := c.get(key)
 	if !ok {
 		return
 	}
-	c.nhit++
-	return vi.(*KeyStats), true
+	kStats = vi.(*KeyStats)
+	return
 }
 
 func (c *cache) removeOldest() {
@@ -623,14 +627,14 @@ func (c *cache) removeOldest() {
 }
 
 func (c *cache) bytes() int64 {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.nbytes
 }
 
 func (c *cache) items() int64 {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.itemsLocked()
 }
 

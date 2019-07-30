@@ -229,7 +229,7 @@ func TestPromotion(t *testing.T) {
 			key := "to-get"
 			galaxy.getFromPeer(context.TODO(), fetcher, key)
 			_, okCandidate := galaxy.candidateCache.getCandidateStats(key)
-			value, okHot := galaxy.hotCache.get(key)
+			value, okHot := galaxy.hotCache.getFromCache(key)
 			switch tc.testName {
 			case "candidate_promotion":
 				fallthrough
@@ -249,7 +249,7 @@ func TestPromotion(t *testing.T) {
 			}
 			if tc.testName == "candidate_promotion" {
 				galaxy.getFromPeer(context.TODO(), fetcher, key)
-				value, okHot = galaxy.hotCache.get(key)
+				value, okHot = galaxy.hotCache.getFromCache(key)
 				if string(value.data) != "got:to-get" {
 					t.Error("Did not promote from candidacy")
 				}
