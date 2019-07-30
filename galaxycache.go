@@ -584,7 +584,22 @@ func (c *cache) add(key string, value *valWithStat) {
 	c.nbytes += int64(len(key)) + int64(len(value.data)+int(unsafe.Sizeof(value.stats))) // TODO(willg): acceptable?
 }
 
-func (c *cache) get(key string) (value interface{}, ok bool) {
+func (c *cache) getFromCache(key string) (value *valWithStat, ok bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.lru == nil {
+		return
+	}
+	c.nget++
+	vi, ok := c.lru.Get(key, time.Now())
+	if !ok {
+		return
+	}
+	c.nhit++
+	return vi.(*valWithStat), true
+}
+
+func (c *cache) getCandidateStats(key string) (kStats *KeyStats, ok bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.lru == nil {
@@ -594,28 +609,7 @@ func (c *cache) get(key string) (value interface{}, ok bool) {
 	if !ok {
 		return
 	}
-	value = vi
-	return
-}
-
-func (c *cache) getFromCache(key string) (value *valWithStat, ok bool) {
-	vi, ok := c.get(key)
-	c.nget++
-	if !ok {
-		return
-	}
-	c.nhit++
-	value = vi.(*valWithStat)
-	return
-}
-
-func (c *cache) getCandidateStats(key string) (kStats *KeyStats, ok bool) {
-	vi, ok := c.get(key)
-	if !ok {
-		return
-	}
-	kStats = vi.(*KeyStats)
-	return
+	return vi.(*KeyStats), true
 }
 
 func (c *cache) removeOldest() {
