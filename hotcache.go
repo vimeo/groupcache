@@ -93,7 +93,7 @@ func (k *KeyStats) LogAccess() {
 
 // dampedQPS is an average that recombines the current state with the previous.
 type dampedQPS struct {
-	sync.Mutex
+	mu     sync.Mutex
 	period time.Duration
 	t      time.Time
 	prev   float64
@@ -112,8 +112,8 @@ const dampingConstant = (1.0 / 30.0) // 5 minutes (30 samples at a 10s interval)
 const dampingConstantComplement = 1.0 - dampingConstant
 
 func (a *dampedQPS) logAccess(now time.Time) {
-	a.Lock()
-	defer a.Unlock()
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if a.t.IsZero() {
 		a.ct++
 		a.t = now
@@ -134,9 +134,9 @@ func (a *dampedQPS) maybeFlush(now time.Time) {
 }
 
 func (a *dampedQPS) val(now time.Time) float64 {
-	a.Lock()
+	a.mu.Lock()
 	a.maybeFlush(now)
 	prev := a.prev
-	a.Unlock()
+	a.mu.Unlock()
 	return prev
 }
