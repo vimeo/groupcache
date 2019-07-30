@@ -51,14 +51,13 @@ func (p *oneInTenPromoter) ShouldPromote(key string, data []byte, stats Stats) b
 
 func (p *defaultPromoter) ShouldPromote(key string, data []byte, stats Stats) bool {
 	keyQPS := stats.KeyQPS
-	// fmt.Printf("Key: %q, keyQPS: %f\n", key, keyQPS)
 	if keyQPS >= stats.hcStats.ColdestHotQPS {
 		return true
 	}
 	return false
 }
 
-type valueWithStats struct {
+type valWithStat struct {
 	data  []byte
 	stats *KeyStats
 }

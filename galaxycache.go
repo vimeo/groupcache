@@ -106,7 +106,7 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 	if _, dup := universe.galaxies[name]; dup {
 		panic("duplicate registration of galaxy " + name)
 	}
-	ccache := &cache{
+	ccache := cache{
 		lru: lru.New(100), // default to 100 candidate entries
 	}
 	g := &Galaxy{
@@ -174,7 +174,7 @@ type Galaxy struct {
 	// of key/value pairs that can be stored globally.
 	hotCache cache
 
-	candidateCache *cache
+	candidateCache cache
 
 	hcStats *HCStats
 
@@ -227,7 +227,7 @@ func WithHotCacheRatio(r int64) GalaxyOption {
 
 func WithMaxCandidates(n int) GalaxyOption {
 	return newFuncGalaxyOption(func(g *Galaxy) {
-		g.candidateCache = &cache{
+		g.candidateCache = cache{
 			lru: lru.New(n),
 		}
 	})
@@ -261,11 +261,21 @@ func (g *Galaxy) Name() string {
 }
 
 func (g *Galaxy) updateHotCacheStats() {
-	hottest := g.hotCache.lru.HottestElement(time.Now())
-	coldest := g.hotCache.lru.ColdestElement(time.Now())
+	if g.hotCache.lru == nil {
+		g.hotCache.initCache()
+	}
+	hottestQPS := 0.0
+	coldestQPS := 0.0
+	hottestEle := g.hotCache.lru.HottestElement(time.Now())
+	coldestEle := g.hotCache.lru.ColdestElement(time.Now())
+	if hottestEle != nil {
+		hottestQPS = hottestEle.(*valWithStat).stats.Val()
+		coldestQPS = coldestEle.(*valWithStat).stats.Val()
+	}
+
 	newHCS := &HCStats{
-		HottestHotQPS: hottest.(*valueWithStats).stats.Val(),
-		ColdestHotQPS: coldest.(*valueWithStats).stats.Val(),
+		HottestHotQPS: hottestQPS,
+		ColdestHotQPS: coldestQPS,
 		HCSize:        (g.cacheBytes / g.hcRatio) - g.hotCache.bytes(),
 		HCCapacity:    g.cacheBytes / g.hcRatio,
 	}
@@ -283,6 +293,7 @@ func (g *Galaxy) updateHotCacheStats() {
 // canonical owner, call the BackendGetter to retrieve the value
 // (which will now be cached locally)
 func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
+	// fmt.Printf("Number of hotcache hits: %v\n", g.Stats.HotcacheHits)
 	ctx, _ = tag.New(ctx, tag.Insert(keyCommand, "get"))
 
 	ctx, span := trace.StartSpan(ctx, "galaxycache.(*Galaxy).Get on "+g.name)
@@ -306,8 +317,9 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 		span.Annotatef(nil, "Cache hit")
 		// TODO(@odeke-em): Remove .Stats
 		g.Stats.CacheHits.Add(1)
-		stats.Record(ctx, MCacheHits.M(1), MValueLength.M(int64(len(value))))
-		return dest.UnmarshalBinary(value)
+		stats.Record(ctx, MCacheHits.M(1), MValueLength.M(int64(len(value.data))))
+		value.stats.LogAccess()
+		return dest.UnmarshalBinary(value.data)
 	}
 
 	stats.Record(ctx, MCacheMisses.M(1))
@@ -323,15 +335,16 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 		stats.Record(ctx, MLoadErrors.M(1))
 		return err
 	}
-	stats.Record(ctx, MValueLength.M(int64(len(value))))
+	value.stats.LogAccess()
+	stats.Record(ctx, MValueLength.M(int64(len(value.data))))
 	if destPopulated {
 		return nil
 	}
-	return dest.UnmarshalBinary(value)
+	return dest.UnmarshalBinary(value.data)
 }
 
 // load loads key either by invoking the getter locally or by sending it to another machine.
-func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value []byte, destPopulated bool, err error) {
+func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value *valWithStat, destPopulated bool, err error) {
 	// TODO(@odeke-em): Remove .Stats
 	g.Stats.Loads.Add(1)
 	stats.Record(ctx, MLoads.M(1))
@@ -368,15 +381,15 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value []byte
 		g.Stats.LoadsDeduped.Add(1)
 		stats.Record(ctx, MLoadsDeduped.M(1))
 
-		var value []byte
+		var valWithStats *valWithStat
 		var err error
 		if peer, ok := g.peerPicker.pickPeer(key); ok {
-			value, err = g.getFromPeer(ctx, peer, key)
+			valWithStats, err = g.getFromPeer(ctx, peer, key)
 			if err == nil {
 				// TODO(@odeke-em): Remove .Stats
 				g.Stats.PeerLoads.Add(1)
 				stats.Record(ctx, MPeerLoads.M(1))
-				return value, nil
+				return valWithStats, nil
 			}
 			// TODO(@odeke-em): Remove .Stats
 			g.Stats.PeerErrors.Add(1)
@@ -386,7 +399,7 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value []byte
 			// probably boring (normal task movement), so not
 			// worth logging I imagine.
 		}
-		value, err = g.getLocally(ctx, key, dest)
+		valWithStats, err = g.getLocally(ctx, key, dest)
 		if err != nil {
 			// TODO(@odeke-em): Remove .Stats
 			g.Stats.LocalLoadErrs.Add(1)
@@ -397,47 +410,59 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value []byte
 		g.Stats.LocalLoads.Add(1)
 		stats.Record(ctx, MLocalLoads.M(1))
 		destPopulated = true // only one caller of load gets this return value
-		g.populateCache(key, value, &g.mainCache)
-		return value, nil
+		g.populateCache(key, valWithStats, &g.mainCache)
+		return valWithStats, nil
 	})
 	if err == nil {
-		value = viewi.([]byte)
+		value = viewi.(*valWithStat)
 	}
 	return
 }
 
-func (g *Galaxy) getLocally(ctx context.Context, key string, dest Codec) ([]byte, error) {
+func (g *Galaxy) getLocally(ctx context.Context, key string, dest Codec) (*valWithStat, error) {
 	err := g.getter.Get(ctx, key, dest)
 	if err != nil {
 		return nil, err
 	}
-	return dest.MarshalBinary()
+	value, errMarshal := dest.MarshalBinary()
+	valWithStats := &valWithStat{
+		data: value,
+		stats: &KeyStats{
+			dQPS: &dampedQPS{
+				period: time.Second,
+			},
+		},
+	}
+	return valWithStats, errMarshal
 }
 
-func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string) ([]byte, error) {
+func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string) (*valWithStat, error) {
 	data, err := peer.Fetch(ctx, g.name, key)
 	if err != nil {
 		return nil, err
 	}
 	value := data
-	kStats, ok := g.candidateCache.getKeyStats(key)
+	kStats, ok := g.candidateCache.getCandidateStats(key)
 	if !ok {
-		g.populateCache(key, nil, g.candidateCache)
-		kStats, _ = g.candidateCache.getKeyStats(key) // gets the new stats and increments heat
+		kStats = g.populateCandidateCache(key)
 	}
-	// g.updateHotCacheStats()
+	g.updateHotCacheStats()
 
 	stats := Stats{
 		KeyQPS:  kStats.Val(),
 		hcStats: g.hcStats,
 	}
-	if g.promoter.ShouldPromote(key, value, stats) {
-		g.populateCache(key, value, &g.hotCache)
+	valWithStats := &valWithStat{
+		data:  value,
+		stats: kStats,
 	}
-	return value, nil
+	if g.promoter.ShouldPromote(key, value, stats) {
+		g.populateCache(key, valWithStats, &g.hotCache)
+	}
+	return valWithStats, nil
 }
 
-func (g *Galaxy) lookupCache(key string) (value []byte, ok bool) {
+func (g *Galaxy) lookupCache(key string) (value *valWithStat, ok bool) {
 	if g.cacheBytes <= 0 {
 		return
 	}
@@ -450,11 +475,11 @@ func (g *Galaxy) lookupCache(key string) (value []byte, ok bool) {
 	return
 }
 
-func (g *Galaxy) populateCache(key string, value []byte, cache *cache) {
+func (g *Galaxy) populateCache(key string, valWithStats *valWithStat, cache *cache) {
 	if g.cacheBytes <= 0 {
 		return
 	}
-	cache.add(key, value)
+	cache.add(key, valWithStats)
 
 	// Evict items from cache(s) if necessary.
 	for {
@@ -473,6 +498,22 @@ func (g *Galaxy) populateCache(key string, value []byte, cache *cache) {
 		}
 		victim.removeOldest()
 	}
+}
+
+func (g *Galaxy) populateCandidateCache(key string) *KeyStats {
+	kStats := &KeyStats{
+		dQPS: &dampedQPS{
+			period: time.Second,
+		},
+	}
+	g.candidateCache.addToCandidateCache(key, kStats)
+	return kStats
+}
+
+func (c *cache) addToCandidateCache(key string, kStats *KeyStats) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lru.Add(key, kStats)
 }
 
 // CacheType represents a type of cache.
@@ -523,31 +564,27 @@ func (c *cache) stats() CacheStats {
 	}
 }
 
-func (c *cache) add(key string, data []byte) {
+func (c *cache) initCache() {
+	c.lru = &lru.Cache{
+		OnEvicted: func(key lru.Key, value interface{}) {
+			val := value.(*valWithStat)
+			c.nbytes -= int64(len(key.(string))) + int64(len(val.data)+int(unsafe.Sizeof(val.stats)))
+			c.nevict++
+		},
+	}
+}
+
+func (c *cache) add(key string, value *valWithStat) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.lru == nil {
-		c.lru = &lru.Cache{
-			OnEvicted: func(key lru.Key, value interface{}) {
-				val := value.(*valueWithStats)
-				c.nbytes -= int64(len(key.(string))) + int64(len(val.data)+int(unsafe.Sizeof(val.stats)))
-				c.nevict++
-			},
-		}
-	}
-	value := &valueWithStats{
-		data: data,
-		stats: &KeyStats{
-			dQPS: &dampedQPS{
-				period: time.Second,
-			},
-		},
+		c.initCache()
 	}
 	c.lru.Add(key, value)
 	c.nbytes += int64(len(key)) + int64(len(value.data)+int(unsafe.Sizeof(value.stats))) // TODO(willg): acceptable?
 }
 
-func (c *cache) get(key string) (data []byte, ok bool) {
+func (c *cache) get(key string) (value *valWithStat, ok bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.nget++
@@ -559,10 +596,10 @@ func (c *cache) get(key string) (data []byte, ok bool) {
 		return
 	}
 	c.nhit++
-	return vi.(*valueWithStats).data, true
+	return vi.(*valWithStat), true
 }
 
-func (c *cache) getKeyStats(key string) (kStats *KeyStats, ok bool) {
+func (c *cache) getCandidateStats(key string) (kStats *KeyStats, ok bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.nget++
@@ -574,7 +611,7 @@ func (c *cache) getKeyStats(key string) (kStats *KeyStats, ok bool) {
 		return
 	}
 	c.nhit++
-	return vi.(*valueWithStats).stats, true
+	return vi.(*KeyStats), true
 }
 
 func (c *cache) removeOldest() {

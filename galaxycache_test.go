@@ -228,7 +228,7 @@ func TestPromotion(t *testing.T) {
 			galaxy := universe.NewGalaxy("test-galaxy", tc.cacheSize, GetterFunc(getter), WithPromoter(tc.promoter))
 			key := "to-get"
 			galaxy.getFromPeer(context.TODO(), fetcher, key)
-			_, okCandidate := galaxy.candidateCache.get(key)
+			_, okCandidate := galaxy.candidateCache.getCandidateStats(key)
 			value, okHot := galaxy.hotCache.get(key)
 			switch tc.testName {
 			case "candidate_promotion":
@@ -250,7 +250,7 @@ func TestPromotion(t *testing.T) {
 			if tc.testName == "candidate_promotion" {
 				galaxy.getFromPeer(context.TODO(), fetcher, key)
 				value, okHot = galaxy.hotCache.get(key)
-				if string(value) != "got:to-get" {
+				if string(value.data) != "got:to-get" {
 					t.Error("Did not promote from candidacy")
 				}
 			}
@@ -521,15 +521,22 @@ func TestHotcache(t *testing.T) {
 			var c cache
 			c.lru = &lru.Cache{
 				OnEvicted: func(key lru.Key, value interface{}) {
-					val := value.(*valueWithStats).data
+					val := value.(*valWithStat).data
 					c.nbytes -= int64(len(key.(string))) + int64(len(val))
 					c.nevict++
 				},
 			}
-			testVal := []byte("hello")
-			c.add(tc.keyToAdd, testVal)
+			kStats := &KeyStats{
+				dQPS: &dampedQPS{
+					period: time.Second,
+				},
+			}
+			valWithStats := &valWithStat{
+				data:  []byte("hello"),
+				stats: kStats,
+			}
+			c.lru.Add(tc.keyToAdd, valWithStats)
 			now := time.Now()
-			kStats, _ := c.getKeyStats(tc.keyToAdd)
 			for k := 0; k < tc.numHeatBursts; k++ {
 				for k := 0; k < tc.numGets; k++ {
 					kStats.dQPS.logAccess(now)

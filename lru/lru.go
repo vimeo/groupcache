@@ -106,16 +106,16 @@ func (c *Cache) Get(key Key, now time.Time) (value interface{}, ok bool) {
 
 // HottestElement returns the most recently used element
 func (c *Cache) HottestElement(now time.Time) interface{} {
-	if c == nil {
-		return 0
+	if c.cache == nil {
+		return nil
 	}
 	return c.ll.Front().Value.(*entry).value
 }
 
 // ColdestElement returns the least recently used element
 func (c *Cache) ColdestElement(now time.Time) interface{} {
-	if c == nil {
-		return 0
+	if c.cache == nil {
+		return nil
 	}
 	return c.ll.Back().Value.(*entry).value
 }
