@@ -451,7 +451,7 @@ func TestHotcache(t *testing.T) {
 					},
 				},
 			}
-			g.hotCache.add(tc.keyToAdd+"2", value2)
+			g.hotCache.add(tc.keyToAdd+"2", value2) // ensure that hcStats are properly updated after adding
 			g.updateHotCacheStats()
 			t.Logf("Hottest QPS: %f, Coldest QPS: %f\n", g.hcStats.HottestHotQPS, g.hcStats.ColdestHotQPS)
 			now = now.Add(time.Second * 5)
