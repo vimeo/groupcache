@@ -71,6 +71,28 @@ type HCStats struct {
 	HCCapacity    int64
 }
 
+func (g *Galaxy) updateHotCacheStats() {
+	if g.hotCache.lru == nil {
+		g.hotCache.initCache()
+	}
+	hottestQPS := 0.0
+	coldestQPS := 0.0
+	hottestEle := g.hotCache.lru.HottestElement(time.Now())
+	coldestEle := g.hotCache.lru.ColdestElement(time.Now())
+	if hottestEle != nil {
+		hottestQPS = hottestEle.(*valWithStat).stats.Val()
+		coldestQPS = coldestEle.(*valWithStat).stats.Val()
+	}
+
+	newHCS := &HCStats{
+		HottestHotQPS: hottestQPS,
+		ColdestHotQPS: coldestQPS,
+		HCSize:        (g.cacheBytes / g.hcRatio) - g.hotCache.bytes(),
+		HCCapacity:    g.cacheBytes / g.hcRatio,
+	}
+	g.hcStats = newHCS
+}
+
 // Stats contains both the KeyQPS and a pointer to the galaxy-wide
 // HCStats
 type Stats struct {
@@ -139,4 +161,20 @@ func (a *dampedQPS) val(now time.Time) float64 {
 	prev := a.prev
 	a.mu.Unlock()
 	return prev
+}
+
+func (g *Galaxy) populateCandidateCache(key string) *KeyStats {
+	kStats := &KeyStats{
+		dQPS: &dampedQPS{
+			period: time.Second,
+		},
+	}
+	g.candidateCache.addToCandidateCache(key, kStats)
+	return kStats
+}
+
+func (c *cache) addToCandidateCache(key string, kStats *KeyStats) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lru.Add(key, kStats)
 }

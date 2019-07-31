@@ -260,29 +260,6 @@ func (g *Galaxy) Name() string {
 	return g.name
 }
 
-func (g *Galaxy) updateHotCacheStats() {
-	if g.hotCache.lru == nil {
-		g.hotCache.initCache()
-	}
-	hottestQPS := 0.0
-	coldestQPS := 0.0
-	hottestEle := g.hotCache.lru.HottestElement(time.Now())
-	coldestEle := g.hotCache.lru.ColdestElement(time.Now())
-	if hottestEle != nil {
-		hottestQPS = hottestEle.(*valWithStat).stats.Val()
-		coldestQPS = coldestEle.(*valWithStat).stats.Val()
-	}
-
-	newHCS := &HCStats{
-		HottestHotQPS: hottestQPS,
-		ColdestHotQPS: coldestQPS,
-		HCSize:        (g.cacheBytes / g.hcRatio) - g.hotCache.bytes(),
-		HCCapacity:    g.cacheBytes / g.hcRatio,
-	}
-	// fmt.Printf("hottestQPS: %f, coldestQPS: %f\n", newHCS.HottestHotQPS, newHCS.ColdestHotQPS)
-	g.hcStats = newHCS
-}
-
 // Get as defined here is the primary "get" called on a galaxy to
 // find the value for the given key, using the following logic:
 // - First, try the local cache; if its a cache hit, we're done
@@ -497,22 +474,6 @@ func (g *Galaxy) populateCache(key string, value *valWithStat, cache *cache) {
 		}
 		victim.removeOldest()
 	}
-}
-
-func (g *Galaxy) populateCandidateCache(key string) *KeyStats {
-	kStats := &KeyStats{
-		dQPS: &dampedQPS{
-			period: time.Second,
-		},
-	}
-	g.candidateCache.addToCandidateCache(key, kStats)
-	return kStats
-}
-
-func (c *cache) addToCandidateCache(key string, kStats *KeyStats) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.lru.Add(key, kStats)
 }
 
 // CacheType represents a type of cache.
