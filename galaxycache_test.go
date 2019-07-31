@@ -426,10 +426,7 @@ func TestHotcache(t *testing.T) {
 					period: time.Second,
 				},
 			}
-			value := &valWithStat{
-				data:  []byte("hello"),
-				stats: kStats,
-			}
+			value := newValWithStat([]byte("hello"), kStats)
 			g.hotCache.add(tc.keyToAdd, value)
 			now := time.Now()
 			// blast the key in the hotcache with a bunch of hypothetical gets every few seconds
@@ -443,14 +440,7 @@ func TestHotcache(t *testing.T) {
 			}
 			val := kStats.dQPS.val(now)
 			t.Logf("QPS after all bursts: %f\n", val)
-			value2 := &valWithStat{
-				data: []byte("hello there"),
-				stats: &KeyStats{
-					dQPS: &dampedQPS{
-						period: time.Second,
-					},
-				},
-			}
+			value2 := newValWithStat([]byte("hello there"), nil)
 			g.hotCache.add(tc.keyToAdd+"2", value2) // ensure that hcStats are properly updated after adding
 			g.updateHotCacheStats()
 			t.Logf("Hottest QPS: %f, Coldest QPS: %f\n", g.hcStats.HottestHotQPS, g.hcStats.ColdestHotQPS)

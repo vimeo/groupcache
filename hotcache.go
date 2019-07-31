@@ -105,6 +105,21 @@ type KeyStats struct {
 	dQPS *dampedQPS
 }
 
+func newValWithStat(data []byte, kStats *KeyStats) *valWithStat {
+	value := &valWithStat{
+		data: data,
+		stats: &KeyStats{
+			dQPS: &dampedQPS{
+				period: time.Second,
+			},
+		},
+	}
+	if kStats != nil {
+		value.stats = kStats
+	}
+	return value
+}
+
 func (k *KeyStats) Val() float64 {
 	return k.dQPS.val(time.Now())
 }

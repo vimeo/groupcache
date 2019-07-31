@@ -401,14 +401,7 @@ func (g *Galaxy) getLocally(ctx context.Context, key string, dest Codec) (*valWi
 		return nil, err
 	}
 	data, errMarshal := dest.MarshalBinary()
-	value := &valWithStat{
-		data: data,
-		stats: &KeyStats{
-			dQPS: &dampedQPS{
-				period: time.Second,
-			},
-		},
-	}
+	value := newValWithStat(data, nil)
 	return value, errMarshal
 }
 
@@ -428,10 +421,7 @@ func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string
 		KeyQPS:  kStats.Val(),
 		hcStats: g.hcStats,
 	}
-	value := &valWithStat{
-		data:  dataCopy,
-		stats: kStats,
-	}
+	value := newValWithStat(dataCopy, kStats)
 	if g.promoter.ShouldPromote(key, value.data, stats) {
 		g.populateCache(key, value, &g.hotCache)
 	}
