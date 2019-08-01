@@ -38,6 +38,15 @@ type Promoter interface {
 	ShouldPromote(key string, data []byte, stats Stats) bool
 }
 
+// PromoterFunc implements Promoter with a function.
+type PromoterFunc func(key string, data []byte, stats Stats) bool
+
+// ShouldPromote returns true if the given key/data pair has been chosen to
+// add to the hotcache
+func (f PromoterFunc) ShouldPromote(key string, data []byte, stats Stats) bool {
+	return f(key, data, stats)
+}
+
 type oneInTenPromoter struct{}
 
 type defaultPromoter struct{}
