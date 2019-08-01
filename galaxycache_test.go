@@ -395,24 +395,24 @@ func TestGalaxyStatsAlignment(t *testing.T) {
 }
 
 func TestHotcache(t *testing.T) {
+	keyToAdd := "hi"
 	var hcTests = []struct {
 		name                  string
 		numGets               int
 		numHeatBursts         int
 		secsBetweenHeatBursts time.Duration
 		secsToVal             time.Duration
-		keyToAdd              string
 	}{
-		{"10k_heat_burst_1_sec", 10000, 5, 1, 15, "hi"},
-		{"10k_heat_burst_2_secs", 10000, 5, 2, 15, "hi"},
-		{"10k_heat_burst_5_secs", 10000, 5, 5, 15, "hi"},
-		{"10k_heat_burst_30_secs", 10000, 5, 30, 15, "hi"},
-		{"10k_heat_burst_45_secs", 10000, 10, 45, 15, "hi"},
-		{"1k_heat_burst_1_secs", 1000, 5, 1, 15, "hi"},
-		{"1k_heat_burst_2_secs", 1000, 5, 2, 15, "hi"},
-		{"1k_heat_burst_5_secs", 1000, 5, 5, 15, "hi"},
-		{"1k_heat_burst_30_secs", 1000, 5, 30, 15, "hi"},
-		{"1k_heat_burst_45_secs", 1000, 10, 45, 15, "hi"},
+		{"10k_heat_burst_1_sec", 10000, 5, 1, 15},
+		{"10k_heat_burst_2_secs", 10000, 5, 2, 15},
+		{"10k_heat_burst_5_secs", 10000, 5, 5, 15},
+		{"10k_heat_burst_30_secs", 10000, 5, 30, 15},
+		{"10k_heat_burst_45_secs", 10000, 10, 45, 15},
+		{"1k_heat_burst_1_secs", 1000, 5, 1, 15},
+		{"1k_heat_burst_2_secs", 1000, 5, 2, 15},
+		{"1k_heat_burst_5_secs", 1000, 5, 5, 15},
+		{"1k_heat_burst_30_secs", 1000, 5, 30, 15},
+		{"1k_heat_burst_45_secs", 1000, 5, 45, 15},
 	}
 
 	for _, tc := range hcTests {
@@ -427,7 +427,7 @@ func TestHotcache(t *testing.T) {
 				},
 			}
 			value := newValWithStat([]byte("hello"), kStats)
-			g.hotCache.add(tc.keyToAdd, value)
+			g.hotCache.add(keyToAdd, value)
 			now := time.Now()
 			// blast the key in the hotcache with a bunch of hypothetical gets every few seconds
 			for k := 0; k < tc.numHeatBursts; k++ {
@@ -441,7 +441,7 @@ func TestHotcache(t *testing.T) {
 			val := kStats.dQPS.val(now)
 			t.Logf("QPS after all bursts: %f\n", val)
 			value2 := newValWithStat([]byte("hello there"), nil)
-			g.hotCache.add(tc.keyToAdd+"2", value2) // ensure that hcStats are properly updated after adding
+			g.hotCache.add(keyToAdd+"2", value2) // ensure that hcStats are properly updated after adding
 			g.updateHotCacheStats()
 			t.Logf("Hottest QPS: %f, Coldest QPS: %f\n", g.hcStats.HottestHotQPS, g.hcStats.ColdestHotQPS)
 			now = now.Add(time.Second * 5)
