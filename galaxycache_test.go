@@ -505,7 +505,13 @@ func TestPromotion(t *testing.T) {
 			testName:  "candidate_promotion",
 			promoter:  &promoteFromCandidate{},
 			cacheSize: 1 << 20,
-			checkCache: func(key string, val *valWithStat, _ bool, okHot bool, tf *TestFetcher, g *Galaxy) {
+			checkCache: func(key string, val *valWithStat, okCand bool, okHot bool, tf *TestFetcher, g *Galaxy) {
+				if !okCand {
+					t.Error("Candidate not found in candidate cache")
+				}
+				if okHot {
+					t.Error("Found candidate in hotcache")
+				}
 				g.getFromPeer(context.TODO(), tf, key)
 				val, okHot = g.hotCache.getValFromCache(key)
 				if string(val.data) != "got:"+testKey {
