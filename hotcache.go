@@ -181,6 +181,9 @@ func (a *dampedQPS) maybeFlush(now time.Time) {
 
 func (a *dampedQPS) val(now time.Time) float64 {
 	a.mu.Lock()
+	if a.t.IsZero() {
+		a.t = now
+	}
 	a.maybeFlush(now)
 	prev := a.prev
 	a.mu.Unlock()
