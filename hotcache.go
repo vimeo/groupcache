@@ -59,7 +59,7 @@ func (p *defaultPromoter) ShouldPromote(key string, data []byte, stats Stats) bo
 
 type valWithStat struct {
 	data  []byte
-	stats *KeyStats
+	stats *keyStats
 }
 
 // HCStats keeps track of the size, capacity, and coldest/hottest
@@ -100,15 +100,15 @@ type Stats struct {
 	hcStats *HCStats
 }
 
-// KeyStats keeps track of the hotness of a key
-type KeyStats struct {
+// keyStats keeps track of the hotness of a key
+type keyStats struct {
 	dQPS *dampedQPS
 }
 
-func newValWithStat(data []byte, kStats *KeyStats) *valWithStat {
+func newValWithStat(data []byte, kStats *keyStats) *valWithStat {
 	value := &valWithStat{
 		data: data,
-		stats: &KeyStats{
+		stats: &keyStats{
 			dQPS: &dampedQPS{
 				period: time.Second,
 			},
@@ -120,11 +120,11 @@ func newValWithStat(data []byte, kStats *KeyStats) *valWithStat {
 	return value
 }
 
-func (k *KeyStats) Val() float64 {
+func (k *keyStats) Val() float64 {
 	return k.dQPS.val(time.Now())
 }
 
-func (k *KeyStats) Touch() {
+func (k *keyStats) Touch() {
 	k.dQPS.touch(time.Now())
 }
 
@@ -178,8 +178,8 @@ func (a *dampedQPS) val(now time.Time) float64 {
 	return prev
 }
 
-func (g *Galaxy) populateCandidateCache(key string) *KeyStats {
-	kStats := &KeyStats{
+func (g *Galaxy) populateCandidateCache(key string) *keyStats {
+	kStats := &keyStats{
 		dQPS: &dampedQPS{
 			period: time.Second,
 		},
@@ -188,7 +188,7 @@ func (g *Galaxy) populateCandidateCache(key string) *KeyStats {
 	return kStats
 }
 
-func (c *cache) addToCandidateCache(key string, kStats *KeyStats) {
+func (c *cache) addToCandidateCache(key string, kStats *keyStats) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.lru.Add(key, kStats)

@@ -380,7 +380,7 @@ func TestNoDedup(t *testing.T) {
 	// If the singleflight callback doesn't double-check the cache again
 	// upon entry, we would increment nbytes twice but the entry would
 	// only be in the cache once.
-	const wantBytes = int64(len(testkey) + len(testval) + int(unsafe.Sizeof(&KeyStats{})))
+	const wantBytes = int64(len(testkey) + len(testval) + int(unsafe.Sizeof(&keyStats{})))
 	if g.mainCache.nbytes != wantBytes {
 		t.Errorf("cache has %d bytes, want %d", g.mainCache.nbytes, wantBytes)
 	}
@@ -421,7 +421,7 @@ func TestHotcache(t *testing.T) {
 			g := u.NewGalaxy("test-galaxy", 1<<20, GetterFunc(func(_ context.Context, key string, dest Codec) error {
 				return dest.UnmarshalBinary([]byte("hello"))
 			}))
-			kStats := &KeyStats{
+			kStats := &keyStats{
 				dQPS: &dampedQPS{
 					period: time.Second,
 				},

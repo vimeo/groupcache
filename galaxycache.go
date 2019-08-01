@@ -549,7 +549,7 @@ func (c *cache) getFromCache(key string) (value *valWithStat, ok bool) {
 	return vi.(*valWithStat), true
 }
 
-func (c *cache) getCandidateStats(key string) (kStats *KeyStats, ok bool) {
+func (c *cache) getCandidateStats(key string) (kStats *keyStats, ok bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.lru == nil {
@@ -559,7 +559,7 @@ func (c *cache) getCandidateStats(key string) (kStats *KeyStats, ok bool) {
 	if !ok {
 		return
 	}
-	return vi.(*KeyStats), true
+	return vi.(*keyStats), true
 }
 
 func (c *cache) removeOldest() {
