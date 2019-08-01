@@ -22,6 +22,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"math/rand"
 	"strconv"
 	"strings"
@@ -402,17 +403,13 @@ func TestHotcache(t *testing.T) {
 		numHeatBursts         int
 		secsBetweenHeatBursts time.Duration
 		secsToVal             time.Duration
+		expectedBurstQPS      float64
+		expectedValQPS        float64
 	}{
-		{"10k_heat_burst_1_sec", 10000, 5, 1, 15},
-		{"10k_heat_burst_2_secs", 10000, 5, 2, 15},
-		{"10k_heat_burst_5_secs", 10000, 5, 5, 15},
-		{"10k_heat_burst_30_secs", 10000, 5, 30, 15},
-		{"10k_heat_burst_45_secs", 10000, 10, 45, 15},
-		{"1k_heat_burst_1_secs", 1000, 5, 1, 15},
-		{"1k_heat_burst_2_secs", 1000, 5, 2, 15},
-		{"1k_heat_burst_5_secs", 1000, 5, 5, 15},
-		{"1k_heat_burst_30_secs", 1000, 5, 30, 15},
-		{"1k_heat_burst_45_secs", 1000, 5, 45, 15},
+		{"10k_heat_burst_1_sec", 10000, 5, 1, 5, 1559.0, 1316.0},
+		{"10k_heat_burst_5_secs", 10000, 5, 5, 5, 1067.0, 900.5},
+		{"1k_heat_burst_1_secs", 1000, 5, 1, 5, 155.9, 131.6},
+		{"1k_heat_burst_5_secs", 1000, 5, 5, 5, 106.7, 90.05},
 	}
 
 	for _, tc := range hcTests {
@@ -433,23 +430,25 @@ func TestHotcache(t *testing.T) {
 			for k := 0; k < tc.numHeatBursts; k++ {
 				for k := 0; k < tc.numGets; k++ {
 					kStats.dQPS.touch(now)
-					now = now.Add(time.Nanosecond)
 				}
 				t.Logf("QPS on %d gets in 1 second on burst #%d: %f\n", tc.numGets, k+1, kStats.dQPS.prev)
 				now = now.Add(time.Second * tc.secsBetweenHeatBursts)
 			}
 			val := kStats.dQPS.val(now)
-			t.Logf("QPS after all bursts: %f\n", val)
+			if math.Abs(val-tc.expectedBurstQPS) > val/100 { // ensure less than %1 error
+				t.Errorf("QPS after bursts: %f, Wanted: %f", val, tc.expectedBurstQPS)
+			}
 			value2 := newValWithStat([]byte("hello there"), nil)
+
 			g.hotCache.add(keyToAdd+"2", value2) // ensure that hcStats are properly updated after adding
 			g.updateHotCacheStats()
 			t.Logf("Hottest QPS: %f, Coldest QPS: %f\n", g.hcStats.HottestHotQPS, g.hcStats.ColdestHotQPS)
-			now = now.Add(time.Second * 5)
-			kStats.dQPS.touch(now)
-			t.Logf("QPS on 1 additional get after %d seconds: %f\n", 5, kStats.dQPS.prev)
+
 			now = now.Add(time.Second * tc.secsToVal)
 			val = kStats.dQPS.val(now)
-			t.Logf("QPS on Val() get after %d seconds: %f\n", tc.secsToVal, val)
+			if math.Abs(val-tc.expectedValQPS) > val/100 {
+				t.Errorf("QPS after delayed Val() call: %f, Wanted: %f", val, tc.expectedBurstQPS)
+			}
 		})
 	}
 }
