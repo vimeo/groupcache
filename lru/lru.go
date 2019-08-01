@@ -19,7 +19,6 @@ package lru // import "github.com/vimeo/galaxycache/lru"
 
 import (
 	"container/list"
-	"time"
 )
 
 // Cache is an LRU cache. It is not safe for concurrent access.
@@ -74,7 +73,7 @@ func (c *Cache) Add(key Key, value interface{}) {
 }
 
 // Get looks up a key's value from the cache.
-func (c *Cache) Get(key Key, now time.Time) (value interface{}, ok bool) {
+func (c *Cache) Get(key Key) (value interface{}, ok bool) {
 	if c.cache == nil {
 		return
 	}
@@ -85,7 +84,7 @@ func (c *Cache) Get(key Key, now time.Time) (value interface{}, ok bool) {
 	return
 }
 
-// HottestElement returns the most recently used element
+// MostRecent returns the most recently used element
 func (c *Cache) MostRecent() interface{} {
 	if c.cache == nil {
 		return nil
@@ -93,7 +92,7 @@ func (c *Cache) MostRecent() interface{} {
 	return c.ll.Front().Value.(*entry).value
 }
 
-// ColdestElement returns the least recently used element
+// LeastRecent returns the least recently used element
 func (c *Cache) LeastRecent() interface{} {
 	if c.cache == nil {
 		return nil

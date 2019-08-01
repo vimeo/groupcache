@@ -19,7 +19,6 @@ package lru
 import (
 	"fmt"
 	"testing"
-	"time"
 )
 
 type simpleStruct struct {
@@ -50,7 +49,7 @@ func TestGet(t *testing.T) {
 	for _, tt := range getTests {
 		lru := New(0)
 		lru.Add(tt.keyToAdd, 1234)
-		val, ok := lru.Get(tt.keyToGet, time.Now())
+		val, ok := lru.Get(tt.keyToGet)
 		if ok != tt.expectedOk {
 			t.Fatalf("%s: cache hit = %v; want %v", tt.name, ok, !ok)
 		} else if ok && val != 1234 {
@@ -62,14 +61,14 @@ func TestGet(t *testing.T) {
 func TestRemove(t *testing.T) {
 	lru := New(0)
 	lru.Add("myKey", 1234)
-	if val, ok := lru.Get("myKey", time.Now()); !ok {
+	if val, ok := lru.Get("myKey"); !ok {
 		t.Fatal("TestRemove returned no match")
 	} else if val != 1234 {
 		t.Fatalf("TestRemove failed.  Expected %d, got %v", 1234, val)
 	}
 
 	lru.Remove("myKey")
-	if _, ok := lru.Get("myKey", time.Now()); ok {
+	if _, ok := lru.Get("myKey"); ok {
 		t.Fatal("TestRemove returned a removed entry")
 	}
 }
