@@ -553,7 +553,7 @@ func (c *cache) getValFromCache(key string) (value *valWithStat, ok bool) {
 	if c.lru == nil {
 		return
 	}
-	vi, ok := c.lru.Get(key, time.Now())
+	vi, ok := c.lru.Get(key)
 	if !ok {
 		return
 	}
@@ -567,7 +567,7 @@ func (c *cache) getCandidateStats(key string) (kStats *keyStats, ok bool) {
 	if c.lru == nil {
 		return
 	}
-	vi, ok := c.lru.Get(key, time.Now())
+	vi, ok := c.lru.Get(key)
 	if !ok {
 		return
 	}
