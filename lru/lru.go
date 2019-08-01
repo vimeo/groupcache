@@ -73,7 +73,7 @@ func (c *Cache) Add(key Key, value interface{}) {
 	}
 }
 
-// Get looks up a key's value from the cache and increments its heat.
+// Get looks up a key's value from the cache.
 func (c *Cache) Get(key Key, now time.Time) (value interface{}, ok bool) {
 	if c.cache == nil {
 		return
@@ -86,7 +86,7 @@ func (c *Cache) Get(key Key, now time.Time) (value interface{}, ok bool) {
 }
 
 // HottestElement returns the most recently used element
-func (c *Cache) HottestElement(now time.Time) interface{} {
+func (c *Cache) MostRecent() interface{} {
 	if c.cache == nil {
 		return nil
 	}
@@ -94,7 +94,7 @@ func (c *Cache) HottestElement(now time.Time) interface{} {
 }
 
 // ColdestElement returns the least recently used element
-func (c *Cache) ColdestElement(now time.Time) interface{} {
+func (c *Cache) LeastRecent() interface{} {
 	if c.cache == nil {
 		return nil
 	}
