@@ -100,6 +100,14 @@ func (c *Cache) LeastRecent() interface{} {
 	return c.ll.Back().Value.(*entry).value
 }
 
+// LeastRecentKey returns the least recently used key
+func (c *Cache) LeastRecentKey() interface{} {
+	if c.cache == nil {
+		return nil
+	}
+	return c.ll.Back().Value.(*entry).key
+}
+
 // Remove removes the provided key from the cache.
 func (c *Cache) Remove(key Key) {
 	if c.cache == nil {
