@@ -454,24 +454,6 @@ func TestHotcache(t *testing.T) {
 	}
 }
 
-type alwaysPromote struct {
-	promoted int
-}
-
-func (p *alwaysPromote) ShouldPromote(key string, data []byte, stats Stats) bool {
-	p.promoted++
-	return true
-}
-
-type neverPromote struct {
-	promoted int
-}
-
-func (p *neverPromote) ShouldPromote(key string, data []byte, stats Stats) bool {
-	p.promoted++
-	return false
-}
-
 type promoteFromCandidate struct {
 	promoted int
 }
@@ -497,7 +479,7 @@ func TestPromotion(t *testing.T) {
 	}{
 		{
 			testName:  "never_promote",
-			promoter:  &neverPromote{},
+			promoter:  PromoterFunc(func(key string, data []byte, stats Stats) bool { return false }),
 			cacheSize: 1 << 20,
 			checkCache: func(_ string, _ *valWithStat, okCand bool, okHot bool, _ *TestFetcher, _ *Galaxy) {
 				if !okCand {
@@ -510,7 +492,7 @@ func TestPromotion(t *testing.T) {
 		},
 		{
 			testName:  "always_promote",
-			promoter:  &alwaysPromote{},
+			promoter:  PromoterFunc(func(key string, data []byte, stats Stats) bool { return true }),
 			cacheSize: 1 << 20,
 			checkCache: func(_ string, val *valWithStat, _ bool, okHot bool, _ *TestFetcher, _ *Galaxy) {
 				if !okHot {
