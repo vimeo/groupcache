@@ -60,7 +60,7 @@ func (p *oneInTenPromoter) ShouldPromote(key string, data []byte, stats Stats) b
 
 func (p *defaultPromoter) ShouldPromote(key string, data []byte, stats Stats) bool {
 	keyQPS := stats.KeyQPS
-	if keyQPS >= stats.hcStats.ColdestHotQPS {
+	if keyQPS >= stats.hcStats.LeastRecentQPS {
 		return true
 	}
 	return false
@@ -69,30 +69,30 @@ func (p *defaultPromoter) ShouldPromote(key string, data []byte, stats Stats) bo
 // HCStats keeps track of the size, capacity, and coldest/hottest
 // elements in the hot cache
 type HCStats struct {
-	HottestHotQPS float64
-	ColdestHotQPS float64
-	HCSize        int64
-	HCCapacity    int64
+	MostRecentQPS  float64
+	LeastRecentQPS float64
+	HCSize         int64
+	HCCapacity     int64
 }
 
 func (g *Galaxy) updateHotCacheStats() {
 	if g.hotCache.lru == nil {
 		g.hotCache.initLRU()
 	}
-	hottestQPS := 0.0
-	coldestQPS := 0.0
-	hottestEle := g.hotCache.lru.HottestElement(time.Now())
-	coldestEle := g.hotCache.lru.ColdestElement(time.Now())
-	if hottestEle != nil {
-		hottestQPS = hottestEle.(*valWithStat).stats.Val()
-		coldestQPS = coldestEle.(*valWithStat).stats.Val()
+	mruEleQPS := 0.0
+	lruEleQPS := 0.0
+	mruEle := g.hotCache.lru.MostRecent()
+	lruEle := g.hotCache.lru.LeastRecent()
+	if mruEle != nil { // lru contains at least one element
+		mruEleQPS = mruEle.(*valWithStat).stats.Val()
+		lruEleQPS = lruEle.(*valWithStat).stats.Val()
 	}
 
 	newHCS := &HCStats{
-		HottestHotQPS: hottestQPS,
-		ColdestHotQPS: coldestQPS,
-		HCSize:        (g.cacheBytes / g.hcRatio) - g.hotCache.bytes(),
-		HCCapacity:    g.cacheBytes / g.hcRatio,
+		MostRecentQPS:  mruEleQPS,
+		LeastRecentQPS: lruEleQPS,
+		HCSize:         (g.cacheBytes / g.hcRatio) - g.hotCache.bytes(),
+		HCCapacity:     g.cacheBytes / g.hcRatio,
 	}
 	g.hcStats = newHCS
 }

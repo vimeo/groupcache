@@ -442,7 +442,7 @@ func TestHotcache(t *testing.T) {
 
 			g.hotCache.add(keyToAdd+"2", value2) // ensure that hcStats are properly updated after adding
 			g.updateHotCacheStats()
-			t.Logf("Hottest QPS: %f, Coldest QPS: %f\n", g.hcStats.HottestHotQPS, g.hcStats.ColdestHotQPS)
+			t.Logf("Hottest QPS: %f, Coldest QPS: %f\n", g.hcStats.MostRecentQPS, g.hcStats.LeastRecentQPS)
 
 			now = now.Add(time.Second * tc.secsToVal)
 			val = kStats.dQPS.val(now)
