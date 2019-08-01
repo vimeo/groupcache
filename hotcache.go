@@ -77,7 +77,7 @@ type HCStats struct {
 
 func (g *Galaxy) updateHotCacheStats() {
 	if g.hotCache.lru == nil {
-		g.hotCache.initCache()
+		g.hotCache.initLRU()
 	}
 	hottestQPS := 0.0
 	coldestQPS := 0.0

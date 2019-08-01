@@ -526,7 +526,7 @@ func sizeOfValWithStats(data []byte) int64 {
 	return int64(unsafe.Sizeof(val.stats)) + int64(len(val.data)) + int64(unsafe.Sizeof(&val))
 }
 
-func (c *cache) initCache() {
+func (c *cache) initLRU() {
 	c.lru = &lru.Cache{
 		OnEvicted: func(key lru.Key, value interface{}) {
 			val := value.(*valWithStat)
@@ -540,7 +540,7 @@ func (c *cache) add(key string, value *valWithStat) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.lru == nil {
-		c.initCache()
+		c.initLRU()
 	}
 	c.lru.Add(key, value)
 	c.nbytes += int64(len(key)) + sizeOfValWithStats(value.data)
