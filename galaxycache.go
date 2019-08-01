@@ -514,11 +514,23 @@ func (c *cache) stats() CacheStats {
 	}
 }
 
+type valWithStat struct {
+	data  []byte
+	stats *keyStats
+}
+
+// sizeOfValWithStats returns the total size of the value in the hot/main
+// cache, including the data, key stats, and a pointer to the val itself
+func sizeOfValWithStats(data []byte) int64 {
+	val := newValWithStat(data, nil)
+	return int64(unsafe.Sizeof(val.stats)) + int64(len(val.data)) + int64(unsafe.Sizeof(&val))
+}
+
 func (c *cache) initCache() {
 	c.lru = &lru.Cache{
 		OnEvicted: func(key lru.Key, value interface{}) {
 			val := value.(*valWithStat)
-			c.nbytes -= int64(len(key.(string))) + int64(len(val.data)+int(unsafe.Sizeof(val.stats)))
+			c.nbytes -= int64(len(key.(string))) + sizeOfValWithStats(val.data)
 			c.nevict++
 		},
 	}
@@ -531,7 +543,7 @@ func (c *cache) add(key string, value *valWithStat) {
 		c.initCache()
 	}
 	c.lru.Add(key, value)
-	c.nbytes += int64(len(key)) + int64(len(value.data)+int(unsafe.Sizeof(value.stats)))
+	c.nbytes += int64(len(key)) + sizeOfValWithStats(value.data)
 }
 
 func (c *cache) getFromCache(key string) (value *valWithStat, ok bool) {

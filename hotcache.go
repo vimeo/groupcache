@@ -66,11 +66,6 @@ func (p *defaultPromoter) ShouldPromote(key string, data []byte, stats Stats) bo
 	return false
 }
 
-type valWithStat struct {
-	data  []byte
-	stats *keyStats
-}
-
 // HCStats keeps track of the size, capacity, and coldest/hottest
 // elements in the hot cache
 type HCStats struct {
