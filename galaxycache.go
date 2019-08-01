@@ -431,11 +431,11 @@ func (g *Galaxy) lookupCache(key string) (value *valWithStat, ok bool) {
 	if g.cacheBytes <= 0 {
 		return
 	}
-	value, ok = g.mainCache.getFromCache(key)
+	value, ok = g.mainCache.getValFromCache(key)
 	if ok {
 		return
 	}
-	value, ok = g.hotCache.getFromCache(key)
+	value, ok = g.hotCache.getValFromCache(key)
 	g.Stats.HotcacheHits.Add(1)
 	return
 }
@@ -546,13 +546,13 @@ func (c *cache) add(key string, value *valWithStat) {
 	c.nbytes += int64(len(key)) + sizeOfValWithStats(value.data)
 }
 
-func (c *cache) getFromCache(key string) (value *valWithStat, ok bool) {
+func (c *cache) getValFromCache(key string) (value *valWithStat, ok bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.nget++
 	if c.lru == nil {
 		return
 	}
-	c.nget++
 	vi, ok := c.lru.Get(key, time.Now())
 	if !ok {
 		return

@@ -507,7 +507,7 @@ func TestPromotion(t *testing.T) {
 			cacheSize: 1 << 20,
 			checkCache: func(key string, val *valWithStat, _ bool, okHot bool, tf *TestFetcher, g *Galaxy) {
 				g.getFromPeer(context.TODO(), tf, key)
-				val, okHot = g.hotCache.getFromCache(key)
+				val, okHot = g.hotCache.getValFromCache(key)
 				if string(val.data) != "got:"+testKey {
 					t.Error("Did not promote from candidacy")
 				}
@@ -526,7 +526,7 @@ func TestPromotion(t *testing.T) {
 			galaxy := universe.NewGalaxy("test-galaxy", tc.cacheSize, GetterFunc(getter), WithPromoter(tc.promoter))
 			galaxy.getFromPeer(context.TODO(), fetcher, testKey)
 			_, okCandidate := galaxy.candidateCache.getCandidateStats(testKey)
-			value, okHot := galaxy.hotCache.getFromCache(testKey)
+			value, okHot := galaxy.hotCache.getValFromCache(testKey)
 			tc.checkCache(testKey, value, okCandidate, okHot, fetcher, galaxy)
 
 		})
