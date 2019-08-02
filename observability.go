@@ -37,6 +37,7 @@ var (
 	defaultMillisecondsDistribution = view.Distribution(0, 0.01, 0.05, 0.1, 0.3, 0.6, 0.8, 1, 2, 3, 4, 5, 6, 8, 10, 13, 16, 20, 25, 30, 40, 50, 65, 80, 100, 130, 160, 200, 250, 300, 400, 500, 650, 800, 1000, 2000, 5000, 10000, 20000, 50000, 100000)
 )
 
+// Opencensus stats
 var (
 	MGets            = stats.Int64("gets", "The number of Get requests", unitDimensionless)
 	MCacheHits       = stats.Int64("cache_hits", "The number of times that either cache was good", unitDimensionless)
@@ -58,6 +59,7 @@ var (
 
 var keyCommand, _ = tag.NewKey("command")
 
+// AllViews is a slice of default views for people to use
 var AllViews = []*view.View{
 	{Name: "galaxycache/gets", Description: "The number of Get requests", Measure: MGets, Aggregation: view.Count()},
 	{Name: "galaxycache/cache_hits", Description: "The number of times that either cache was good", Measure: MCacheHits, Aggregation: view.Count()},
