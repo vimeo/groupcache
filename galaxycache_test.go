@@ -474,13 +474,13 @@ func TestPromotion(t *testing.T) {
 		testName   string
 		promoter   Promoter
 		cacheSize  int64
-		checkCache func(key string, val *valWithStat, okCand bool, okHot bool, tf *TestFetcher, g *Galaxy)
+		checkCache func(key string, val interface{}, okCand bool, okHot bool, tf *TestFetcher, g *Galaxy)
 	}{
 		{
 			testName:  "never_promote",
 			promoter:  PromoterFunc(func(key string, data []byte, stats Stats) bool { return false }),
 			cacheSize: 1 << 20,
-			checkCache: func(_ string, _ *valWithStat, okCand bool, okHot bool, _ *TestFetcher, _ *Galaxy) {
+			checkCache: func(_ string, _ interface{}, okCand bool, okHot bool, _ *TestFetcher, _ *Galaxy) {
 				if !okCand {
 					t.Error("Candidate not found in candidate cache")
 				}
@@ -493,7 +493,7 @@ func TestPromotion(t *testing.T) {
 			testName:  "always_promote",
 			promoter:  PromoterFunc(func(key string, data []byte, stats Stats) bool { return true }),
 			cacheSize: 1 << 20,
-			checkCache: func(_ string, val *valWithStat, _ bool, okHot bool, _ *TestFetcher, _ *Galaxy) {
+			checkCache: func(_ string, val interface{}, _ bool, okHot bool, _ *TestFetcher, _ *Galaxy) {
 				if !okHot {
 					t.Error("Key not found in hotcache")
 				} else if val == nil {
@@ -505,7 +505,7 @@ func TestPromotion(t *testing.T) {
 			testName:  "candidate_promotion",
 			promoter:  &promoteFromCandidate{},
 			cacheSize: 1 << 20,
-			checkCache: func(key string, val *valWithStat, okCand bool, okHot bool, tf *TestFetcher, g *Galaxy) {
+			checkCache: func(key string, _ interface{}, okCand bool, okHot bool, tf *TestFetcher, g *Galaxy) {
 				if !okCand {
 					t.Error("Candidate not found in candidate cache")
 				}
@@ -513,8 +513,8 @@ func TestPromotion(t *testing.T) {
 					t.Error("Found candidate in hotcache")
 				}
 				g.getFromPeer(context.TODO(), tf, key)
-				val, okHot = g.hotCache.getValFromCache(key)
-				if string(val.data) != "got:"+testKey {
+				val, okHot := g.hotCache.get(key)
+				if string(val.(*valWithStat).data) != "got:"+testKey {
 					t.Error("Did not promote from candidacy")
 				}
 			},
@@ -531,8 +531,8 @@ func TestPromotion(t *testing.T) {
 			universe := NewUniverse(testProto, "promotion-test")
 			galaxy := universe.NewGalaxy("test-galaxy", tc.cacheSize, GetterFunc(getter), WithPromoter(tc.promoter))
 			galaxy.getFromPeer(context.TODO(), fetcher, testKey)
-			_, okCandidate := galaxy.candidateCache.getCandidateStats(testKey)
-			value, okHot := galaxy.hotCache.getValFromCache(testKey)
+			_, okCandidate := galaxy.candidateCache.get(testKey)
+			value, okHot := galaxy.hotCache.get(testKey)
 			tc.checkCache(testKey, value, okCandidate, okHot, fetcher, galaxy)
 
 		})

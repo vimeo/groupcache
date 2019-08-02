@@ -22,7 +22,6 @@ limitations under the License.
 // or finally gets the data.  In the common case, many concurrent
 // cache misses across a set of peers for the same key result in just
 // one cache fill.
-
 package galaxycache
 
 import (
@@ -185,12 +184,13 @@ func (a *dampedQPS) val(now time.Time) float64 {
 	return prev
 }
 
-func (g *Galaxy) populateCandidateCache(key string) *keyStats {
+func (g *Galaxy) addNewToCandidateCache(key string) *keyStats {
 	kStats := &keyStats{
 		dQPS: &dampedQPS{
 			period: time.Second,
 		},
 	}
+
 	g.candidateCache.addToCandidateCache(key, kStats)
 	return kStats
 }

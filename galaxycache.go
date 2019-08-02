@@ -106,22 +106,21 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 	if _, dup := universe.galaxies[name]; dup {
 		panic("duplicate registration of galaxy " + name)
 	}
-	ccache := cache{
-		lru: lru.New(100), // default to 100 candidate entries
-	}
 	g := &Galaxy{
-		name:           name,
-		getter:         getter,
-		peerPicker:     universe.peerPicker,
-		cacheBytes:     cacheBytes,
-		candidateCache: ccache,
-		hcStats:        &HCStats{},
-		promoter:       &defaultPromoter{},
-		hcRatio:        8, // default cacheBytes / 8 hotcache size
-		loadGroup:      &singleflight.Group{},
+		name:       name,
+		getter:     getter,
+		peerPicker: universe.peerPicker,
+		cacheBytes: cacheBytes,
+		hcStats:    &HCStats{},
+		promoter:   &defaultPromoter{},
+		hcRatio:    8, // default cacheBytes / 8 hotcache size
+		loadGroup:  &singleflight.Group{},
 	}
 	for _, opt := range opts {
 		opt.apply(g)
+	}
+	if g.candidateCache.lru == nil {
+		g.candidateCache.lru = lru.New(100)
 	}
 	g.hcStats.HCCapacity = g.cacheBytes / g.hcRatio
 	universe.galaxies[name] = g
@@ -241,7 +240,7 @@ type flightGroup interface {
 	Do(key string, fn func() (interface{}, error)) (interface{}, error)
 }
 
-// Stats are per-galaxy statistics.
+// GalaxyStats are per-galaxy statistics.
 type GalaxyStats struct {
 	Gets           AtomicInt // any Get request, including from peers
 	CacheHits      AtomicInt // either cache was good
@@ -270,7 +269,7 @@ func (g *Galaxy) Name() string {
 // canonical owner, call the BackendGetter to retrieve the value
 // (which will now be cached locally)
 func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
-	ctx, _ = tag.New(ctx, tag.Insert(keyCommand, "get"))
+	ctx, _ = tag.New(ctx, tag.Insert(keyCommand, "get")) // TODO: replace with galaxy tag
 
 	ctx, span := trace.StartSpan(ctx, "galaxycache.(*Galaxy).Get on "+g.name)
 	startTime := time.Now()
@@ -410,12 +409,12 @@ func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string
 		return nil, err
 	}
 	dataCopy := data
-	kStats, ok := g.candidateCache.getCandidateStats(key)
+	vi, ok := g.candidateCache.get(key)
 	if !ok {
-		kStats = g.populateCandidateCache(key)
+		vi = g.addNewToCandidateCache(key)
 	}
 	g.updateHotCacheStats()
-
+	kStats := vi.(*keyStats)
 	stats := Stats{
 		KeyQPS:  kStats.Val(),
 		hcStats: g.hcStats,
@@ -431,13 +430,16 @@ func (g *Galaxy) lookupCache(key string) (value *valWithStat, ok bool) {
 	if g.cacheBytes <= 0 {
 		return
 	}
-	value, ok = g.mainCache.getValFromCache(key)
+	vi, ok := g.mainCache.get(key)
 	if ok {
+		return vi.(*valWithStat), ok
+	}
+	vi, ok = g.hotCache.get(key)
+	if !ok {
 		return
 	}
-	value, ok = g.hotCache.getValFromCache(key)
 	g.Stats.HotcacheHits.Add(1)
-	return
+	return vi.(*valWithStat), ok
 }
 
 func (g *Galaxy) populateCache(key string, value *valWithStat, cache *cache) {
@@ -446,8 +448,10 @@ func (g *Galaxy) populateCache(key string, value *valWithStat, cache *cache) {
 	}
 	cache.add(key, value)
 
+	isHC := false
 	// Evict items from cache(s) if necessary.
 	for {
+		isHC = false
 		mainBytes := g.mainCache.bytes()
 		hotBytes := g.hotCache.bytes()
 		if mainBytes+hotBytes <= g.cacheBytes {
@@ -460,8 +464,12 @@ func (g *Galaxy) populateCache(key string, value *valWithStat, cache *cache) {
 		victim := &g.mainCache
 		if hotBytes > mainBytes/g.hcRatio {
 			victim = &g.hotCache
+			isHC = true
 		}
-		victim.removeOldest()
+		demotedKey, demotedStats := victim.removeOldest()
+		if isHC {
+			g.candidateCache.addToCandidateCache(demotedKey, demotedStats)
+		}
 	}
 }
 
@@ -546,40 +554,33 @@ func (c *cache) add(key string, value *valWithStat) {
 	c.nbytes += int64(len(key)) + sizeOfValWithStats(value.data)
 }
 
-func (c *cache) getValFromCache(key string) (value *valWithStat, ok bool) {
+func (c *cache) get(key string) (vi interface{}, ok bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.nget++
 	if c.lru == nil {
 		return
 	}
-	vi, ok := c.lru.Get(key)
+	vi, ok = c.lru.Get(key)
 	if !ok {
 		return
 	}
 	c.nhit++
-	return vi.(*valWithStat), true
+	return vi, true
 }
 
-func (c *cache) getCandidateStats(key string) (kStats *keyStats, ok bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.lru == nil {
-		return
-	}
-	vi, ok := c.lru.Get(key)
-	if !ok {
-		return
-	}
-	return vi.(*keyStats), true
-}
-
-func (c *cache) removeOldest() {
+func (c *cache) removeOldest() (string, *keyStats) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.lru != nil {
+		value := c.lru.LeastRecent()
+		key := c.lru.LeastRecentKey()
+		kStats := *value.(*valWithStat).stats // copy the stats before deleting
 		c.lru.RemoveOldest()
+		return key.(string), &kStats
 	}
+	return "", nil
+
 }
 
 func (c *cache) bytes() int64 {
