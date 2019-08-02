@@ -86,7 +86,7 @@ func (c *Cache) Get(key Key) (value interface{}, ok bool) {
 
 // MostRecent returns the most recently used element
 func (c *Cache) MostRecent() interface{} {
-	if c.cache == nil {
+	if c.Len() == 0 {
 		return nil
 	}
 	return c.ll.Front().Value.(*entry).value
@@ -94,7 +94,7 @@ func (c *Cache) MostRecent() interface{} {
 
 // LeastRecent returns the least recently used element
 func (c *Cache) LeastRecent() interface{} {
-	if c.cache == nil {
+	if c.Len() == 0 {
 		return nil
 	}
 	return c.ll.Back().Value.(*entry).value
@@ -102,7 +102,7 @@ func (c *Cache) LeastRecent() interface{} {
 
 // LeastRecentKey returns the least recently used key
 func (c *Cache) LeastRecentKey() interface{} {
-	if c.cache == nil {
+	if c.Len() == 0 {
 		return nil
 	}
 	return c.ll.Back().Value.(*entry).key
