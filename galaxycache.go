@@ -34,6 +34,7 @@ import (
 	"unsafe"
 
 	"github.com/vimeo/galaxycache/lru"
+	"github.com/vimeo/galaxycache/promoter"
 	"github.com/vimeo/galaxycache/singleflight"
 
 	"go.opencensus.io/stats"
@@ -111,8 +112,8 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 		getter:     getter,
 		peerPicker: universe.peerPicker,
 		cacheBytes: cacheBytes,
-		hcStats:    &HCStats{},
-		promoter:   &defaultPromoter{},
+		hcStats:    &promoter.HCStats{},
+		promoter:   &promoter.DefaultPromoter{},
 		hcRatio:    8, // default cacheBytes / 8 hotcache size
 		loadGroup:  &singleflight.Group{},
 	}
@@ -175,7 +176,7 @@ type Galaxy struct {
 
 	candidateCache cache
 
-	hcStats *HCStats
+	hcStats *promoter.HCStats
 
 	promoter Promoter
 
@@ -415,9 +416,9 @@ func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string
 	}
 	g.updateHotCacheStats()
 	kStats := vi.(*keyStats)
-	stats := Stats{
+	stats := promoter.Stats{
 		KeyQPS:  kStats.Val(),
-		hcStats: g.hcStats,
+		HCStats: g.hcStats,
 	}
 	value := newValWithStat(dataCopy, kStats)
 	if g.promoter.ShouldPromote(key, value.data, stats) {

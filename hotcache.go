@@ -14,64 +14,29 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package galaxycache provides a data loading mechanism with caching
-// and de-duplication that works across a set of peer processes.
-//
-// Each data Get first consults its local cache, otherwise delegates
-// to the requested key's canonical owner, which then checks its cache
-// or finally gets the data.  In the common case, many concurrent
-// cache misses across a set of peers for the same key result in just
-// one cache fill.
 package galaxycache
 
 import (
 	"math"
-	"math/rand"
 	"sync"
 	"time"
+
+	"github.com/vimeo/galaxycache/promoter"
 )
 
 // Promoter is the interface for determining whether a key/value pair should be
 // added to the hot cache
 type Promoter interface {
-	ShouldPromote(key string, data []byte, stats Stats) bool
+	ShouldPromote(key string, data []byte, stats promoter.Stats) bool
 }
 
 // PromoterFunc implements Promoter with a function.
-type PromoterFunc func(key string, data []byte, stats Stats) bool
+type PromoterFunc func(key string, data []byte, stats promoter.Stats) bool
 
 // ShouldPromote returns true if the given key/data pair has been chosen to
 // add to the hotcache
-func (f PromoterFunc) ShouldPromote(key string, data []byte, stats Stats) bool {
+func (f PromoterFunc) ShouldPromote(key string, data []byte, stats promoter.Stats) bool {
 	return f(key, data, stats)
-}
-
-type oneInTenPromoter struct{}
-
-type defaultPromoter struct{}
-
-func (p *oneInTenPromoter) ShouldPromote(key string, data []byte, stats Stats) bool {
-	if rand.Intn(10) == 0 {
-		return true
-	}
-	return false
-}
-
-func (p *defaultPromoter) ShouldPromote(key string, data []byte, stats Stats) bool {
-	keyQPS := stats.KeyQPS
-	if keyQPS >= stats.hcStats.LeastRecentQPS {
-		return true
-	}
-	return false
-}
-
-// HCStats keeps track of the size, capacity, and coldest/hottest
-// elements in the hot cache
-type HCStats struct {
-	MostRecentQPS  float64
-	LeastRecentQPS float64
-	HCSize         int64
-	HCCapacity     int64
 }
 
 func (g *Galaxy) updateHotCacheStats() {
@@ -87,20 +52,13 @@ func (g *Galaxy) updateHotCacheStats() {
 		lruEleQPS = lruEle.(*valWithStat).stats.Val()
 	}
 
-	newHCS := &HCStats{
+	newHCS := &promoter.HCStats{
 		MostRecentQPS:  mruEleQPS,
 		LeastRecentQPS: lruEleQPS,
 		HCSize:         (g.cacheBytes / g.hcRatio) - g.hotCache.bytes(),
 		HCCapacity:     g.cacheBytes / g.hcRatio,
 	}
 	g.hcStats = newHCS
-}
-
-// Stats contains both the KeyQPS and a pointer to the galaxy-wide
-// HCStats
-type Stats struct {
-	KeyQPS  float64
-	hcStats *HCStats
 }
 
 // keyStats keeps track of the hotness of a key

@@ -30,6 +30,8 @@ import (
 	"testing"
 	"time"
 	"unsafe"
+
+	"github.com/vimeo/galaxycache/promoter"
 )
 
 const (
@@ -270,7 +272,7 @@ func TestPeers(t *testing.T) {
 				return dest.UnmarshalBinary([]byte("got:" + key))
 			}
 
-			testGalaxy := universe.NewGalaxy("TestPeers-galaxy", tc.cacheSize, GetterFunc(getter), WithPromoter(&oneInTenPromoter{}))
+			testGalaxy := universe.NewGalaxy("TestPeers-galaxy", tc.cacheSize, GetterFunc(getter), WithPromoter(&promoter.OneInTenPromoter{}))
 
 			if tc.initFunc != nil {
 				tc.initFunc(testGalaxy, testproto.TestFetchers)
@@ -457,7 +459,7 @@ type promoteFromCandidate struct {
 	promoted int
 }
 
-func (p *promoteFromCandidate) ShouldPromote(key string, data []byte, stats Stats) bool {
+func (p *promoteFromCandidate) ShouldPromote(key string, data []byte, stats promoter.Stats) bool {
 	if p.promoted > 0 {
 		return true
 	}
@@ -478,7 +480,7 @@ func TestPromotion(t *testing.T) {
 	}{
 		{
 			testName:  "never_promote",
-			promoter:  PromoterFunc(func(key string, data []byte, stats Stats) bool { return false }),
+			promoter:  PromoterFunc(func(key string, data []byte, stats promoter.Stats) bool { return false }),
 			cacheSize: 1 << 20,
 			checkCache: func(_ string, _ interface{}, okCand bool, okHot bool, _ *TestFetcher, _ *Galaxy) {
 				if !okCand {
@@ -491,7 +493,7 @@ func TestPromotion(t *testing.T) {
 		},
 		{
 			testName:  "always_promote",
-			promoter:  PromoterFunc(func(key string, data []byte, stats Stats) bool { return true }),
+			promoter:  PromoterFunc(func(key string, data []byte, stats promoter.Stats) bool { return true }),
 			cacheSize: 1 << 20,
 			checkCache: func(_ string, val interface{}, _ bool, okHot bool, _ *TestFetcher, _ *Galaxy) {
 				if !okHot {
