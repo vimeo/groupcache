@@ -40,9 +40,6 @@ func (f PromoterFunc) ShouldPromote(key string, data []byte, stats promoter.Stat
 }
 
 func (g *Galaxy) updateHotCacheStats() {
-	if g.hotCache.lru == nil {
-		g.hotCache.initLRU()
-	}
 	mruEleQPS := 0.0
 	lruEleQPS := 0.0
 	mruEle := g.hotCache.lru.MostRecent()
@@ -55,8 +52,8 @@ func (g *Galaxy) updateHotCacheStats() {
 	newHCS := &promoter.HCStats{
 		MostRecentQPS:  mruEleQPS,
 		LeastRecentQPS: lruEleQPS,
-		HCSize:         (g.cacheBytes / g.hcRatio) - g.hotCache.bytes(),
-		HCCapacity:     g.cacheBytes / g.hcRatio,
+		HCSize:         (g.cacheBytes / g.opts.hcRatio) - g.hotCache.bytes(),
+		HCCapacity:     g.cacheBytes / g.opts.hcRatio,
 	}
 	g.hcStats = newHCS
 }

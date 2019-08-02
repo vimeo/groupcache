@@ -107,23 +107,41 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 	if _, dup := universe.galaxies[name]; dup {
 		panic("duplicate registration of galaxy " + name)
 	}
+
+	gOpts := GalaxyOpts{
+		promoter:      &promoter.DefaultPromoter{},
+		hcRatio:       8, // default cacheBytes / 8 hotcache size
+		maxCandidates: 100,
+	}
+	for _, opt := range opts {
+		opt.apply(&gOpts)
+	}
 	g := &Galaxy{
 		name:       name,
 		getter:     getter,
 		peerPicker: universe.peerPicker,
 		cacheBytes: cacheBytes,
-		hcStats:    &promoter.HCStats{},
-		promoter:   &promoter.DefaultPromoter{},
-		hcRatio:    8, // default cacheBytes / 8 hotcache size
-		loadGroup:  &singleflight.Group{},
+		mainCache: cache{
+			lru: lru.New(0),
+		},
+		hotCache: cache{
+			lru: lru.New(0),
+		},
+		candidateCache: cache{
+			lru: lru.New(gOpts.maxCandidates),
+		},
+		hcStats: &promoter.HCStats{
+			HCCapacity: cacheBytes / gOpts.hcRatio,
+		},
+		loadGroup: &singleflight.Group{},
+		opts:      gOpts,
 	}
-	for _, opt := range opts {
-		opt.apply(g)
+	g.mainCache.setLRUOnEvict()
+	g.hotCache.setLRUOnEvict()
+	g.candidateCache.lru.OnEvicted = func(key lru.Key, value interface{}) {
+		g.candidateCache.nevict++
 	}
-	if g.candidateCache.lru == nil {
-		g.candidateCache.lru = lru.New(100)
-	}
-	g.hcStats.HCCapacity = g.cacheBytes / g.hcRatio
+
 	universe.galaxies[name] = g
 	return g
 }
@@ -156,7 +174,6 @@ type Galaxy struct {
 	peerPicker *PeerPicker
 	mu         sync.RWMutex
 	cacheBytes int64 // limit for sum of mainCache and hotCache size
-	hcRatio    int64
 
 	// mainCache is a cache of the keys for which this process
 	// (amongst its peers) is authoritative. That is, this cache
@@ -178,12 +195,12 @@ type Galaxy struct {
 
 	hcStats *promoter.HCStats
 
-	promoter Promoter
-
 	// loadGroup ensures that each key is only fetched once
 	// (either locally or remotely), regardless of the number of
 	// concurrent callers.
 	loadGroup flightGroup
+
+	opts GalaxyOpts
 
 	_ int32 // force Stats to be 8-byte aligned on 32-bit platforms
 
@@ -193,18 +210,24 @@ type Galaxy struct {
 
 // GalaxyOption is an interface for implementing functional galaxy options
 type GalaxyOption interface {
-	apply(*Galaxy)
+	apply(*GalaxyOpts)
+}
+
+type GalaxyOpts struct {
+	promoter      Promoter
+	hcRatio       int64
+	maxCandidates int
 }
 
 type funcGalaxyOption struct {
-	f func(*Galaxy)
+	f func(*GalaxyOpts)
 }
 
-func (fdo *funcGalaxyOption) apply(do *Galaxy) {
+func (fdo *funcGalaxyOption) apply(do *GalaxyOpts) {
 	fdo.f(do)
 }
 
-func newFuncGalaxyOption(f func(*Galaxy)) *funcGalaxyOption {
+func newFuncGalaxyOption(f func(*GalaxyOpts)) *funcGalaxyOption {
 	return &funcGalaxyOption{
 		f: f,
 	}
@@ -212,7 +235,7 @@ func newFuncGalaxyOption(f func(*Galaxy)) *funcGalaxyOption {
 
 // WithPromoter allows the client to specify a promoter for the galaxy
 func WithPromoter(p Promoter) GalaxyOption {
-	return newFuncGalaxyOption(func(g *Galaxy) {
+	return newFuncGalaxyOption(func(g *GalaxyOpts) {
 		g.promoter = p
 	})
 }
@@ -220,16 +243,14 @@ func WithPromoter(p Promoter) GalaxyOption {
 // WithHotCacheRatio allows the client to specify a ratio for the main-to-hot
 // cache sizes for the galaxy
 func WithHotCacheRatio(r int64) GalaxyOption {
-	return newFuncGalaxyOption(func(g *Galaxy) {
+	return newFuncGalaxyOption(func(g *GalaxyOpts) {
 		g.hcRatio = r
 	})
 }
 
 func WithMaxCandidates(n int) GalaxyOption {
-	return newFuncGalaxyOption(func(g *Galaxy) {
-		g.candidateCache = cache{
-			lru: lru.New(n),
-		}
+	return newFuncGalaxyOption(func(g *GalaxyOpts) {
+		g.maxCandidates = n
 	})
 }
 
@@ -421,7 +442,7 @@ func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string
 		HCStats: g.hcStats,
 	}
 	value := newValWithStat(dataCopy, kStats)
-	if g.promoter.ShouldPromote(key, value.data, stats) {
+	if g.opts.promoter.ShouldPromote(key, value.data, stats) {
 		g.populateCache(key, value, &g.hotCache)
 	}
 	return value, nil
@@ -463,7 +484,7 @@ func (g *Galaxy) populateCache(key string, value *valWithStat, cache *cache) {
 		// It should be something based on measurements and/or
 		// respecting the costs of different resources.
 		victim := &g.mainCache
-		if hotBytes > mainBytes/g.hcRatio {
+		if hotBytes > mainBytes/g.opts.hcRatio {
 			victim = &g.hotCache
 			isHC = true
 		}
@@ -535,22 +556,17 @@ func sizeOfValWithStats(data []byte) int64 {
 	return int64(unsafe.Sizeof(val.stats)) + int64(len(val.data)) + int64(unsafe.Sizeof(&val))
 }
 
-func (c *cache) initLRU() {
-	c.lru = &lru.Cache{
-		OnEvicted: func(key lru.Key, value interface{}) {
-			val := value.(*valWithStat)
-			c.nbytes -= int64(len(key.(string))) + sizeOfValWithStats(val.data)
-			c.nevict++
-		},
+func (c *cache) setLRUOnEvict() {
+	c.lru.OnEvicted = func(key lru.Key, value interface{}) {
+		val := value.(*valWithStat)
+		c.nbytes -= int64(len(key.(string))) + sizeOfValWithStats(val.data)
+		c.nevict++
 	}
 }
 
 func (c *cache) add(key string, value *valWithStat) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.lru == nil {
-		c.initLRU()
-	}
 	c.lru.Add(key, value)
 	c.nbytes += int64(len(key)) + sizeOfValWithStats(value.data)
 }
