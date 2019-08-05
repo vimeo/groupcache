@@ -383,7 +383,8 @@ func TestNoDedup(t *testing.T) {
 	// If the singleflight callback doesn't double-check the cache again
 	// upon entry, we would increment nbytes twice but the entry would
 	// only be in the cache once.
-	wantBytes := int64(len(testkey)) + sizeOfValWithStats([]byte(testval))
+	testKStats := keyStats{dQPS: &dampedQPS{period: time.Second}}
+	wantBytes := int64(len(testkey)) + sizeOfValWithStats(newValWithStat([]byte(testval), &testKStats))
 	if g.mainCache.nbytes != wantBytes {
 		t.Errorf("cache has %d bytes, want %d", g.mainCache.nbytes, wantBytes)
 	}
@@ -474,13 +475,13 @@ func TestPromotion(t *testing.T) {
 	testKey := "to-get"
 	testCases := []struct {
 		testName   string
-		promoter   Promoter
+		promoter   promoter.Interface
 		cacheSize  int64
 		checkCache func(key string, val interface{}, okCand bool, okHot bool, tf *TestFetcher, g *Galaxy)
 	}{
 		{
 			testName:  "never_promote",
-			promoter:  PromoterFunc(func(key string, data []byte, stats promoter.Stats) bool { return false }),
+			promoter:  promoter.Func(func(key string, data []byte, stats promoter.Stats) bool { return false }),
 			cacheSize: 1 << 20,
 			checkCache: func(_ string, _ interface{}, okCand bool, okHot bool, _ *TestFetcher, _ *Galaxy) {
 				if !okCand {
@@ -493,7 +494,7 @@ func TestPromotion(t *testing.T) {
 		},
 		{
 			testName:  "always_promote",
-			promoter:  PromoterFunc(func(key string, data []byte, stats promoter.Stats) bool { return true }),
+			promoter:  promoter.Func(func(key string, data []byte, stats promoter.Stats) bool { return true }),
 			cacheSize: 1 << 20,
 			checkCache: func(_ string, val interface{}, _ bool, okHot bool, _ *TestFetcher, _ *Galaxy) {
 				if !okHot {

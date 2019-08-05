@@ -18,6 +18,21 @@ package promoter
 
 import "math/rand"
 
+// Interface is the interface for determining whether a key/value pair should be
+// added to the hot cache
+type Interface interface {
+	ShouldPromote(key string, data []byte, stats Stats) bool
+}
+
+// Func implements Promoter with a function.
+type Func func(key string, data []byte, stats Stats) bool
+
+// ShouldPromote returns true if the given key/data pair has been chosen to
+// add to the hotcache
+func (f Func) ShouldPromote(key string, data []byte, stats Stats) bool {
+	return f(key, data, stats)
+}
+
 // ProbabilisticPromoter promotes based on a 1/ProbDenominator chance
 type ProbabilisticPromoter struct {
 	ProbDenominator int

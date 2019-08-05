@@ -24,21 +24,6 @@ import (
 	"github.com/vimeo/galaxycache/promoter"
 )
 
-// Promoter is the interface for determining whether a key/value pair should be
-// added to the hot cache
-type Promoter interface {
-	ShouldPromote(key string, data []byte, stats promoter.Stats) bool
-}
-
-// PromoterFunc implements Promoter with a function.
-type PromoterFunc func(key string, data []byte, stats promoter.Stats) bool
-
-// ShouldPromote returns true if the given key/data pair has been chosen to
-// add to the hotcache
-func (f PromoterFunc) ShouldPromote(key string, data []byte, stats promoter.Stats) bool {
-	return f(key, data, stats)
-}
-
 func (g *Galaxy) updateHotCacheStats() {
 	mruEleQPS := 0.0
 	lruEleQPS := 0.0
