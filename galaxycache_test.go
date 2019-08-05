@@ -399,7 +399,7 @@ func TestGalaxyStatsAlignment(t *testing.T) {
 
 func TestHotcache(t *testing.T) {
 	keyToAdd := "hi"
-	var hcTests = []struct {
+	hcTests := []struct {
 		name                  string
 		numGets               int
 		numHeatBursts         int
