@@ -136,8 +136,8 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 		loadGroup: &singleflight.Group{},
 		opts:      gOpts,
 	}
-	g.mainCache.setLRUOnEvict()
-	g.hotCache.setLRUOnEvict()
+	g.mainCache.setLRUOnEvicted(nil)
+	g.hotCache.setLRUOnEvicted(g.candidateCache.addToCandidateCache)
 	g.candidateCache.lru.OnEvicted = func(key lru.Key, value interface{}) {
 		g.candidateCache.nevict++
 	}
@@ -476,10 +476,8 @@ func (g *Galaxy) populateCache(key string, value *valWithStat, cache *cache) {
 	}
 	cache.add(key, value)
 
-	isHC := false
 	// Evict items from cache(s) if necessary.
 	for {
-		isHC = false
 		mainBytes := g.mainCache.bytes()
 		hotBytes := g.hotCache.bytes()
 		if mainBytes+hotBytes <= g.cacheBytes {
@@ -492,12 +490,8 @@ func (g *Galaxy) populateCache(key string, value *valWithStat, cache *cache) {
 		victim := &g.mainCache
 		if hotBytes > mainBytes/g.opts.hcRatio {
 			victim = &g.hotCache
-			isHC = true
 		}
-		demotedKey, demotedStats := victim.removeOldest()
-		if isHC {
-			g.candidateCache.addToCandidateCache(demotedKey, demotedStats)
-		}
+		victim.removeOldest()
 	}
 }
 
@@ -513,6 +507,10 @@ const (
 	// enough to replicate to this node, even though it's not the
 	// owner.
 	HotCache
+
+	// CandidateCache is the cache for peer-owned keys that
+	// may become popular enough to put in the HotCache
+	CandidateCache
 )
 
 // CacheStats returns stats about the provided cache within the galaxy.
@@ -522,6 +520,8 @@ func (g *Galaxy) CacheStats(which CacheType) CacheStats {
 		return g.mainCache.stats()
 	case HotCache:
 		return g.hotCache.stats()
+	case CandidateCache:
+		return g.candidateCache.stats()
 	default:
 		return CacheStats{}
 	}
@@ -562,11 +562,14 @@ func sizeOfValWithStats(data []byte) int64 {
 	return int64(unsafe.Sizeof(val.stats)) + int64(len(val.data)) + int64(unsafe.Sizeof(&val))
 }
 
-func (c *cache) setLRUOnEvict() {
+func (c *cache) setLRUOnEvicted(f func(key string, kStats *keyStats)) {
 	c.lru.OnEvicted = func(key lru.Key, value interface{}) {
 		val := value.(*valWithStat)
 		c.nbytes -= int64(len(key.(string))) + sizeOfValWithStats(val.data)
 		c.nevict++
+		if f != nil {
+			f(key.(string), val.stats)
+		}
 	}
 }
 
@@ -592,17 +595,12 @@ func (c *cache) get(key string) (vi interface{}, ok bool) {
 	return vi, true
 }
 
-func (c *cache) removeOldest() (string, *keyStats) {
+func (c *cache) removeOldest() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.lru != nil {
-		value := c.lru.LeastRecent()
-		key := c.lru.LeastRecentKey()
-		kStats := *value.(*valWithStat).stats // copy the stats before deleting
 		c.lru.RemoveOldest()
-		return key.(string), &kStats
 	}
-	return "", nil
 
 }
 
