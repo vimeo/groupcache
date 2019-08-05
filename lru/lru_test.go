@@ -32,7 +32,7 @@ type complexStruct struct {
 }
 
 func TestGet(t *testing.T) {
-	var getTests = []struct {
+	getTests := []struct {
 		name       string
 		keyToAdd   interface{}
 		keyToGet   interface{}
