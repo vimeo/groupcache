@@ -213,6 +213,8 @@ type GalaxyOption interface {
 	apply(*GalaxyOpts)
 }
 
+// GalaxyOpts contains optional fields for the galaxy (each with a default
+// value if not set)
 type GalaxyOpts struct {
 	promoter      Promoter
 	hcRatio       int64
@@ -233,21 +235,25 @@ func newFuncGalaxyOption(f func(*GalaxyOpts)) *funcGalaxyOption {
 	}
 }
 
-// WithPromoter allows the client to specify a promoter for the galaxy
+// WithPromoter allows the client to specify a promoter for the galaxy;
+// defaults to a simple QPS comparison
 func WithPromoter(p Promoter) GalaxyOption {
 	return newFuncGalaxyOption(func(g *GalaxyOpts) {
 		g.promoter = p
 	})
 }
 
-// WithHotCacheRatio allows the client to specify a ratio for the main-to-hot
-// cache sizes for the galaxy
+// WithHotCacheRatio allows the client to specify a ratio for the
+// main-to-hot cache sizes for the galaxy; defaults to 8:1
 func WithHotCacheRatio(r int64) GalaxyOption {
 	return newFuncGalaxyOption(func(g *GalaxyOpts) {
 		g.hcRatio = r
 	})
 }
 
+// WithMaxCandidates allows the client to specify the size of the
+// candidate cache by the max number of candidates held at one time;
+// defaults to 100
 func WithMaxCandidates(n int) GalaxyOption {
 	return newFuncGalaxyOption(func(g *GalaxyOpts) {
 		g.maxCandidates = n
@@ -315,7 +321,7 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 		// TODO(@odeke-em): Remove .Stats
 		g.Stats.CacheHits.Add(1)
 		stats.Record(ctx, MCacheHits.M(1), MValueLength.M(int64(len(value.data))))
-		value.stats.Touch()
+		value.stats.touch()
 		return dest.UnmarshalBinary(value.data)
 	}
 
@@ -332,7 +338,7 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 		stats.Record(ctx, MLoadErrors.M(1))
 		return err
 	}
-	value.stats.Touch()
+	value.stats.touch()
 	stats.Record(ctx, MValueLength.M(int64(len(value.data))))
 	if destPopulated {
 		return nil
@@ -438,7 +444,7 @@ func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string
 	g.updateHotCacheStats()
 	kStats := vi.(*keyStats)
 	stats := promoter.Stats{
-		KeyQPS:  kStats.Val(),
+		KeyQPS:  kStats.val(),
 		HCStats: g.hcStats,
 	}
 	value := newValWithStat(dataCopy, kStats)

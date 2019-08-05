@@ -45,8 +45,8 @@ func (g *Galaxy) updateHotCacheStats() {
 	mruEle := g.hotCache.lru.MostRecent()
 	lruEle := g.hotCache.lru.LeastRecent()
 	if mruEle != nil { // lru contains at least one element
-		mruEleQPS = mruEle.(*valWithStat).stats.Val()
-		lruEleQPS = lruEle.(*valWithStat).stats.Val()
+		mruEleQPS = mruEle.(*valWithStat).stats.val()
+		lruEleQPS = lruEle.(*valWithStat).stats.val()
 	}
 
 	newHCS := &promoter.HCStats{
@@ -78,11 +78,11 @@ func newValWithStat(data []byte, kStats *keyStats) *valWithStat {
 	return value
 }
 
-func (k *keyStats) Val() float64 {
+func (k *keyStats) val() float64 {
 	return k.dQPS.val(time.Now())
 }
 
-func (k *keyStats) Touch() {
+func (k *keyStats) touch() {
 	k.dQPS.touch(time.Now())
 }
 
