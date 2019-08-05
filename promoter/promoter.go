@@ -1,5 +1,5 @@
 /*
-Copyright 2012 Vimeo Inc.
+Copyright 2019 Vimeo Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,23 +18,18 @@ package promoter
 
 import "math/rand"
 
-type OneInTenPromoter struct{}
+type ProbabilisticPromoter struct {
+	probDenominator int
+}
 
 type DefaultPromoter struct{}
 
-func (p *OneInTenPromoter) ShouldPromote(key string, data []byte, stats Stats) bool {
-	if rand.Intn(10) == 0 {
-		return true
-	}
-	return false
+func (p *ProbabilisticPromoter) ShouldPromote(key string, data []byte, stats Stats) bool {
+	return rand.Intn(p.probDenominator) == 0
 }
 
 func (p *DefaultPromoter) ShouldPromote(key string, data []byte, stats Stats) bool {
-	keyQPS := stats.KeyQPS
-	if keyQPS >= stats.HCStats.LeastRecentQPS {
-		return true
-	}
-	return false
+	return stats.KeyQPS >= stats.HCStats.LeastRecentQPS
 }
 
 // HCStats keeps track of the size, capacity, and coldest/hottest
