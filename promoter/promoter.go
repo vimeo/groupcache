@@ -18,16 +18,24 @@ package promoter
 
 import "math/rand"
 
+// ProbabilisticPromoter promotes based on a 1/ProbDenominator chance
 type ProbabilisticPromoter struct {
-	probDenominator int
+	ProbDenominator int
 }
 
+// DefaultPromoter promotes if the given key QPS is higher than the QPS
+// of the least recently accessed element in the hotcache
 type DefaultPromoter struct{}
 
+// ShouldPromote for a ProbabilisticPromoter promotes based on a
+// 1/ProbDenominator chance
 func (p *ProbabilisticPromoter) ShouldPromote(key string, data []byte, stats Stats) bool {
-	return rand.Intn(p.probDenominator) == 0
+	return rand.Intn(p.ProbDenominator) == 0
 }
 
+// ShouldPromote for a DefaultPromoter promotes if the given key QPS
+// is higher than the QPS of the least recently accessed element in
+// the hotcache
 func (p *DefaultPromoter) ShouldPromote(key string, data []byte, stats Stats) bool {
 	return stats.KeyQPS >= stats.HCStats.LeastRecentQPS
 }
