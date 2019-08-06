@@ -8,30 +8,36 @@ For API docs and examples, see http://godoc.org/github.com/vimeo/galaxycache
 ## Summary of changes
 
 Our changes include the following:
+* Overhauled API to improve useability and configurability
 * Improvements to testing by removing global state
 * Improvement to connection efficiency between peers with the addition of gRPC
-* Added an interface for choosing which keys get hot cached (in progress)
-* Made some core functionality more generic (e.g. replaced the Sink object with a Codec marshaler interface, removed ByteView in favor of a simpler []byte)
+* Added a `Promoter` interface for choosing which keys get hotcached
+* Made some core functionality more generic (e.g. replaced the `Sink` object with a `Codec` marshaler interface, removed `ByteView` in favor of a simpler `[]byte`)
 
 We also changed the naming scheme of objects and methods to clarify their purpose with the help of a space-themed scenario:
 
-Each process within a set of peer processes contains a _Universe_ which encapsulates a map of _Galaxies_ (previously called Groups). Each Universe contains the same set of Galaxies, but each _key_ (think of it as a "star") has a single associated authoritative peer (determined by the consistent hash function). When Get is called for a key in a Galaxy, the local cache is checked first. On a cache miss, the _PeerPicker_ object delegates to the peer authoritative over the requested key. The data is _Fetched_ from a remote peer if the local process is not the authority. That other peer then performs a Get to either find the data from its own local cache or use the specified _BackendGetter_ to get the data from elsewhere, such as by querying a database.
+Each process within a set of peer processes contains a `Universe` which encapsulates a map of `Galaxies` (previously called `Groups`). Each `Universe` contains the same set of `Galaxies`, but each `key` (think of it as a "star") has a single associated authoritative peer (determined by the consistent hash function). When `Get` is called for a key in a `Galaxy`, the local cache is checked first. On a cache miss, the `PeerPicker` object delegates to the peer authoritative over the requested key. The data is fetched from a remote peer if the local process is not the authority. That other peer then performs a `Get` to either find the data from its own local cache or use the specified `BackendGetter` to get the data from elsewhere, such as by querying a database.
 
 
 ### New architecture and naming scheme
 
-* Renamed Group type to Galaxy, Getter to BackendGetter, Get to Fetch (for newly named RemoteFetcher interface, previously called ProtoGetter)
-* Reworked PeerPicker interface into a struct; contains a FetchProtocol and RemoteFetchers (generalizing for HTTP and GRPC fetching implementations), a hash map of other peer addresses, and a self URL
+* Renamed `Group` type to `Galaxy`, `Getter` to `BackendGetter`, `Get` to `Fetch` (for newly named `RemoteFetcher` interface, previously called `ProtoGetter`)
+* Reworked `PeerPicker` interface into a struct; contains a `FetchProtocol` and `RemoteFetchers` (generalizing for HTTP and GRPC fetching implementations), a hash map of other peer addresses, and a self URL
 
 ### No more global state
 
-* Removed all global variables to allow for multithreaded testing by implementing a Universe container that holds the Galaxies (previously a global "groups" map) and PeerPicker (part of what used to be HTTPPool)
-* Added methods to Universe to allow for simpler handling of most galaxycache operations through the Universe (setting Peers, instantiating a Picker, etc)
+* Removed all global variables to allow for multithreaded testing by implementing a `Universe` container that holds the `Galaxies` (previously a global `groups` map) and `PeerPicker` (part of what used to be `HTTPPool`)
+* Added methods to `Universe` to allow for simpler handling of most galaxycache operations (setting Peers, instantiating a Picker, etc)
 
-### New structure for fetching from peers (with **gRPC support**!)
-* Added an HTTPHandler and associated registration function for serving HTTP requests by reaching into an associated Universe (deals with the other function of the deprecated HTTPPool)
+### New structure for fetching from peers (with gRPC support)
+
+* Added an `HTTPHandler` and associated registration function for serving HTTP requests by reaching into an associated `Universe` (deals with the other function of the deprecated `HTTPPool`)
 * Reworked tests to fit new architecture
 * Renamed files to match new type names
+
+### A smarter Hotcache with configurable promotion logic
+
+
 
 ## Comparison to memcached
 
