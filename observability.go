@@ -63,6 +63,7 @@ var keyCommand, _ = tag.NewKey("command")
 var AllViews = []*view.View{
 	{Name: "galaxycache/gets", Description: "The number of Get requests", Measure: MGets, Aggregation: view.Count()},
 	{Name: "galaxycache/cache_hits", Description: "The number of times that either cache was good", Measure: MCacheHits, Aggregation: view.Count()},
+	{Name: "galaxycache/hotcache_hits", Description: "The number of times that the hotcache was good", Measure: MHotcacheHits, Aggregation: view.Count()},
 	{Name: "galaxycache/cache_misses", Description: "The number of times that either cache was not good", Measure: MCacheMisses, Aggregation: view.Count()},
 	{Name: "galaxycache/peer_loads", Description: "The number of remote loads or remote cache hits", Measure: MPeerLoads, Aggregation: view.Count()},
 	{Name: "galaxycache/peer_errors", Description: "The number of remote errors", Measure: MPeerErrors, Aggregation: view.Count()},
