@@ -130,9 +130,10 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 		candidateCache: cache{
 			lru: lru.New(gOpts.maxCandidates),
 		},
-		hcStats: &promoter.HCStats{
-			HCCapacity: cacheBytes / gOpts.hcRatio,
-		},
+		hcStatsWithTime: HCStatsWithTime{
+			hcs: &promoter.HCStats{
+				HCCapacity: cacheBytes / gOpts.hcRatio,
+			}},
 		loadGroup: &singleflight.Group{},
 		opts:      gOpts,
 	}
@@ -166,13 +167,20 @@ func (universe *Universe) Shutdown() error {
 	return universe.peerPicker.shutdown()
 }
 
+// HCStatsWithTime includes a time stamp along with the hotcache stats
+// to ensure updates happen no more than once per second
+type HCStatsWithTime struct {
+	hcs *promoter.HCStats
+	t   time.Time
+}
+
 // A Galaxy is a cache namespace and associated data spread over
 // a group of 1 or more machines.
 type Galaxy struct {
 	name       string
 	getter     BackendGetter
 	peerPicker *PeerPicker
-	mu         sync.RWMutex
+	mu         sync.Mutex
 	cacheBytes int64 // limit for sum of mainCache and hotCache size
 
 	// mainCache is a cache of the keys for which this process
@@ -193,7 +201,7 @@ type Galaxy struct {
 
 	candidateCache cache
 
-	hcStats *promoter.HCStats
+	hcStatsWithTime HCStatsWithTime
 
 	// loadGroup ensures that each key is only fetched once
 	// (either locally or remotely), regardless of the number of
@@ -438,11 +446,13 @@ func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string
 	if !ok {
 		vi = g.addNewToCandidateCache(key)
 	}
-	g.updateHotCacheStats()
+	g.mu.Lock()
+	g.maybeUpdateHotCacheStats()
+	g.mu.Unlock()
 	kStats := vi.(*keyStats)
 	stats := promoter.Stats{
 		KeyQPS:  kStats.val(),
-		HCStats: g.hcStats,
+		HCStats: g.hcStatsWithTime.hcs,
 	}
 	value := newValWithStat(dataCopy, kStats)
 	if g.opts.promoter.ShouldPromote(key, value.data, stats) {

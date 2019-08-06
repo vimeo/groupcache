@@ -24,23 +24,29 @@ import (
 	"github.com/vimeo/galaxycache/promoter"
 )
 
-func (g *Galaxy) updateHotCacheStats() {
-	mruEleQPS := 0.0
-	lruEleQPS := 0.0
-	mruEle := g.hotCache.lru.MostRecent()
-	lruEle := g.hotCache.lru.LeastRecent()
-	if mruEle != nil { // lru contains at least one element
-		mruEleQPS = mruEle.(*valWithStat).stats.val()
-		lruEleQPS = lruEle.(*valWithStat).stats.val()
-	}
+// update the hotcache stats if at least one second has passed since
+// last update
+func (g *Galaxy) maybeUpdateHotCacheStats() {
+	now := time.Now()
+	if g.hcStatsWithTime.t.IsZero() || now.Sub(g.hcStatsWithTime.t) >= time.Second {
+		mruEleQPS := 0.0
+		lruEleQPS := 0.0
+		mruEle := g.hotCache.lru.MostRecent()
+		lruEle := g.hotCache.lru.LeastRecent()
+		if mruEle != nil { // lru contains at least one element
+			mruEleQPS = mruEle.(*valWithStat).stats.val()
+			lruEleQPS = lruEle.(*valWithStat).stats.val()
+		}
 
-	newHCS := &promoter.HCStats{
-		MostRecentQPS:  mruEleQPS,
-		LeastRecentQPS: lruEleQPS,
-		HCSize:         (g.cacheBytes / g.opts.hcRatio) - g.hotCache.bytes(),
-		HCCapacity:     g.cacheBytes / g.opts.hcRatio,
+		newHCS := &promoter.HCStats{
+			MostRecentQPS:  mruEleQPS,
+			LeastRecentQPS: lruEleQPS,
+			HCSize:         (g.cacheBytes / g.opts.hcRatio) - g.hotCache.bytes(),
+			HCCapacity:     g.cacheBytes / g.opts.hcRatio,
+		}
+		g.hcStatsWithTime.hcs = newHCS
+		g.hcStatsWithTime.t = now
 	}
-	g.hcStats = newHCS
 }
 
 // keyStats keeps track of the hotness of a key
