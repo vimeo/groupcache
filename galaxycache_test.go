@@ -434,7 +434,7 @@ func TestHotcache(t *testing.T) {
 				for k := 0; k < tc.numGets; k++ {
 					kStats.dQPS.touch(now)
 				}
-				t.Logf("QPS on %d gets in 1 second on burst #%d: %f\n", tc.numGets, k+1, kStats.dQPS.prev)
+				t.Logf("QPS on %d gets in 1 second on burst #%d: %f\n", tc.numGets, k+1, kStats.dQPS.value)
 				now = now.Add(time.Second * tc.secsBetweenHeatBursts)
 			}
 			val := kStats.dQPS.val(now)

@@ -76,8 +76,8 @@ type dampedQPS struct {
 	mu     sync.Mutex
 	period time.Duration
 	t      time.Time
-	prev   float64
-	ct     float64
+	value  float64
+	count  float64
 }
 
 // must be between 0 and 1, the fraction of the new value that comes from
@@ -95,20 +95,20 @@ func (a *dampedQPS) touch(now time.Time) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.t.IsZero() {
-		a.ct++
+		a.count++
 		a.t = now
 		return
 	}
 	a.maybeFlush(now)
-	a.ct++
+	a.count++
 }
 
 func (a *dampedQPS) maybeFlush(now time.Time) {
 	if now.Sub(a.t) >= a.period {
-		prev, cur := a.prev, a.ct
+		value, cur := a.value, a.count
 		exponent := math.Floor(float64(now.Sub(a.t))/float64(a.period)) - 1
-		a.prev = ((dampingConstant * cur) + (dampingConstantComplement * prev)) * math.Pow(dampingConstantComplement, exponent)
-		a.ct = 0
+		a.value = ((dampingConstant * cur) + (dampingConstantComplement * value)) * math.Pow(dampingConstantComplement, exponent)
+		a.count = 0
 		a.t = now
 	}
 }
@@ -119,9 +119,9 @@ func (a *dampedQPS) val(now time.Time) float64 {
 		a.t = now
 	}
 	a.maybeFlush(now)
-	prev := a.prev
+	value := a.value
 	a.mu.Unlock()
-	return prev
+	return value
 }
 
 func (g *Galaxy) addNewToCandidateCache(key string) *keyStats {
