@@ -55,18 +55,14 @@ type keyStats struct {
 }
 
 func newValWithStat(data []byte, kStats *keyStats) *valWithStat {
-	value := &valWithStat{
-		data: data,
-		stats: &keyStats{
-			dQPS: &dampedQPS{
-				period: time.Second,
-			},
-		},
+	if kStats == nil {
+		kStats = &keyStats{&dampedQPS{period: time.Second}}
 	}
-	if kStats != nil {
-		value.stats = kStats
+
+	return &valWithStat{
+		data:  data,
+		stats: kStats,
 	}
-	return value
 }
 
 func (k *keyStats) val() float64 {
@@ -94,22 +90,21 @@ type dampedQPS struct {
 // f(x) = (1 - x) * x ^ samples = x ^samples - x ^(samples + 1)
 // f'(x) = samples * x ^ (samples - 1) - (samples + 1) * x ^ samples
 // this yields a critical point at x = (samples - 1) / samples
-const dampingConstant = (1.0 / 30.0) // 5 minutes (30 samples at a 10s interval)
+const dampingConstant = (1.0 / 30.0) // 30 seconds (30 samples at a 1s interval)
 const dampingConstantComplement = 1.0 - dampingConstant
 
 func (a *dampedQPS) touch(now time.Time) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.t.IsZero() {
-		a.count++
-		a.t = now
-		return
-	}
 	a.maybeFlush(now)
 	a.count++
 }
 
 func (a *dampedQPS) maybeFlush(now time.Time) {
+	if a.t.IsZero() {
+		a.t = now
+		return
+	}
 	if now.Sub(a.t) >= a.period {
 		value, cur := a.value, a.count
 		exponent := math.Floor(float64(now.Sub(a.t))/float64(a.period)) - 1
@@ -121,13 +116,9 @@ func (a *dampedQPS) maybeFlush(now time.Time) {
 
 func (a *dampedQPS) val(now time.Time) float64 {
 	a.mu.Lock()
-	if a.t.IsZero() {
-		a.t = now
-	}
+	defer a.mu.Unlock()
 	a.maybeFlush(now)
-	value := a.value
-	a.mu.Unlock()
-	return value
+	return a.value
 }
 
 func (g *Galaxy) addNewToCandidateCache(key string) *keyStats {
