@@ -565,7 +565,7 @@ type valWithStat struct {
 // sizeOfValWithStats returns the total size of the value in the hot/main
 // cache, including the data, key stats, and a pointer to the val itself
 func sizeOfValWithStats(val *valWithStat) int64 {
-	return int64(unsafe.Sizeof(val.stats)) + int64(len(val.data)) + int64(unsafe.Sizeof(&val))
+	return int64(unsafe.Sizeof(*val.stats)) + int64(cap(val.data)) + int64(unsafe.Sizeof(val)) + int64(unsafe.Sizeof(*val))
 }
 
 func (c *cache) setLRUOnEvicted(f func(key string, kStats *keyStats)) {
