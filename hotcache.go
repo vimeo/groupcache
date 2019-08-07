@@ -75,11 +75,11 @@ func (k *keyStats) touch() {
 
 // dampedQPS is an average that recombines the current state with the previous.
 type dampedQPS struct {
-	mu     sync.Mutex
-	period time.Duration
-	t      time.Time
-	value  float64
-	count  float64
+	mu      sync.Mutex
+	period  time.Duration
+	t       time.Time
+	curDQPS float64
+	count   float64
 }
 
 // must be between 0 and 1, the fraction of the new value that comes from
@@ -106,9 +106,9 @@ func (a *dampedQPS) maybeFlush(now time.Time) {
 		return
 	}
 	if now.Sub(a.t) >= a.period {
-		value, cur := a.value, a.count
+		curDQPS, cur := a.curDQPS, a.count
 		exponent := math.Floor(float64(now.Sub(a.t))/float64(a.period)) - 1
-		a.value = ((dampingConstant * cur) + (dampingConstantComplement * value)) * math.Pow(dampingConstantComplement, exponent)
+		a.curDQPS = ((dampingConstant * cur) + (dampingConstantComplement * curDQPS)) * math.Pow(dampingConstantComplement, exponent)
 		a.count = 0
 		a.t = now
 	}
@@ -118,7 +118,7 @@ func (a *dampedQPS) val(now time.Time) float64 {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.maybeFlush(now)
-	return a.value
+	return a.curDQPS
 }
 
 func (g *Galaxy) addNewToCandidateCache(key string) *keyStats {

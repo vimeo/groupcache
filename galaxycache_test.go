@@ -384,7 +384,8 @@ func TestNoDedup(t *testing.T) {
 	// upon entry, we would increment nbytes twice but the entry would
 	// only be in the cache once.
 	testKStats := keyStats{dQPS: &dampedQPS{period: time.Second}}
-	wantBytes := int64(len(testkey)) + sizeOfValWithStats(newValWithStat([]byte(testval), &testKStats))
+	testvws := newValWithStat([]byte(testval), &testKStats)
+	wantBytes := int64(len(testkey)) + sizeOfValWithStats(testvws)
 	if g.mainCache.nbytes != wantBytes {
 		t.Errorf("cache has %d bytes, want %d", g.mainCache.nbytes, wantBytes)
 	}
@@ -434,7 +435,7 @@ func TestHotcache(t *testing.T) {
 				for k := 0; k < tc.numGets; k++ {
 					kStats.dQPS.touch(now)
 				}
-				t.Logf("QPS on %d gets in 1 second on burst #%d: %f\n", tc.numGets, k+1, kStats.dQPS.value)
+				t.Logf("QPS on %d gets in 1 second on burst #%d: %f\n", tc.numGets, k+1, kStats.dQPS.curDQPS)
 				now = now.Add(time.Second * tc.secsBetweenHeatBursts)
 			}
 			val := kStats.dQPS.val(now)
