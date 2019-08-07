@@ -229,16 +229,14 @@ type galaxyOpts struct {
 	maxCandidates int
 }
 
-type funcGalaxyOption struct {
-	f func(*galaxyOpts)
+type funcGalaxyOption func(*galaxyOpts)
+
+func (fdo funcGalaxyOption) apply(g *galaxyOpts) {
+	fdo(g)
 }
 
-func (fdo *funcGalaxyOption) apply(g *galaxyOpts) {
-	fdo.f(g)
-}
-
-func newFuncGalaxyOption(f func(*galaxyOpts)) *funcGalaxyOption {
-	return &funcGalaxyOption{f: f}
+func newFuncGalaxyOption(f func(*galaxyOpts)) funcGalaxyOption {
+	return funcGalaxyOption(f)
 }
 
 // WithPromoter allows the client to specify a promoter for the galaxy;
