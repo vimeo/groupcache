@@ -18,6 +18,22 @@ package promoter
 
 import "math/rand"
 
+// HCStats keeps track of the size, capacity, and coldest/hottest
+// elements in the hot cache
+type HCStats struct {
+	MostRecentQPS  float64
+	LeastRecentQPS float64
+	HCSize         int64
+	HCCapacity     int64
+}
+
+// Stats contains both the KeyQPS and a pointer to the galaxy-wide
+// HCStats
+type Stats struct {
+	KeyQPS  float64
+	HCStats *HCStats
+}
+
 // Interface is the interface for determining whether a key/value pair should be
 // added to the hot cache
 type Interface interface {
@@ -53,20 +69,4 @@ type DefaultPromoter struct{}
 // the hotcache
 func (p *DefaultPromoter) ShouldPromote(key string, data []byte, stats Stats) bool {
 	return stats.KeyQPS >= stats.HCStats.LeastRecentQPS
-}
-
-// HCStats keeps track of the size, capacity, and coldest/hottest
-// elements in the hot cache
-type HCStats struct {
-	MostRecentQPS  float64
-	LeastRecentQPS float64
-	HCSize         int64
-	HCCapacity     int64
-}
-
-// Stats contains both the KeyQPS and a pointer to the galaxy-wide
-// HCStats
-type Stats struct {
-	KeyQPS  float64
-	HCStats *HCStats
 }
