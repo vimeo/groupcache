@@ -12,14 +12,14 @@ Our changes include the following:
 * Improvements to testing by removing global state
 * Improvement to connection efficiency between peers with the addition of gRPC
 * Added a `Promoter` interface for choosing which keys get hotcached
-* Made some core functionality more generic (e.g. replaced the `Sink` object with a `Codec` marshaler interface, removed `ByteView` in favor of a simpler `[]byte`)
+* Made some core functionality more generic (e.g. replaced the `Sink` object with a `Codec` marshaler interface, removed `Byteview`)
 
 We also changed the naming scheme of objects and methods to clarify their purpose with the help of a space-themed scenario:
 
 Each process within a set of peer processes contains a `Universe` which encapsulates a map of `Galaxies` (previously called `Groups`). Each `Universe` contains the same set of `Galaxies`, but each `key` (think of it as a "star") has a single associated authoritative peer (determined by the consistent hash function). When `Get` is called for a key in a `Galaxy`, the local cache is checked first. On a cache miss, the `PeerPicker` object delegates to the peer authoritative over the requested key. The data is fetched from a remote peer if the local process is not the authority. That other peer then performs a `Get` to either find the data from its own local cache or use the specified `BackendGetter` to get the data from elsewhere, such as by querying a database.
 
 
-### New architecture and naming scheme
+### New architecture and API
 
 * Renamed `Group` type to `Galaxy`, `Getter` to `BackendGetter`, `Get` to `Fetch` (for newly named `RemoteFetcher` interface, previously called `ProtoGetter`)
 * Reworked `PeerPicker` interface into a struct; contains a `FetchProtocol` and `RemoteFetchers` (generalizing for HTTP and GRPC fetching implementations), a hash map of other peer addresses, and a self URL
@@ -37,6 +37,9 @@ Each process within a set of peer processes contains a `Universe` which encapsul
 
 ### A smarter Hotcache with configurable promotion logic
 
+* Promoter package provides an interface for creating your own `ShouldPromote` method to determine whether a key should be added to the hotcache
+* Newly added Candidate Cache keeps track of peer-owned keys (without associated data) that have not yet been promoted to the hotcache
+* Provided variadic options for `Galaxy` construction to override default promotion logic (with your promoter, max number of candidates, and relative hotcache size to maincache)
 
 
 ## Comparison to memcached
