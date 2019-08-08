@@ -562,7 +562,7 @@ type valWithStat struct {
 // sizeOfValWithStats returns the total size of the value in the hot/main
 // cache, including the data, key stats, and a pointer to the val itself
 func (v *valWithStat) size() int64 {
-	// TODO(willg): using cap() instead of len() for data leads to inconsistency
+	// using cap() instead of len() for data leads to inconsistency
 	// after unmarshaling/marshaling the data
 	return int64(unsafe.Sizeof(*v.stats)) + int64(len(v.data)) + int64(unsafe.Sizeof(v)) + int64(unsafe.Sizeof(*v))
 }
