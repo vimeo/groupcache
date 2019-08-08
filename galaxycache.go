@@ -439,7 +439,6 @@ func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string
 	if err != nil {
 		return nil, err
 	}
-	dataCopy := data
 	vi, ok := g.candidateCache.get(key)
 	if !ok {
 		vi = g.addNewToCandidateCache(key)
@@ -452,7 +451,7 @@ func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string
 		KeyQPS:  kStats.val(),
 		HCStats: g.hcStatsWithTime.hcs,
 	}
-	value := newValWithStat(dataCopy, kStats)
+	value := newValWithStat(data, kStats)
 	if g.opts.promoter.ShouldPromote(key, value.data, stats) {
 		g.populateCache(key, value, &g.hotCache)
 	}
@@ -562,16 +561,16 @@ type valWithStat struct {
 
 // sizeOfValWithStats returns the total size of the value in the hot/main
 // cache, including the data, key stats, and a pointer to the val itself
-func sizeOfValWithStats(val *valWithStat) int64 {
+func (v *valWithStat) size() int64 {
 	// TODO(willg): using cap() instead of len() for data leads to inconsistency
 	// after unmarshaling/marshaling the data
-	return int64(unsafe.Sizeof(*val.stats)) + int64(len(val.data)) + int64(unsafe.Sizeof(val)) + int64(unsafe.Sizeof(*val))
+	return int64(unsafe.Sizeof(*v.stats)) + int64(len(v.data)) + int64(unsafe.Sizeof(v)) + int64(unsafe.Sizeof(*v))
 }
 
 func (c *cache) setLRUOnEvicted(f func(key string, kStats *keyStats)) {
 	c.lru.OnEvicted = func(key lru.Key, value interface{}) {
 		val := value.(*valWithStat)
-		c.nbytes -= int64(len(key.(string))) + sizeOfValWithStats(val)
+		c.nbytes -= int64(len(key.(string))) + val.size()
 		c.nevict++
 		if f != nil {
 			f(key.(string), val.stats)
@@ -583,7 +582,7 @@ func (c *cache) add(key string, value *valWithStat) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.lru.Add(key, value)
-	c.nbytes += int64(len(key)) + sizeOfValWithStats(value)
+	c.nbytes += int64(len(key)) + value.size()
 }
 
 func (c *cache) get(key string) (vi interface{}, ok bool) {

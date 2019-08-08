@@ -385,7 +385,7 @@ func TestNoDedup(t *testing.T) {
 	// only be in the cache once.
 	testKStats := keyStats{dQPS: &dampedQPS{period: time.Second}}
 	testvws := newValWithStat([]byte(testval), &testKStats)
-	wantBytes := int64(len(testkey)) + sizeOfValWithStats(testvws)
+	wantBytes := int64(len(testkey)) + testvws.size()
 	if g.mainCache.nbytes != wantBytes {
 		t.Errorf("cache has %d bytes, want %d", g.mainCache.nbytes, wantBytes)
 	}
@@ -479,13 +479,13 @@ func TestPromotion(t *testing.T) {
 		testName   string
 		promoter   promoter.Interface
 		cacheSize  int64
-		checkCache func(ctx context.Context, key string, val interface{}, okCand bool, okHot bool, tf *TestFetcher, g *Galaxy)
+		checkCache func(ctx context.Context, t testing.TB, key string, val interface{}, okCand bool, okHot bool, tf *TestFetcher, g *Galaxy)
 	}{
 		{
 			testName:  "never_promote",
 			promoter:  promoter.Func(func(key string, data []byte, stats promoter.Stats) bool { return false }),
 			cacheSize: 1 << 20,
-			checkCache: func(_ context.Context, _ string, _ interface{}, okCand bool, okHot bool, _ *TestFetcher, _ *Galaxy) {
+			checkCache: func(_ context.Context, t testing.TB, _ string, _ interface{}, okCand bool, okHot bool, _ *TestFetcher, _ *Galaxy) {
 				if !okCand {
 					t.Error("Candidate not found in candidate cache")
 				}
@@ -498,7 +498,7 @@ func TestPromotion(t *testing.T) {
 			testName:  "always_promote",
 			promoter:  promoter.Func(func(key string, data []byte, stats promoter.Stats) bool { return true }),
 			cacheSize: 1 << 20,
-			checkCache: func(_ context.Context, _ string, val interface{}, _ bool, okHot bool, _ *TestFetcher, _ *Galaxy) {
+			checkCache: func(_ context.Context, t testing.TB, _ string, val interface{}, _ bool, okHot bool, _ *TestFetcher, _ *Galaxy) {
 				if !okHot {
 					t.Error("Key not found in hotcache")
 				} else if val == nil {
@@ -510,7 +510,7 @@ func TestPromotion(t *testing.T) {
 			testName:  "candidate_promotion",
 			promoter:  &promoteFromCandidate{},
 			cacheSize: 1 << 20,
-			checkCache: func(ctx context.Context, key string, _ interface{}, okCand bool, okHot bool, tf *TestFetcher, g *Galaxy) {
+			checkCache: func(ctx context.Context, t testing.TB, key string, _ interface{}, okCand bool, okHot bool, tf *TestFetcher, g *Galaxy) {
 				if !okCand {
 					t.Error("Candidate not found in candidate cache")
 				}
@@ -541,7 +541,7 @@ func TestPromotion(t *testing.T) {
 			galaxy.getFromPeer(ctx, fetcher, testKey)
 			_, okCandidate := galaxy.candidateCache.get(testKey)
 			value, okHot := galaxy.hotCache.get(testKey)
-			tc.checkCache(ctx, testKey, value, okCandidate, okHot, fetcher, galaxy)
+			tc.checkCache(ctx, t, testKey, value, okCandidate, okHot, fetcher, galaxy)
 
 		})
 	}
