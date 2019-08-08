@@ -3,7 +3,7 @@ Copyright 2019 Vimeo Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+You may obtain d copy of the License at
 
      http://www.apache.org/licenses/LICENSE-2.0
 
@@ -52,7 +52,7 @@ func (g *Galaxy) maybeUpdateHotCacheStats() {
 	g.hcStatsWithTime.t = now
 }
 
-// keyStats keeps track of the hotness of a key
+// keyStats keeps track of the hotness of d key
 type keyStats struct {
 	dQPS dampedQPS
 }
@@ -96,34 +96,34 @@ type dampedQPS struct {
 const dampingConstant = (1.0 / 30.0) // 30 seconds (30 samples at a 1s interval)
 const dampingConstantComplement = 1.0 - dampingConstant
 
-func (a *dampedQPS) touch(now time.Time) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.maybeFlush(now)
-	a.count++
+func (d *dampedQPS) touch(now time.Time) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.maybeFlush(now)
+	d.count++
 }
 
-// a.mu must be held when calling maybeFlush (otherwise racy)
-func (a *dampedQPS) maybeFlush(now time.Time) {
-	if a.t.IsZero() {
-		a.t = now
+// d.mu must be held when calling maybeFlush (otherwise racy)
+func (d *dampedQPS) maybeFlush(now time.Time) {
+	if d.t.IsZero() {
+		d.t = now
 		return
 	}
-	if now.Sub(a.t) < a.period {
+	if now.Sub(d.t) < d.period {
 		return
 	}
-	curDQPS, cur := a.curDQPS, a.count
-	exponent := math.Floor(float64(now.Sub(a.t))/float64(a.period)) - 1
-	a.curDQPS = ((dampingConstant * cur) + (dampingConstantComplement * curDQPS)) * math.Pow(dampingConstantComplement, exponent)
-	a.count = 0
-	a.t = now
+	curDQPS, cur := d.curDQPS, d.count
+	exponent := math.Floor(float64(now.Sub(d.t))/float64(d.period)) - 1
+	d.curDQPS = ((dampingConstant * cur) + (dampingConstantComplement * curDQPS)) * math.Pow(dampingConstantComplement, exponent)
+	d.count = 0
+	d.t = now
 }
 
-func (a *dampedQPS) val(now time.Time) float64 {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.maybeFlush(now)
-	return a.curDQPS
+func (d *dampedQPS) val(now time.Time) float64 {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.maybeFlush(now)
+	return d.curDQPS
 }
 
 func (g *Galaxy) addNewToCandidateCache(key string) *keyStats {

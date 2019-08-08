@@ -231,8 +231,8 @@ type galaxyOpts struct {
 
 type funcGalaxyOption func(*galaxyOpts)
 
-func (fdo funcGalaxyOption) apply(g *galaxyOpts) {
-	fdo(g)
+func (f funcGalaxyOption) apply(g *galaxyOpts) {
+	f(g)
 }
 
 func newFuncGalaxyOption(f func(*galaxyOpts)) funcGalaxyOption {
