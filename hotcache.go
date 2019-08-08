@@ -28,25 +28,27 @@ import (
 // last update
 func (g *Galaxy) maybeUpdateHotCacheStats() {
 	now := time.Now()
-	if g.hcStatsWithTime.t.IsZero() || now.Sub(g.hcStatsWithTime.t) >= time.Second {
-		mruEleQPS := 0.0
-		lruEleQPS := 0.0
-		mruEle := g.hotCache.lru.MostRecent()
-		lruEle := g.hotCache.lru.LeastRecent()
-		if mruEle != nil { // lru contains at least one element
-			mruEleQPS = mruEle.(*valWithStat).stats.val()
-			lruEleQPS = lruEle.(*valWithStat).stats.val()
-		}
-
-		newHCS := &promoter.HCStats{
-			MostRecentQPS:  mruEleQPS,
-			LeastRecentQPS: lruEleQPS,
-			HCSize:         (g.cacheBytes / g.opts.hcRatio) - g.hotCache.bytes(),
-			HCCapacity:     g.cacheBytes / g.opts.hcRatio,
-		}
-		g.hcStatsWithTime.hcs = newHCS
-		g.hcStatsWithTime.t = now
+	if !g.hcStatsWithTime.t.IsZero() && now.Sub(g.hcStatsWithTime.t) < time.Second {
+		return
 	}
+	mruEleQPS := 0.0
+	lruEleQPS := 0.0
+	mruEle := g.hotCache.lru.MostRecent()
+	lruEle := g.hotCache.lru.LeastRecent()
+	if mruEle != nil { // lru contains at least one element
+		mruEleQPS = mruEle.(*valWithStat).stats.val()
+		lruEleQPS = lruEle.(*valWithStat).stats.val()
+	}
+
+	newHCS := &promoter.HCStats{
+		MostRecentQPS:  mruEleQPS,
+		LeastRecentQPS: lruEleQPS,
+		HCSize:         (g.cacheBytes / g.opts.hcRatio) - g.hotCache.bytes(),
+		HCCapacity:     g.cacheBytes / g.opts.hcRatio,
+	}
+	g.hcStatsWithTime.hcs = newHCS
+	g.hcStatsWithTime.t = now
+
 }
 
 // keyStats keeps track of the hotness of a key
@@ -100,18 +102,20 @@ func (a *dampedQPS) touch(now time.Time) {
 	a.count++
 }
 
+// a.mu must be held when calling maybeFlush (otherwise racy)
 func (a *dampedQPS) maybeFlush(now time.Time) {
 	if a.t.IsZero() {
 		a.t = now
 		return
 	}
-	if now.Sub(a.t) >= a.period {
-		curDQPS, cur := a.curDQPS, a.count
-		exponent := math.Floor(float64(now.Sub(a.t))/float64(a.period)) - 1
-		a.curDQPS = ((dampingConstant * cur) + (dampingConstantComplement * curDQPS)) * math.Pow(dampingConstantComplement, exponent)
-		a.count = 0
-		a.t = now
+	if now.Sub(a.t) < a.period {
+		return
 	}
+	curDQPS, cur := a.curDQPS, a.count
+	exponent := math.Floor(float64(now.Sub(a.t))/float64(a.period)) - 1
+	a.curDQPS = ((dampingConstant * cur) + (dampingConstantComplement * curDQPS)) * math.Pow(dampingConstantComplement, exponent)
+	a.count = 0
+	a.t = now
 }
 
 func (a *dampedQPS) val(now time.Time) float64 {
