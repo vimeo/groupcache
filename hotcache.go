@@ -27,8 +27,10 @@ import (
 // update the hotcache stats if at least one second has passed since
 // last update
 func (g *Galaxy) maybeUpdateHotCacheStats() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	now := time.Now()
-	if !g.hcStatsWithTime.t.IsZero() && now.Sub(g.hcStatsWithTime.t) < time.Second {
+	if now.Sub(g.hcStatsWithTime.t) < time.Second {
 		return
 	}
 	mruEleQPS := 0.0
@@ -48,17 +50,16 @@ func (g *Galaxy) maybeUpdateHotCacheStats() {
 	}
 	g.hcStatsWithTime.hcs = newHCS
 	g.hcStatsWithTime.t = now
-
 }
 
 // keyStats keeps track of the hotness of a key
 type keyStats struct {
-	dQPS *dampedQPS
+	dQPS dampedQPS
 }
 
 func newValWithStat(data []byte, kStats *keyStats) *valWithStat {
 	if kStats == nil {
-		kStats = &keyStats{&dampedQPS{period: time.Second}}
+		kStats = &keyStats{dampedQPS{period: time.Second}}
 	}
 
 	return &valWithStat{
@@ -127,7 +128,7 @@ func (a *dampedQPS) val(now time.Time) float64 {
 
 func (g *Galaxy) addNewToCandidateCache(key string) *keyStats {
 	kStats := &keyStats{
-		dQPS: &dampedQPS{
+		dQPS: dampedQPS{
 			period: time.Second,
 		},
 	}

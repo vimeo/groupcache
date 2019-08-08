@@ -383,7 +383,7 @@ func TestNoDedup(t *testing.T) {
 	// If the singleflight callback doesn't double-check the cache again
 	// upon entry, we would increment nbytes twice but the entry would
 	// only be in the cache once.
-	testKStats := keyStats{dQPS: &dampedQPS{period: time.Second}}
+	testKStats := keyStats{dQPS: dampedQPS{period: time.Second}}
 	testvws := newValWithStat([]byte(testval), &testKStats)
 	wantBytes := int64(len(testkey)) + testvws.size()
 	if g.mainCache.nbytes != wantBytes {
@@ -402,18 +402,50 @@ func TestGalaxyStatsAlignment(t *testing.T) {
 func TestHotcache(t *testing.T) {
 	keyToAdd := "hi"
 	hcTests := []struct {
-		name                  string
-		numGets               int
-		numHeatBursts         int
-		secsBetweenHeatBursts time.Duration
-		secsToVal             time.Duration
-		expectedBurstQPS      float64
-		expectedValQPS        float64
+		name             string
+		numGets          int
+		numHeatBursts    int
+		burstInterval    time.Duration
+		timeToVal        time.Duration
+		expectedBurstQPS float64
+		expectedValQPS   float64
 	}{
-		{"10k_heat_burst_1_sec", 10000, 5, 1, 5, 1559.0, 1316.0},
-		{"10k_heat_burst_5_secs", 10000, 5, 5, 5, 1067.0, 900.5},
-		{"1k_heat_burst_1_secs", 1000, 5, 1, 5, 155.9, 131.6},
-		{"1k_heat_burst_5_secs", 1000, 5, 5, 5, 106.7, 90.05},
+		{
+			name:             "10k_heat_burst_1_sec",
+			numGets:          10000,
+			numHeatBursts:    5,
+			burstInterval:    1 * time.Second,
+			timeToVal:        5 * time.Second,
+			expectedBurstQPS: 1559.0,
+			expectedValQPS:   1316.0,
+		},
+		{
+			name:             "10k_heat_burst_5_secs",
+			numGets:          10000,
+			numHeatBursts:    5,
+			burstInterval:    5 * time.Second,
+			timeToVal:        5 * time.Second,
+			expectedBurstQPS: 1067.0,
+			expectedValQPS:   900.5,
+		},
+		{
+			name:             "1k_heat_burst_1_secs",
+			numGets:          1000,
+			numHeatBursts:    5,
+			burstInterval:    1 * time.Second,
+			timeToVal:        5 * time.Second,
+			expectedBurstQPS: 155.9,
+			expectedValQPS:   131.6,
+		},
+		{
+			name:             "1k_heat_burst_5_secs",
+			numGets:          1000,
+			numHeatBursts:    5,
+			burstInterval:    5 * time.Second,
+			timeToVal:        5 * time.Second,
+			expectedBurstQPS: 106.7,
+			expectedValQPS:   90.05,
+		},
 	}
 
 	for _, tc := range hcTests {
@@ -423,7 +455,7 @@ func TestHotcache(t *testing.T) {
 				return dest.UnmarshalBinary([]byte("hello"))
 			}))
 			kStats := &keyStats{
-				dQPS: &dampedQPS{
+				dQPS: dampedQPS{
 					period: time.Second,
 				},
 			}
@@ -436,7 +468,7 @@ func TestHotcache(t *testing.T) {
 					kStats.dQPS.touch(now)
 				}
 				t.Logf("QPS on %d gets in 1 second on burst #%d: %f\n", tc.numGets, k+1, kStats.dQPS.curDQPS)
-				now = now.Add(time.Second * tc.secsBetweenHeatBursts)
+				now = now.Add(tc.burstInterval)
 			}
 			val := kStats.dQPS.val(now)
 			if math.Abs(val-tc.expectedBurstQPS) > val/100 { // ensure less than %1 error
@@ -448,7 +480,7 @@ func TestHotcache(t *testing.T) {
 			g.maybeUpdateHotCacheStats()
 			t.Logf("Hottest QPS: %f, Coldest QPS: %f\n", g.hcStatsWithTime.hcs.MostRecentQPS, g.hcStatsWithTime.hcs.LeastRecentQPS)
 
-			now = now.Add(time.Second * tc.secsToVal)
+			now = now.Add(tc.timeToVal)
 			val = kStats.dQPS.val(now)
 			if math.Abs(val-tc.expectedValQPS) > val/100 {
 				t.Errorf("QPS after delayed Val() call: %f, Wanted: %f", val, tc.expectedBurstQPS)

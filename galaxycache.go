@@ -443,9 +443,9 @@ func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string
 	if !ok {
 		vi = g.addNewToCandidateCache(key)
 	}
-	g.mu.Lock()
-	g.maybeUpdateHotCacheStats()
-	g.mu.Unlock()
+
+	g.maybeUpdateHotCacheStats() // will update if at least a second has passed since the last update
+
 	kStats := vi.(*keyStats)
 	stats := promoter.Stats{
 		KeyQPS:  kStats.val(),
