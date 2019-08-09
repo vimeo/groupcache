@@ -22,6 +22,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"math/rand"
 	"strconv"
 	"strings"
@@ -29,6 +30,8 @@ import (
 	"testing"
 	"time"
 	"unsafe"
+
+	"github.com/vimeo/galaxycache/promoter"
 )
 
 const (
@@ -269,7 +272,7 @@ func TestPeers(t *testing.T) {
 				return dest.UnmarshalBinary([]byte("got:" + key))
 			}
 
-			testGalaxy := universe.NewGalaxy("TestPeers-galaxy", tc.cacheSize, GetterFunc(getter))
+			testGalaxy := universe.NewGalaxy("TestPeers-galaxy", tc.cacheSize, GetterFunc(getter), WithPromoter(&promoter.ProbabilisticPromoter{10}))
 
 			if tc.initFunc != nil {
 				tc.initFunc(testGalaxy, testproto.TestFetchers)
@@ -380,7 +383,9 @@ func TestNoDedup(t *testing.T) {
 	// If the singleflight callback doesn't double-check the cache again
 	// upon entry, we would increment nbytes twice but the entry would
 	// only be in the cache once.
-	const wantBytes = int64(len(testkey) + len(testval))
+	testKStats := keyStats{dQPS: dampedQPS{period: time.Second}}
+	testvws := newValWithStat([]byte(testval), &testKStats)
+	wantBytes := int64(len(testkey)) + testvws.size()
 	if g.mainCache.nbytes != wantBytes {
 		t.Errorf("cache has %d bytes, want %d", g.mainCache.nbytes, wantBytes)
 	}
@@ -394,5 +399,183 @@ func TestGalaxyStatsAlignment(t *testing.T) {
 	}
 }
 
-// TODO(bradfitz): port the Google-internal full integration test into here,
-// using HTTP requests instead of our RPC system.
+func TestHotcache(t *testing.T) {
+	keyToAdd := "hi"
+	hcTests := []struct {
+		name             string
+		numGets          int
+		numHeatBursts    int
+		burstInterval    time.Duration
+		timeToVal        time.Duration
+		expectedBurstQPS float64
+		expectedValQPS   float64
+	}{
+		{
+			name:             "10k_heat_burst_1_sec",
+			numGets:          10000,
+			numHeatBursts:    5,
+			burstInterval:    1 * time.Second,
+			timeToVal:        5 * time.Second,
+			expectedBurstQPS: 1559.0,
+			expectedValQPS:   1316.0,
+		},
+		{
+			name:             "10k_heat_burst_5_secs",
+			numGets:          10000,
+			numHeatBursts:    5,
+			burstInterval:    5 * time.Second,
+			timeToVal:        5 * time.Second,
+			expectedBurstQPS: 1067.0,
+			expectedValQPS:   900.5,
+		},
+		{
+			name:             "1k_heat_burst_1_secs",
+			numGets:          1000,
+			numHeatBursts:    5,
+			burstInterval:    1 * time.Second,
+			timeToVal:        5 * time.Second,
+			expectedBurstQPS: 155.9,
+			expectedValQPS:   131.6,
+		},
+		{
+			name:             "1k_heat_burst_5_secs",
+			numGets:          1000,
+			numHeatBursts:    5,
+			burstInterval:    5 * time.Second,
+			timeToVal:        5 * time.Second,
+			expectedBurstQPS: 106.7,
+			expectedValQPS:   90.05,
+		},
+	}
+
+	for _, tc := range hcTests {
+		t.Run(tc.name, func(t *testing.T) {
+			u := NewUniverse(&TestProtocol{}, "test-universe")
+			g := u.NewGalaxy("test-galaxy", 1<<20, GetterFunc(func(_ context.Context, key string, dest Codec) error {
+				return dest.UnmarshalBinary([]byte("hello"))
+			}))
+			kStats := &keyStats{
+				dQPS: dampedQPS{
+					period: time.Second,
+				},
+			}
+			value := newValWithStat([]byte("hello"), kStats)
+			g.hotCache.add(keyToAdd, value)
+			now := time.Now()
+			// blast the key in the hotcache with a bunch of hypothetical gets every few seconds
+			for k := 0; k < tc.numHeatBursts; k++ {
+				for k := 0; k < tc.numGets; k++ {
+					kStats.dQPS.touch(now)
+				}
+				t.Logf("QPS on %d gets in 1 second on burst #%d: %f\n", tc.numGets, k+1, kStats.dQPS.curDQPS)
+				now = now.Add(tc.burstInterval)
+			}
+			val := kStats.dQPS.val(now)
+			if math.Abs(val-tc.expectedBurstQPS) > val/100 { // ensure less than %1 error
+				t.Errorf("QPS after bursts: %f, Wanted: %f", val, tc.expectedBurstQPS)
+			}
+			value2 := newValWithStat([]byte("hello there"), nil)
+
+			g.hotCache.add(keyToAdd+"2", value2) // ensure that hcStats are properly updated after adding
+			g.maybeUpdateHotCacheStats()
+			t.Logf("Hottest QPS: %f, Coldest QPS: %f\n", g.hcStatsWithTime.hcs.MostRecentQPS, g.hcStatsWithTime.hcs.LeastRecentQPS)
+
+			now = now.Add(tc.timeToVal)
+			val = kStats.dQPS.val(now)
+			if math.Abs(val-tc.expectedValQPS) > val/100 {
+				t.Errorf("QPS after delayed Val() call: %f, Wanted: %f", val, tc.expectedBurstQPS)
+			}
+		})
+	}
+}
+
+type promoteFromCandidate struct {
+	hits int
+}
+
+func (p *promoteFromCandidate) ShouldPromote(key string, data []byte, stats promoter.Stats) bool {
+	if p.hits > 0 {
+		return true
+	}
+	p.hits++
+	return false
+}
+
+// Ensures cache entries move properly through the stages of candidacy
+// to full hotcache member. Simulates a galaxy where elements are always promoted,
+// never promoted, etc
+func TestPromotion(t *testing.T) {
+	ctx := context.Background()
+	testKey := "to-get"
+	testCases := []struct {
+		testName   string
+		promoter   promoter.Interface
+		cacheSize  int64
+		checkCache func(ctx context.Context, t testing.TB, key string, val interface{}, okCand bool, okHot bool, tf *TestFetcher, g *Galaxy)
+	}{
+		{
+			testName:  "never_promote",
+			promoter:  promoter.Func(func(key string, data []byte, stats promoter.Stats) bool { return false }),
+			cacheSize: 1 << 20,
+			checkCache: func(_ context.Context, t testing.TB, _ string, _ interface{}, okCand bool, okHot bool, _ *TestFetcher, _ *Galaxy) {
+				if !okCand {
+					t.Error("Candidate not found in candidate cache")
+				}
+				if okHot {
+					t.Error("Found candidate in hotcache")
+				}
+			},
+		},
+		{
+			testName:  "always_promote",
+			promoter:  promoter.Func(func(key string, data []byte, stats promoter.Stats) bool { return true }),
+			cacheSize: 1 << 20,
+			checkCache: func(_ context.Context, t testing.TB, _ string, val interface{}, _ bool, okHot bool, _ *TestFetcher, _ *Galaxy) {
+				if !okHot {
+					t.Error("Key not found in hotcache")
+				} else if val == nil {
+					t.Error("Found element in hotcache, but no associated data")
+				}
+			},
+		},
+		{
+			testName:  "candidate_promotion",
+			promoter:  &promoteFromCandidate{},
+			cacheSize: 1 << 20,
+			checkCache: func(ctx context.Context, t testing.TB, key string, _ interface{}, okCand bool, okHot bool, tf *TestFetcher, g *Galaxy) {
+				if !okCand {
+					t.Error("Candidate not found in candidate cache")
+				}
+				if okHot {
+					t.Error("Found candidate in hotcache")
+				}
+				g.getFromPeer(ctx, tf, key)
+				val, okHot := g.hotCache.get(key)
+				if string(val.(*valWithStat).data) != "got:"+testKey {
+					t.Error("Did not promote from candidacy")
+				}
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.testName, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(ctx)
+			defer cancel()
+
+			fetcher := &TestFetcher{}
+			testProto := &TestProtocol{}
+			getter := func(_ context.Context, key string, dest Codec) error {
+				return dest.UnmarshalBinary([]byte("got:" + key))
+			}
+			universe := NewUniverse(testProto, "promotion-test")
+			galaxy := universe.NewGalaxy("test-galaxy", tc.cacheSize, GetterFunc(getter), WithPromoter(tc.promoter))
+			galaxy.getFromPeer(ctx, fetcher, testKey)
+			_, okCandidate := galaxy.candidateCache.get(testKey)
+			value, okHot := galaxy.hotCache.get(testKey)
+			tc.checkCache(ctx, t, testKey, value, okCandidate, okHot, fetcher, galaxy)
+
+		})
+	}
+
+}

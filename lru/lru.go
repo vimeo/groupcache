@@ -17,7 +17,9 @@ limitations under the License.
 // Package lru implements an LRU cache.
 package lru // import "github.com/vimeo/galaxycache/lru"
 
-import "container/list"
+import (
+	"container/list"
+)
 
 // Cache is an LRU cache. It is not safe for concurrent access.
 type Cache struct {
@@ -80,6 +82,22 @@ func (c *Cache) Get(key Key) (value interface{}, ok bool) {
 		return ele.Value.(*entry).value, true
 	}
 	return
+}
+
+// MostRecent returns the most recently used element
+func (c *Cache) MostRecent() interface{} {
+	if c.Len() == 0 {
+		return nil
+	}
+	return c.ll.Front().Value.(*entry).value
+}
+
+// LeastRecent returns the least recently used element
+func (c *Cache) LeastRecent() interface{} {
+	if c.Len() == 0 {
+		return nil
+	}
+	return c.ll.Back().Value.(*entry).value
 }
 
 // Remove removes the provided key from the cache.

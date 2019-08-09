@@ -31,21 +31,21 @@ type complexStruct struct {
 	simpleStruct
 }
 
-var getTests = []struct {
-	name       string
-	keyToAdd   interface{}
-	keyToGet   interface{}
-	expectedOk bool
-}{
-	{"string_hit", "myKey", "myKey", true},
-	{"string_miss", "myKey", "nonsense", false},
-	{"simple_struct_hit", simpleStruct{1, "two"}, simpleStruct{1, "two"}, true},
-	{"simeple_struct_miss", simpleStruct{1, "two"}, simpleStruct{0, "noway"}, false},
-	{"complex_struct_hit", complexStruct{1, simpleStruct{2, "three"}},
-		complexStruct{1, simpleStruct{2, "three"}}, true},
-}
-
 func TestGet(t *testing.T) {
+	getTests := []struct {
+		name       string
+		keyToAdd   interface{}
+		keyToGet   interface{}
+		expectedOk bool
+	}{
+		{"string_hit", "myKey", "myKey", true},
+		{"string_miss", "myKey", "nonsense", false},
+		{"simple_struct_hit", simpleStruct{1, "two"}, simpleStruct{1, "two"}, true},
+		{"simple_struct_miss", simpleStruct{1, "two"}, simpleStruct{0, "noway"}, false},
+		{"complex_struct_hit", complexStruct{1, simpleStruct{2, "three"}},
+			complexStruct{1, simpleStruct{2, "three"}}, true},
+	}
+
 	for _, tt := range getTests {
 		lru := New(0)
 		lru.Add(tt.keyToAdd, 1234)

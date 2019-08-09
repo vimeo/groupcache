@@ -27,13 +27,14 @@ package galaxycache // import "github.com/vimeo/galaxycache"
 import (
 	"context"
 	"errors"
-	"math/rand"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unsafe"
 
 	"github.com/vimeo/galaxycache/lru"
+	"github.com/vimeo/galaxycache/promoter"
 	"github.com/vimeo/galaxycache/singleflight"
 
 	"go.opencensus.io/stats"
@@ -96,7 +97,7 @@ func NewUniverseWithOpts(protocol FetchProtocol, selfURL string, options *HashOp
 // completes.
 //
 // The galaxy name must be unique for each BackendGetter.
-func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter BackendGetter) *Galaxy {
+func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter BackendGetter, opts ...GalaxyOption) *Galaxy {
 	if getter == nil {
 		panic("nil Getter")
 	}
@@ -106,13 +107,42 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 	if _, dup := universe.galaxies[name]; dup {
 		panic("duplicate registration of galaxy " + name)
 	}
+
+	gOpts := galaxyOpts{
+		promoter:      &promoter.DefaultPromoter{},
+		hcRatio:       8, // default hotcache size is 1/8th of cacheBytes
+		maxCandidates: 100,
+	}
+	for _, opt := range opts {
+		opt.apply(&gOpts)
+	}
 	g := &Galaxy{
 		name:       name,
 		getter:     getter,
 		peerPicker: universe.peerPicker,
 		cacheBytes: cacheBytes,
-		loadGroup:  &singleflight.Group{},
+		mainCache: cache{
+			lru: lru.New(0),
+		},
+		hotCache: cache{
+			lru: lru.New(0),
+		},
+		candidateCache: cache{
+			lru: lru.New(gOpts.maxCandidates),
+		},
+		hcStatsWithTime: HCStatsWithTime{
+			hcs: &promoter.HCStats{
+				HCCapacity: cacheBytes / gOpts.hcRatio,
+			}},
+		loadGroup: &singleflight.Group{},
+		opts:      gOpts,
 	}
+	g.mainCache.setLRUOnEvicted(nil)
+	g.hotCache.setLRUOnEvicted(g.candidateCache.addToCandidateCache)
+	g.candidateCache.lru.OnEvicted = func(key lru.Key, value interface{}) {
+		g.candidateCache.nevict++
+	}
+
 	universe.galaxies[name] = g
 	return g
 }
@@ -132,8 +162,16 @@ func (universe *Universe) Set(peerURLs ...string) error {
 	return universe.peerPicker.set(peerURLs...)
 }
 
+// Shutdown closes all open fetcher connections
 func (universe *Universe) Shutdown() error {
 	return universe.peerPicker.shutdown()
+}
+
+// HCStatsWithTime includes a time stamp along with the hotcache stats
+// to ensure updates happen no more than once per second
+type HCStatsWithTime struct {
+	hcs *promoter.HCStats
+	t   time.Time
 }
 
 // A Galaxy is a cache namespace and associated data spread over
@@ -142,6 +180,7 @@ type Galaxy struct {
 	name       string
 	getter     BackendGetter
 	peerPicker *PeerPicker
+	mu         sync.Mutex
 	cacheBytes int64 // limit for sum of mainCache and hotCache size
 
 	// mainCache is a cache of the keys for which this process
@@ -160,15 +199,69 @@ type Galaxy struct {
 	// of key/value pairs that can be stored globally.
 	hotCache cache
 
+	candidateCache cache
+
+	hcStatsWithTime HCStatsWithTime
+
 	// loadGroup ensures that each key is only fetched once
 	// (either locally or remotely), regardless of the number of
 	// concurrent callers.
 	loadGroup flightGroup
 
+	opts galaxyOpts
+
 	_ int32 // force Stats to be 8-byte aligned on 32-bit platforms
 
 	// Stats are statistics on the galaxy.
-	Stats Stats
+	Stats GalaxyStats
+}
+
+// GalaxyOption is an interface for implementing functional galaxy options
+type GalaxyOption interface {
+	apply(*galaxyOpts)
+}
+
+// galaxyOpts contains optional fields for the galaxy (each with a default
+// value if not set)
+type galaxyOpts struct {
+	promoter      promoter.Interface
+	hcRatio       int64
+	maxCandidates int
+}
+
+type funcGalaxyOption func(*galaxyOpts)
+
+func (f funcGalaxyOption) apply(g *galaxyOpts) {
+	f(g)
+}
+
+func newFuncGalaxyOption(f func(*galaxyOpts)) funcGalaxyOption {
+	return funcGalaxyOption(f)
+}
+
+// WithPromoter allows the client to specify a promoter for the galaxy;
+// defaults to a simple QPS comparison
+func WithPromoter(p promoter.Interface) GalaxyOption {
+	return newFuncGalaxyOption(func(g *galaxyOpts) {
+		g.promoter = p
+	})
+}
+
+// WithHotCacheRatio allows the client to specify a ratio for the
+// main-to-hot cache sizes for the galaxy; defaults to 8:1
+func WithHotCacheRatio(r int64) GalaxyOption {
+	return newFuncGalaxyOption(func(g *galaxyOpts) {
+		g.hcRatio = r
+	})
+}
+
+// WithMaxCandidates allows the client to specify the size of the
+// candidate cache by the max number of candidates held at one time;
+// defaults to 100
+func WithMaxCandidates(n int) GalaxyOption {
+	return newFuncGalaxyOption(func(g *galaxyOpts) {
+		g.maxCandidates = n
+	})
 }
 
 // flightGroup is defined as an interface which flightgroup.Group
@@ -179,10 +272,11 @@ type flightGroup interface {
 	Do(key string, fn func() (interface{}, error)) (interface{}, error)
 }
 
-// Stats are per-galaxy statistics.
-type Stats struct {
+// GalaxyStats are per-galaxy statistics.
+type GalaxyStats struct {
 	Gets           AtomicInt // any Get request, including from peers
 	CacheHits      AtomicInt // either cache was good
+	HotcacheHits   AtomicInt
 	PeerLoads      AtomicInt // either remote load or remote cache hit (not an error)
 	PeerErrors     AtomicInt
 	Loads          AtomicInt // (gets - cacheHits)
@@ -207,7 +301,7 @@ func (g *Galaxy) Name() string {
 // canonical owner, call the BackendGetter to retrieve the value
 // (which will now be cached locally)
 func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
-	ctx, _ = tag.New(ctx, tag.Insert(keyCommand, "get"))
+	ctx, _ = tag.New(ctx, tag.Insert(keyCommand, "get")) // TODO: replace with galaxy tag
 
 	ctx, span := trace.StartSpan(ctx, "galaxycache.(*Galaxy).Get on "+g.name)
 	startTime := time.Now()
@@ -230,8 +324,9 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 		span.Annotatef(nil, "Cache hit")
 		// TODO(@odeke-em): Remove .Stats
 		g.Stats.CacheHits.Add(1)
-		stats.Record(ctx, MCacheHits.M(1), MValueLength.M(int64(len(value))))
-		return dest.UnmarshalBinary(value)
+		stats.Record(ctx, MCacheHits.M(1), MValueLength.M(int64(len(value.data))))
+		value.stats.touch()
+		return dest.UnmarshalBinary(value.data)
 	}
 
 	stats.Record(ctx, MCacheMisses.M(1))
@@ -247,15 +342,16 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 		stats.Record(ctx, MLoadErrors.M(1))
 		return err
 	}
-	stats.Record(ctx, MValueLength.M(int64(len(value))))
+	value.stats.touch()
+	stats.Record(ctx, MValueLength.M(int64(len(value.data))))
 	if destPopulated {
 		return nil
 	}
-	return dest.UnmarshalBinary(value)
+	return dest.UnmarshalBinary(value.data)
 }
 
 // load loads key either by invoking the getter locally or by sending it to another machine.
-func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value []byte, destPopulated bool, err error) {
+func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value *valWithStat, destPopulated bool, err error) {
 	// TODO(@odeke-em): Remove .Stats
 	g.Stats.Loads.Add(1)
 	stats.Record(ctx, MLoads.M(1))
@@ -292,7 +388,6 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value []byte
 		g.Stats.LoadsDeduped.Add(1)
 		stats.Record(ctx, MLoadsDeduped.M(1))
 
-		var value []byte
 		var err error
 		if peer, ok := g.peerPicker.pickPeer(key); ok {
 			value, err = g.getFromPeer(ctx, peer, key)
@@ -310,7 +405,7 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value []byte
 			// probably boring (normal task movement), so not
 			// worth logging I imagine.
 		}
-		value, err = g.getLocally(ctx, key, dest)
+		data, err := g.getLocally(ctx, key, dest)
 		if err != nil {
 			// TODO(@odeke-em): Remove .Stats
 			g.Stats.LocalLoadErrs.Add(1)
@@ -321,11 +416,12 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value []byte
 		g.Stats.LocalLoads.Add(1)
 		stats.Record(ctx, MLocalLoads.M(1))
 		destPopulated = true // only one caller of load gets this return value
+		value = newValWithStat(data, nil)
 		g.populateCache(key, value, &g.mainCache)
 		return value, nil
 	})
 	if err == nil {
-		value = viewi.([]byte)
+		value = viewi.(*valWithStat)
 	}
 	return
 }
@@ -338,34 +434,47 @@ func (g *Galaxy) getLocally(ctx context.Context, key string, dest Codec) ([]byte
 	return dest.MarshalBinary()
 }
 
-func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string) ([]byte, error) {
+func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string) (*valWithStat, error) {
 	data, err := peer.Fetch(ctx, g.name, key)
 	if err != nil {
 		return nil, err
 	}
-	value := data
-	// TODO(bradfitz): use res.MinuteQps or something smart to
-	// conditionally populate hotCache.  For now just do it some
-	// percentage of the time.
-	if rand.Intn(10) == 0 {
+	vi, ok := g.candidateCache.get(key)
+	if !ok {
+		vi = g.addNewToCandidateCache(key)
+	}
+
+	g.maybeUpdateHotCacheStats() // will update if at least a second has passed since the last update
+
+	kStats := vi.(*keyStats)
+	stats := promoter.Stats{
+		KeyQPS:  kStats.val(),
+		HCStats: g.hcStatsWithTime.hcs,
+	}
+	value := newValWithStat(data, kStats)
+	if g.opts.promoter.ShouldPromote(key, value.data, stats) {
 		g.populateCache(key, value, &g.hotCache)
 	}
 	return value, nil
 }
 
-func (g *Galaxy) lookupCache(key string) (value []byte, ok bool) {
+func (g *Galaxy) lookupCache(key string) (*valWithStat, bool) {
 	if g.cacheBytes <= 0 {
-		return
+		return nil, false
 	}
-	value, ok = g.mainCache.get(key)
+	vi, ok := g.mainCache.get(key)
 	if ok {
-		return
+		return vi.(*valWithStat), ok
 	}
-	value, ok = g.hotCache.get(key)
-	return
+	vi, ok = g.hotCache.get(key)
+	if !ok {
+		return nil, false
+	}
+	g.Stats.HotcacheHits.Add(1)
+	return vi.(*valWithStat), ok
 }
 
-func (g *Galaxy) populateCache(key string, value []byte, cache *cache) {
+func (g *Galaxy) populateCache(key string, value *valWithStat, cache *cache) {
 	if g.cacheBytes <= 0 {
 		return
 	}
@@ -383,7 +492,7 @@ func (g *Galaxy) populateCache(key string, value []byte, cache *cache) {
 		// It should be something based on measurements and/or
 		// respecting the costs of different resources.
 		victim := &g.mainCache
-		if hotBytes > mainBytes/8 {
+		if hotBytes > mainBytes/g.opts.hcRatio {
 			victim = &g.hotCache
 		}
 		victim.removeOldest()
@@ -402,6 +511,10 @@ const (
 	// enough to replicate to this node, even though it's not the
 	// owner.
 	HotCache
+
+	// CandidateCache is the cache for peer-owned keys that
+	// may become popular enough to put in the HotCache
+	CandidateCache
 )
 
 // CacheStats returns stats about the provided cache within the galaxy.
@@ -411,16 +524,18 @@ func (g *Galaxy) CacheStats(which CacheType) CacheStats {
 		return g.mainCache.stats()
 	case HotCache:
 		return g.hotCache.stats()
+	case CandidateCache:
+		return g.candidateCache.stats()
 	default:
 		return CacheStats{}
 	}
 }
 
-// cache is a wrapper around an *lru.Cache that adds synchronization,
-// makes values always be ByteView, and counts the size of all keys and
-// values.
+// cache is a wrapper around an *lru.Cache that adds synchronization
+// and counts the size of all keys and values. Candidate cache only
+// utilizes the lru.Cache and mutex, not the included stats.
 type cache struct {
-	mu         sync.RWMutex
+	mu         sync.Mutex
 	nbytes     int64 // of all keys and values
 	lru        *lru.Cache
 	nhit, nget int64
@@ -428,8 +543,8 @@ type cache struct {
 }
 
 func (c *cache) stats() CacheStats {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return CacheStats{
 		Bytes:     c.nbytes,
 		Items:     c.itemsLocked(),
@@ -439,35 +554,50 @@ func (c *cache) stats() CacheStats {
 	}
 }
 
-func (c *cache) add(key string, value []byte) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.lru == nil {
-		c.lru = &lru.Cache{
-			OnEvicted: func(key lru.Key, value interface{}) {
-				val := value.([]byte)
-				c.nbytes -= int64(len(key.(string))) + int64(len(val))
-				c.nevict++
-			},
-		}
-	}
-	c.lru.Add(key, value)
-	c.nbytes += int64(len(key)) + int64(len(value))
+type valWithStat struct {
+	data  []byte
+	stats *keyStats
 }
 
-func (c *cache) get(key string) (value []byte, ok bool) {
+// sizeOfValWithStats returns the total size of the value in the hot/main
+// cache, including the data, key stats, and a pointer to the val itself
+func (v *valWithStat) size() int64 {
+	// using cap() instead of len() for data leads to inconsistency
+	// after unmarshaling/marshaling the data
+	return int64(unsafe.Sizeof(*v.stats)) + int64(len(v.data)) + int64(unsafe.Sizeof(v)) + int64(unsafe.Sizeof(*v))
+}
+
+func (c *cache) setLRUOnEvicted(f func(key string, kStats *keyStats)) {
+	c.lru.OnEvicted = func(key lru.Key, value interface{}) {
+		val := value.(*valWithStat)
+		c.nbytes -= int64(len(key.(string))) + val.size()
+		c.nevict++
+		if f != nil {
+			f(key.(string), val.stats)
+		}
+	}
+}
+
+func (c *cache) add(key string, value *valWithStat) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lru.Add(key, value)
+	c.nbytes += int64(len(key)) + value.size()
+}
+
+func (c *cache) get(key string) (vi interface{}, ok bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.nget++
 	if c.lru == nil {
 		return
 	}
-	vi, ok := c.lru.Get(key)
+	vi, ok = c.lru.Get(key)
 	if !ok {
 		return
 	}
 	c.nhit++
-	return vi.([]byte), true
+	return vi, true
 }
 
 func (c *cache) removeOldest() {
@@ -476,17 +606,18 @@ func (c *cache) removeOldest() {
 	if c.lru != nil {
 		c.lru.RemoveOldest()
 	}
+
 }
 
 func (c *cache) bytes() int64 {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.nbytes
 }
 
 func (c *cache) items() int64 {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.itemsLocked()
 }
 
