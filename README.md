@@ -42,8 +42,9 @@ g := u.NewGalaxy("galaxy-1", 1 << 20, getter, WithHotCacheRatio(4))
 grpcServer := grpc.NewServer(grpc.StatsHandler(&ocgrpc.ServerHandler{}))
 RegisterGRPCServer(u, grpcServer)
 
-// HTTP Handler registration (passing nil for the second argument will ensure use of the default basepath,
-// passing nil for the third argument will ensure use of the DefaultServeMux wrapped by opencensus)
+// HTTP Handler registration (passing nil for the second argument will ensure use of the default 
+// basepath, passing nil for the third argument will ensure use of the DefaultServeMux wrapped 
+// by opencensus)
 RegisterHTTPHandler(u, nil, nil)
 
 ```
