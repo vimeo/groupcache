@@ -312,8 +312,7 @@ func (g *Galaxy) Name() string {
 // canonical owner, call the BackendGetter to retrieve the value
 // (which will now be cached locally)
 func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
-	var tagErr error
-	ctx, tagErr = tag.New(ctx, tag.Insert(galaxyGetKey, g.name))
+	ctx, tagErr := tag.New(ctx, tag.Insert(galaxyGetKey, g.name))
 	if tagErr != nil {
 		panic(fmt.Errorf("Error tagging context: %s", tagErr))
 	}
