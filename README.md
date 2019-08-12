@@ -22,13 +22,13 @@ getter := GetterFunc(func(_ context.Context, key string, dest Codec) error {
    // Define your method for retrieving non-cached data here, i.e. from a database
 })
 
-// Create a new Galaxy within the Universe with a name, the max capacity of cache space
-// you would like to allocate, and your BackendGetter
+// Create a new Galaxy within the Universe with a name, the max capacity of cache space you would
+// like to allocate, and your BackendGetter
 g := u.NewGalaxy("galaxy-1", 1 << 20, getter)
 
-// Create a Codec for unmarshaling data into your format of choice - the package
-// includes implementations for []byte and string formats, and the protocodec subpackage 
-// includes the protobuf format
+// Create a Codec for unmarshaling data into your format of choice - the package includes 
+// implementations for []byte and string formats, and the protocodec subpackage includes the 
+// protobuf format
 sCodec := StringCodec{}
 
 // Call Get on the Galaxy to retrieve data and unmarshal it into your Codec
