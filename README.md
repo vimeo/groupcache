@@ -83,8 +83,8 @@ We also changed the naming scheme of objects and methods to clarify their purpos
 
 Each process within a set of peer processes contains a `Universe` which encapsulates a map of `Galaxies` (previously called `Groups`). Each `Universe` contains the same set of `Galaxies`, but each `key` (think of it as a "star") has a single associated authoritative peer (determined by the consistent hash function). 
 
-When `Get` is called for a key in a `Galaxy` in some process called Process-A:
-1. The local cache (both maincache and hotcache) in Process-A is checked first
+When `Get` is called for a key in a `Galaxy` in some process called Process_A:
+1. The local cache (both maincache and hotcache) in Process_A is checked first
 2. On a cache miss, the `PeerPicker` object delegates to the peer authoritative over the requested key
 3. Depends on which peer is authoritative over this key...
 - If the Process_A is the authority:
