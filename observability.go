@@ -57,25 +57,24 @@ var (
 	MRoundtripLatencyMilliseconds = stats.Float64("roundtrip_latency", "Roundtrip latency in milliseconds", unitMillisecond)
 )
 
-var keyCommand, _ = tag.NewKey("command")
-var galaxyKey, err = tag.NewKey("galaxy-get") // TODO(willg): where to handle this err?
+var galaxyGetKey = tag.MustNewKey("galaxy-get")
 
 // AllViews is a slice of default views for people to use
 var AllViews = []*view.View{
-	{Name: "galaxycache/gets", Description: "The number of Get requests", Measure: MGets, Aggregation: view.Count()},
-	{Name: "galaxycache/cache_hits", Description: "The number of times that either cache was good", Measure: MCacheHits, Aggregation: view.Count()},
-	{Name: "galaxycache/hotcache_hits", Description: "The number of times that the hotcache was good", Measure: MHotcacheHits, Aggregation: view.Count()},
-	{Name: "galaxycache/cache_misses", Description: "The number of times that either cache was not good", Measure: MCacheMisses, Aggregation: view.Count()},
-	{Name: "galaxycache/peer_loads", Description: "The number of remote loads or remote cache hits", Measure: MPeerLoads, Aggregation: view.Count()},
-	{Name: "galaxycache/peer_errors", Description: "The number of remote errors", Measure: MPeerErrors, Aggregation: view.Count()},
-	{Name: "galaxycache/loads", Description: "The number of loads after singleflight", Measure: MLoads, Aggregation: view.Count()},
-	{Name: "galaxycache/loads_deduped", Description: "The number of loads after singleflight", Measure: MLoadsDeduped, Aggregation: view.Count()},
-	{Name: "galaxycache/local_loads", Description: "The number of good local loads", Measure: MLocalLoads, Aggregation: view.Count()},
-	{Name: "galaxycache/local_load_errors", Description: "The number of bad local loads", Measure: MLocalLoadErrors, Aggregation: view.Count()},
-	{Name: "galaxycache/server_requests", Description: "The number of Gets that came over the network from peers", Measure: MServerRequests, Aggregation: view.Count()},
-	{Name: "galaxycache/key_length", Description: "The distribution of the key lengths", Measure: MKeyLength, Aggregation: defaultBytesDistribution},
-	{Name: "galaxycache/value_length", Description: "The distribution of the value lengths", Measure: MValueLength, Aggregation: defaultBytesDistribution},
-	{Name: "galaxycache/roundtrip_latency", Description: "The roundtrip latency", Measure: MRoundtripLatencyMilliseconds, Aggregation: defaultMillisecondsDistribution},
+	{Name: "galaxycache/gets", Description: "The number of Get requests", TagKeys: []tag.Key{galaxyGetKey}, Measure: MGets, Aggregation: view.Count()},
+	{Name: "galaxycache/cache_hits", Description: "The number of times that either cache was good", TagKeys: []tag.Key{galaxyGetKey}, Measure: MCacheHits, Aggregation: view.Count()},
+	{Name: "galaxycache/hotcache_hits", Description: "The number of times that the hotcache was good", TagKeys: []tag.Key{galaxyGetKey}, Measure: MHotcacheHits, Aggregation: view.Count()},
+	{Name: "galaxycache/cache_misses", Description: "The number of times that either cache was not good", TagKeys: []tag.Key{galaxyGetKey}, Measure: MCacheMisses, Aggregation: view.Count()},
+	{Name: "galaxycache/peer_loads", Description: "The number of remote loads or remote cache hits", TagKeys: []tag.Key{galaxyGetKey}, Measure: MPeerLoads, Aggregation: view.Count()},
+	{Name: "galaxycache/peer_errors", Description: "The number of remote errors", TagKeys: []tag.Key{galaxyGetKey}, Measure: MPeerErrors, Aggregation: view.Count()},
+	{Name: "galaxycache/loads", Description: "The number of loads after singleflight", TagKeys: []tag.Key{galaxyGetKey}, Measure: MLoads, Aggregation: view.Count()},
+	{Name: "galaxycache/loads_deduped", Description: "The number of loads after singleflight", TagKeys: []tag.Key{galaxyGetKey}, Measure: MLoadsDeduped, Aggregation: view.Count()},
+	{Name: "galaxycache/local_loads", Description: "The number of good local loads", TagKeys: []tag.Key{galaxyGetKey}, Measure: MLocalLoads, Aggregation: view.Count()},
+	{Name: "galaxycache/local_load_errors", Description: "The number of bad local loads", TagKeys: []tag.Key{galaxyGetKey}, Measure: MLocalLoadErrors, Aggregation: view.Count()},
+	{Name: "galaxycache/server_requests", Description: "The number of Gets that came over the network from peers", TagKeys: []tag.Key{galaxyGetKey}, Measure: MServerRequests, Aggregation: view.Count()},
+	{Name: "galaxycache/key_length", Description: "The distribution of the key lengths", TagKeys: []tag.Key{galaxyGetKey}, Measure: MKeyLength, Aggregation: defaultBytesDistribution},
+	{Name: "galaxycache/value_length", Description: "The distribution of the value lengths", TagKeys: []tag.Key{galaxyGetKey}, Measure: MValueLength, Aggregation: defaultBytesDistribution},
+	{Name: "galaxycache/roundtrip_latency", Description: "The roundtrip latency", TagKeys: []tag.Key{galaxyGetKey}, Measure: MRoundtripLatencyMilliseconds, Aggregation: defaultMillisecondsDistribution},
 }
 
 func sinceInMilliseconds(start time.Time) float64 {

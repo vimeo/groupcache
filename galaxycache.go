@@ -301,7 +301,7 @@ func (g *Galaxy) Name() string {
 // canonical owner, call the BackendGetter to retrieve the value
 // (which will now be cached locally)
 func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
-	ctx, _ = tag.New(ctx, tag.Insert(galaxyKey, g.name))
+	ctx, _ = tag.New(ctx, tag.Insert(galaxyGetKey, g.name))
 
 	ctx, span := trace.StartSpan(ctx, "galaxycache.(*Galaxy).Get on "+g.name)
 	startTime := time.Now()
