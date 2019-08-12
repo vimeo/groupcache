@@ -87,9 +87,9 @@ When `Get` is called for a key in a `Galaxy` in some process called Process-A:
 1. The local cache (both maincache and hotcache) in Process-A is checked first
 2. On a cache miss, the `PeerPicker` object delegates to the peer authoritative over the requested key
 3. Depends on which peer is authoritative over this key...
-If the Process_A is the authority:
+- If the Process_A is the authority:
    - Process_A uses its `BackendGetter` to get the data, and populates its local maincache
-If Process_A is _not_ the authority:
+- If Process_A is _not_ the authority:
    - Process_A calls `Fetch` on the authoritative remote peer, Process_B
    - Process_B then performs a `Get` to either find the data from its own local cache or use the specified `BackendGetter` to get the data from elsewhere, such as by querying a database
    - Process_B populates its maincache with the data before serving it back to Process_A
