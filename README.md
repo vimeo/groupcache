@@ -81,7 +81,20 @@ Our changes include the following:
 
 We also changed the naming scheme of objects and methods to clarify their purpose with the help of a space-themed scenario:
 
-Each process within a set of peer processes contains a `Universe` which encapsulates a map of `Galaxies` (previously called `Groups`). Each `Universe` contains the same set of `Galaxies`, but each `key` (think of it as a "star") has a single associated authoritative peer (determined by the consistent hash function). When `Get` is called for a key in a `Galaxy`, the local cache is checked first. On a cache miss, the `PeerPicker` object delegates to the peer authoritative over the requested key. The data is fetched from a remote peer if the local process is not the authority. That other peer then performs a `Get` to either find the data from its own local cache or use the specified `BackendGetter` to get the data from elsewhere, such as by querying a database.
+Each process within a set of peer processes contains a `Universe` which encapsulates a map of `Galaxies` (previously called `Groups`). Each `Universe` contains the same set of `Galaxies`, but each `key` (think of it as a "star") has a single associated authoritative peer (determined by the consistent hash function). 
+
+When `Get` is called for a key in a `Galaxy` in some process called Process-A:
+1. The local cache in Process-A is checked first
+2. On a cache miss, the `PeerPicker` object delegates to the peer authoritative over the requested key
+3a. If Process_A is not the authority:
+   - Process_A calls `Fetch` on the authoritative remote peer, Process_B
+   - Process_B then performs a `Get` to either find the data from its own local cache or use the specified `BackendGetter` to get the data from elsewhere, such as by querying a database
+   - Process_B populates its maincache with the data before serving it back to Process_A
+   - Process_A adds the key to its CandidateCache and determines whether it is hot enough to promote to the hotcache
+      - If it is, then the hotcache for Process_A is populated with the key/data
+3b. If the local process is the authority:
+   - The local process uses its `BackendGetter` to get the data, and populates its local maincache
+4. The data is unmarshaled into the `Codec` passed into `Get`
 
 
 ### New architecture and API
