@@ -157,7 +157,7 @@ func (universe *Universe) GetGalaxy(name string) *Galaxy {
 
 // Set updates the Universe's list of peers (contained in the PeerPicker).
 // Each PeerURL value should be a valid base URL,
-// for example "http://example.net:8000".
+// for example "example.net:8000".
 func (universe *Universe) Set(peerURLs ...string) error {
 	return universe.peerPicker.set(peerURLs...)
 }
