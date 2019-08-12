@@ -102,6 +102,10 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 	if getter == nil {
 		panic("nil Getter")
 	}
+	if !isNameValid(name) {
+		panic("must use valid galaxy name")
+	}
+
 	universe.mu.Lock()
 	defer universe.mu.Unlock()
 
@@ -146,6 +150,12 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 
 	universe.galaxies[name] = g
 	return g
+}
+
+func isNameValid(name string) bool {
+	// check galaxy name validity with tag.New() validity checks
+	_, err := tag.New(context.Background(), tag.Insert(galaxyGetKey, name))
+	return err == nil
 }
 
 // GetGalaxy returns the named galaxy previously created with NewGalaxy, or
@@ -305,7 +315,7 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 	var tagErr error
 	ctx, tagErr = tag.New(ctx, tag.Insert(galaxyGetKey, g.name))
 	if tagErr != nil {
-		return fmt.Errorf("Error tagging context: %s", tagErr)
+		panic(fmt.Errorf("Error tagging context: %s", tagErr))
 	}
 
 	ctx, span := trace.StartSpan(ctx, "galaxycache.(*Galaxy).Get on "+g.name)
