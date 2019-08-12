@@ -5,7 +5,45 @@ replacement for memcached in many cases.
 
 For API docs and examples, see http://godoc.org/github.com/vimeo/galaxycache
 
-## Summary of changes
+## Quick Start
+
+```go
+// Generate the protocol for peers to communicate with (package includes HTTP and gRPC)
+grpcProto := NewGRPCFetchProtocol(grpc.WithInsecure())
+
+// Create a new Universe with the chosen peer connection protocol and the URL of this process
+u := NewUniverse(grpcProto, "my-url")
+
+// Set the Universe's list of peer addresses for the distributed cache
+u.Set("peer1-url", "peer2-url", "peer3-url")
+
+// Define a BackendGetter (here as a function) for retrieving data
+getter := GetterFunc(func(_ context.Context, key string, dest Codec) error {
+   // Define your method for retrieving non-cached data here, i.e. from a database
+})
+
+// Create a new Galaxy within the Universe with a name, the max capacity of cache space
+// you would like to allocate, and your BackendGetter
+g := u.NewGalaxy("galaxy-1", 1 << 20, getter)
+
+// Create a Codec for unmarshaling data into your format of choice - the package
+// includes implementations for []byte and string formats, and the protocodec subpackage 
+// includes the protobuf format
+sCodec := StringCodec{}
+
+// Call Get on the Galaxy to retrieve data and unmarshal it into your Codec
+ctx := context.Background()
+err := g.Get(ctx, "my-key", sCodec)
+if err != nil {
+   // handle if Get returns an error
+}
+
+// Shutdown all open connections between peers before killing the process
+u.Shutdown()
+
+```
+
+## Changes from groupcache
 
 Our changes include the following:
 * Overhauled API to improve useability and configurability
