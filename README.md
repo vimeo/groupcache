@@ -116,33 +116,15 @@ When `Get` is called for a key in a `Galaxy` in some process called Process_A:
 
 ### A smarter Hotcache with configurable promotion logic
 
+* New default promotion logic uses key access statistics tied to every key to make decisions about populating the hotcache
 * Promoter package provides an interface for creating your own `ShouldPromote` method to determine whether a key should be added to the hotcache
-* Newly added Candidate Cache keeps track of peer-owned keys (without associated data) that have not yet been promoted to the hotcache
+* Newly added candidate cache keeps track of peer-owned keys (without associated data) that have not yet been promoted to the hotcache
 * Provided variadic options for `Galaxy` construction to override default promotion logic (with your promoter, max number of candidates, and relative hotcache size to maincache)
 
 
 ## Comparison to memcached
 
 See: https://github.com/golang/groupcache/blob/master/README.md
-
-## Loading process
-
-In a nutshell, a galaxycache lookup of **Get("foo")** looks like:
-
-(On machine #5 of a set of N machines running the same code)
-
- 1. Is the value of "foo" in local memory because it's super hot?  If so, use it.
-
- 2. Is the value of "foo" in local memory because peer #5 (the current
-    peer) is the owner of it?  If so, use it.
-
- 3. Amongst all the peers in my set of N, am I the owner of the key
-    "foo"?  (e.g. does it consistent hash to 5?)  If so, load it.  If
-    other callers come in, via the same process or via RPC requests
-    from peers, they block waiting for the load to finish and get the
-    same answer.  If not, RPC to the peer that's the owner and get
-    the answer.  If the RPC fails, just load it locally (still with
-    local dup suppression).
 
 ## Help
 
