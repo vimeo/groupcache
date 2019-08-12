@@ -58,6 +58,7 @@ var (
 )
 
 var keyCommand, _ = tag.NewKey("command")
+var galaxyKey, err = tag.NewKey("galaxy-get") // TODO(willg): where to handle this err?
 
 // AllViews is a slice of default views for people to use
 var AllViews = []*view.View{
