@@ -34,7 +34,9 @@ type serviceImpl struct {
 }
 
 // RegisterGRPCServer registers the given grpc.Server with
-// a Universe for GetFromPeer calls over RPC
+// a Universe for GetFromPeer calls over RPC. In order for traces
+// to propogate properly, create the grpcServer with an opencensus
+// ServerHandler
 func RegisterGRPCServer(universe *gc.Universe, grpcServer *grpc.Server) {
 	pb.RegisterGalaxyCacheServer(grpcServer, &serviceImpl{universe: universe})
 }

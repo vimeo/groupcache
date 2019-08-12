@@ -7,9 +7,14 @@ For API docs and examples, see http://godoc.org/github.com/vimeo/galaxycache
 
 ## Quick Start
 
+### Initializing a peer
 ```go
-// Generate the protocol for peers to communicate with (package includes HTTP and gRPC)
+// Generate the protocol for this peer to Fetch from others with (package includes HTTP and gRPC)
 grpcProto := NewGRPCFetchProtocol(grpc.WithInsecure())
+
+// HTTP protocol as an alternative (passing the nil argument ensures use of the default basepath
+// and opencensus Transport as an http.RoundTripper)
+httpProto := NewHTTPFetchProtocol(nil)
 
 // Create a new Universe with the chosen peer connection protocol and the URL of this process
 u := NewUniverse(grpcProto, "my-url")
@@ -23,9 +28,27 @@ getter := GetterFunc(func(_ context.Context, key string, dest Codec) error {
 })
 
 // Create a new Galaxy within the Universe with a name, the max capacity of cache space you would
-// like to allocate, and your BackendGetter
-g := u.NewGalaxy("galaxy-1", 1 << 20, getter)
+// like to allocate, and your BackendGetter. The hotcache defaults to 1/8 of the total cache size,
+// the Promoter defaults to a simple QPS comparison, and the maximum number of hotcache candidates
+// defaults to 100; these can be overwritten with variadic options (WithHotCacheRatio() used
+// below as an example to make the hotcache 1/4 the total cache size)
+g := u.NewGalaxy("galaxy-1", 1 << 20, getter, WithHotCacheRatio(4))
 
+// In order to receive Fetch requests from peers over HTTP or gRPC, we must register this universe
+// to handle those requests
+
+// gRPC Server registration (note: you must create the server with an ocgrpc.ServerHandler for
+// opencensus metrics to propogate properly)
+grpcServer := grpc.NewServer(grpc.StatsHandler(&ocgrpc.ServerHandler{}))
+RegisterGRPCServer(u, grpcServer)
+
+// HTTP Handler registration (passing nil for the second argument will ensure use of the default basepath,
+// passing nil for the third argument will ensure use of the DefaultServeMux wrapped by opencensus)
+RegisterHTTPHandler(u, nil, nil)
+
+```
+### Getting a value
+```go
 // Create a Codec for unmarshaling data into your format of choice - the package includes 
 // implementations for []byte and string formats, and the protocodec subpackage includes the 
 // protobuf format
