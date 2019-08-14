@@ -40,8 +40,7 @@ var (
 // Opencensus stats
 var (
 	MGets            = stats.Int64("gets", "The number of Get requests", unitDimensionless)
-	MMaincacheHits   = stats.Int64("maincache_hits", "The number of times that the maincache was good", unitDimensionless)
-	MHotcacheHits    = stats.Int64("hotcache_hits", "The number of times that the hotcache was good", unitDimensionless)
+	MCacheHits       = stats.Int64("cache_hits", "The number of times that the cache was good", unitDimensionless)
 	MCacheMisses     = stats.Int64("cache_misses", "The number of times that either cache was not good", unitDimensionless)
 	MPeerLoads       = stats.Int64("peer_loads", "The number of remote loads or remote cache hits", unitDimensionless)
 	MPeerErrors      = stats.Int64("peer_errors", "The number of remote errors", unitDimensionless)
@@ -52,11 +51,10 @@ var (
 	MLocalLoadErrors = stats.Int64("local_load_errors", "The number of bad local loads", unitDimensionless)
 	MBackendLoads    = stats.Int64("backend_loads", "The number of good loads from the backend getter", unitDimensionless)
 
-	MSFMaincacheHits = stats.Int64("sf_maincache_hits", "The number of times that the maincache was good while in singleflight", unitDimensionless)
-	MSFHotcacheHits  = stats.Int64("sf_hotcache_hits", "The number of times that the hotcache was good while in singleflight", unitDimensionless)
-	MSFPeerLoads     = stats.Int64("sf_peer_loads", "The number of remote loads or remote cache hits in singleflight", unitDimensionless)
-	MSFLocalLoads    = stats.Int64("sf_local_loads", "The number of good singleflighted local loads", unitDimensionless)
-	MSFBackendLoads  = stats.Int64("sf_backend_loads", "The number of good loads from the backend getter", unitDimensionless)
+	MSFCacheHits    = stats.Int64("sf_cache_hits", "The number of times that the cache was good while in singleflight", unitDimensionless)
+	MSFPeerLoads    = stats.Int64("sf_peer_loads", "The number of remote loads or remote cache hits in singleflight", unitDimensionless)
+	MSFLocalLoads   = stats.Int64("sf_local_loads", "The number of good singleflighted local loads", unitDimensionless)
+	MSFBackendLoads = stats.Int64("sf_backend_loads", "The number of good loads from the backend getter in singleflight", unitDimensionless)
 
 	MServerRequests = stats.Int64("server_requests", "The number of Gets that came over the network from peers", unitDimensionless)
 	MKeyLength      = stats.Int64("key_length", "The length of keys", unitBytes)
@@ -69,13 +67,12 @@ var (
 var GalaxyKey = tag.MustNewKey("galaxy")
 
 // HitLevelKey tags the level at which data was found on Get
-var HitLevelKey = tag.MustNewKey("data-hit-level")
+var CacheLevelKey = tag.MustNewKey("cache-hit-level")
 
 // AllViews is a slice of default views for people to use
 var AllViews = []*view.View{
 	{Name: "galaxycache/gets", Description: "The number of Get requests", TagKeys: []tag.Key{GalaxyKey}, Measure: MGets, Aggregation: view.Count()},
-	{Name: "galaxycache/maincache_hits", Description: "The number of times that the maincache was good", TagKeys: []tag.Key{GalaxyKey}, Measure: MMaincacheHits, Aggregation: view.Count()},
-	{Name: "galaxycache/hotcache_hits", Description: "The number of times that the hotcache was good", TagKeys: []tag.Key{GalaxyKey}, Measure: MHotcacheHits, Aggregation: view.Count()},
+	{Name: "galaxycache/cache_hits", Description: "The number of times that the cache was good", TagKeys: []tag.Key{GalaxyKey, CacheLevelKey}, Measure: MCacheHits, Aggregation: view.Count()},
 	{Name: "galaxycache/cache_misses", Description: "The number of times that either cache was not good", TagKeys: []tag.Key{GalaxyKey}, Measure: MCacheMisses, Aggregation: view.Count()},
 	{Name: "galaxycache/peer_loads", Description: "The number of remote loads or remote cache hits", TagKeys: []tag.Key{GalaxyKey}, Measure: MPeerLoads, Aggregation: view.Count()},
 	{Name: "galaxycache/peer_errors", Description: "The number of remote errors", TagKeys: []tag.Key{GalaxyKey}, Measure: MPeerErrors, Aggregation: view.Count()},
@@ -83,6 +80,13 @@ var AllViews = []*view.View{
 	{Name: "galaxycache/loads_deduped", Description: "The number of loads after singleflight", TagKeys: []tag.Key{GalaxyKey}, Measure: MLoadsDeduped, Aggregation: view.Count()},
 	{Name: "galaxycache/local_loads", Description: "The number of good local loads", TagKeys: []tag.Key{GalaxyKey}, Measure: MLocalLoads, Aggregation: view.Count()},
 	{Name: "galaxycache/local_load_errors", Description: "The number of bad local loads", TagKeys: []tag.Key{GalaxyKey}, Measure: MLocalLoadErrors, Aggregation: view.Count()},
+	{Name: "galaxycache/backend_loads", Description: "The number of good backend loads", TagKeys: []tag.Key{GalaxyKey}, Measure: MBackendLoads, Aggregation: view.Count()},
+
+	{Name: "galaxycache/sf_cache_hits", Description: "The number of times that the cache was good while in singleflight", TagKeys: []tag.Key{GalaxyKey, CacheLevelKey}, Measure: MSFCacheHits, Aggregation: view.Count()},
+	{Name: "galaxycache/sf_peer_loads", Description: "The number of remote loads or remote cache hits in singleflight", TagKeys: []tag.Key{GalaxyKey}, Measure: MSFPeerLoads, Aggregation: view.Count()},
+	{Name: "galaxycache/sf_local_loads", Description: "The number of good singleflighted local loads", TagKeys: []tag.Key{GalaxyKey}, Measure: MSFLocalLoads, Aggregation: view.Count()},
+	{Name: "galaxycache/sf_backend_loads", Description: "The number of good loads from the backend getter in singleflight", TagKeys: []tag.Key{GalaxyKey}, Measure: MSFBackendLoads, Aggregation: view.Count()},
+
 	{Name: "galaxycache/server_requests", Description: "The number of Gets that came over the network from peers", TagKeys: []tag.Key{GalaxyKey}, Measure: MServerRequests, Aggregation: view.Count()},
 	{Name: "galaxycache/key_length", Description: "The distribution of the key lengths", TagKeys: []tag.Key{GalaxyKey}, Measure: MKeyLength, Aggregation: defaultBytesDistribution},
 	{Name: "galaxycache/value_length", Description: "The distribution of the value lengths", TagKeys: []tag.Key{GalaxyKey}, Measure: MValueLength, Aggregation: defaultBytesDistribution},

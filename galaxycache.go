@@ -329,19 +329,15 @@ func (h hitLevel) string() string {
 
 // RecordHit records the corresponding opencensus measurement
 // to the level at which data was found on Get/load
-func (h hitLevel) RecordHit(ctx context.Context) {
-	var measurement *stats.Int64Measure
+func (h hitLevel) RecordRequest(ctx context.Context) {
 	switch h {
-	case hitHotcache:
-		measurement = MHotcacheHits
-	case hitMaincache:
-		measurement = MMaincacheHits
+	case hitMaincache, hitHotcache:
+		stats.RecordWithTags(ctx, []tag.Mutator{tag.Insert(CacheLevelKey, h.string())}, MCacheHits.M(1))
 	case hitPeer:
-		measurement = MPeerLoads
+		stats.Record(ctx, MPeerLoads.M(1))
 	case hitBackend:
-		measurement = MBackendLoads
+		stats.Record(ctx, MBackendLoads.M(1))
 	}
-	stats.RecordWithTags(ctx, []tag.Mutator{tag.Insert(HitLevelKey, h.string())}, measurement.M(1))
 }
 
 // Get as defined here is the primary "get" called on a galaxy to
@@ -381,7 +377,7 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 		// TODO(@odeke-em): Remove .Stats
 		g.Stats.CacheHits.Add(1)
 		value.stats.touch()
-		hlvl.RecordHit(ctx)
+		hlvl.RecordRequest(ctx)
 		stats.Record(ctx, MValueLength.M(int64(len(value.data))))
 		return dest.UnmarshalBinary(value.data)
 	}
@@ -443,12 +439,9 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value *valWi
 		if value, cacheHit, hlvl := g.lookupCache(key); cacheHit {
 			// TODO(@odeke-em): Remove .Stats
 			g.Stats.CacheHits.Add(1)
-			if hlvl == hitHotcache {
-				stats.RecordWithTags(ctx, []tag.Mutator{tag.Insert(HitLevelKey, hlvl.string())}, MSFHotcacheHits.M(1), MSFLocalLoads.M(1))
-				return &valWithLevel{value, hlvl}, nil
-			}
-			stats.RecordWithTags(ctx, []tag.Mutator{tag.Insert(HitLevelKey, hlvl.string())}, MSFMaincacheHits.M(1), MSFLocalLoads.M(1))
+			stats.RecordWithTags(ctx, []tag.Mutator{tag.Insert(CacheLevelKey, hlvl.string())}, MSFCacheHits.M(1), MSFLocalLoads.M(1))
 			return &valWithLevel{value, hlvl}, nil
+
 		}
 		// TODO(@odeke-em): Remove .Stats
 		g.Stats.LoadsDeduped.Add(1)
@@ -489,7 +482,7 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value *valWi
 	if err == nil {
 		value = viewi.(*valWithLevel).val
 		level := viewi.(*valWithLevel).level
-		level.RecordHit(ctx) // record the hits for all load calls, including those that tagged onto the singleflight
+		level.RecordRequest(ctx) // record the hits for all load calls, including those that tagged onto the singleflight
 	}
 	return
 }
