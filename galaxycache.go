@@ -286,15 +286,21 @@ type flightGroup interface {
 
 // GalaxyStats are per-galaxy statistics.
 type GalaxyStats struct {
-	Gets           AtomicInt // any Get request, including from peers
-	CacheHits      AtomicInt // either cache was good
-	HotcacheHits   AtomicInt
-	PeerLoads      AtomicInt // either remote load or remote cache hit (not an error)
-	PeerErrors     AtomicInt
-	Loads          AtomicInt // (gets - cacheHits)
-	LoadsDeduped   AtomicInt // after singleflight
-	LocalLoads     AtomicInt // total good local loads
-	LocalLoadErrs  AtomicInt // total bad local loads
+	Gets              AtomicInt // any Get request, including from peers
+	Loads             AtomicInt // (gets - cacheHits)
+	LoadsDeduped      AtomicInt // after singleflight
+	MaincacheHits     AtomicInt // maincache was good
+	HotcacheHits      AtomicInt // hotcache was good
+	PeerLoads         AtomicInt // either remote load or remote cache hit (not an error)
+	PeerLoadErrors    AtomicInt // errors on getFromPeer
+	BackendLoads      AtomicInt // load from backend locally
+	BackendLoadErrors AtomicInt // total bad local loads
+
+	SFMaincacheHits AtomicInt // maincache hit in singleflight
+	SFHotcacheHits  AtomicInt // hotcache hit in singleflight
+	SFPeerLoads     AtomicInt // peer load in singleflight
+	SFBackendLoads  AtomicInt // backend load in singleflight
+
 	ServerRequests AtomicInt // gets that came over the network from peers
 }
 
@@ -327,15 +333,21 @@ func (h hitLevel) string() string {
 	return ""
 }
 
-// RecordHit records the corresponding opencensus measurement
+// RecordRequest records the corresponding opencensus measurement
 // to the level at which data was found on Get/load
-func (h hitLevel) RecordRequest(ctx context.Context) {
+func (g *Galaxy) RecordRequest(ctx context.Context, h hitLevel) {
 	switch h {
-	case hitMaincache, hitHotcache:
+	case hitMaincache:
+		g.Stats.MaincacheHits.Add(1)
+		stats.RecordWithTags(ctx, []tag.Mutator{tag.Insert(CacheLevelKey, h.string())}, MCacheHits.M(1))
+	case hitHotcache:
+		g.Stats.HotcacheHits.Add(1)
 		stats.RecordWithTags(ctx, []tag.Mutator{tag.Insert(CacheLevelKey, h.string())}, MCacheHits.M(1))
 	case hitPeer:
+		g.Stats.PeerLoads.Add(1)
 		stats.Record(ctx, MPeerLoads.M(1))
 	case hitBackend:
+		g.Stats.BackendLoads.Add(1)
 		stats.Record(ctx, MBackendLoads.M(1))
 	}
 }
@@ -375,14 +387,12 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 	if cacheHit {
 		span.Annotatef(nil, "Cache hit")
 		// TODO(@odeke-em): Remove .Stats
-		g.Stats.CacheHits.Add(1)
 		value.stats.touch()
-		hlvl.RecordRequest(ctx)
+		g.RecordRequest(ctx, hlvl)
 		stats.Record(ctx, MValueLength.M(int64(len(value.data))))
 		return dest.UnmarshalBinary(value.data)
 	}
 
-	stats.Record(ctx, MCacheMisses.M(1))
 	span.Annotatef(nil, "Cache miss")
 	// Optimization to avoid double unmarshalling or copying: keep
 	// track of whether the dest was already populated. One caller
@@ -438,8 +448,12 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value *valWi
 		// 2: fn()
 		if value, cacheHit, hlvl := g.lookupCache(key); cacheHit {
 			// TODO(@odeke-em): Remove .Stats
-			g.Stats.CacheHits.Add(1)
-			stats.RecordWithTags(ctx, []tag.Mutator{tag.Insert(CacheLevelKey, hlvl.string())}, MSFCacheHits.M(1), MSFLocalLoads.M(1))
+			if hlvl == hitHotcache {
+				g.Stats.SFHotcacheHits.Add(1)
+			} else {
+				g.Stats.SFMaincacheHits.Add(1)
+			}
+			stats.RecordWithTags(ctx, []tag.Mutator{tag.Insert(CacheLevelKey, hlvl.string())}, MSFCacheHits.M(1))
 			return &valWithLevel{value, hlvl}, nil
 
 		}
@@ -452,13 +466,13 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value *valWi
 			value, err = g.getFromPeer(ctx, peer, key)
 			if err == nil {
 				// TODO(@odeke-em): Remove .Stats
-				g.Stats.PeerLoads.Add(1)
+				g.Stats.SFPeerLoads.Add(1)
 				stats.Record(ctx, MSFPeerLoads.M(1))
 				return &valWithLevel{value, hitPeer}, nil
 			}
 			// TODO(@odeke-em): Remove .Stats
-			g.Stats.PeerErrors.Add(1)
-			stats.Record(ctx, MPeerErrors.M(1))
+			g.Stats.PeerLoadErrors.Add(1)
+			stats.Record(ctx, MPeerLoadErrors.M(1))
 			// TODO(bradfitz): log the peer's error? keep
 			// log of the past few for /galaxycache?  It's
 			// probably boring (normal task movement), so not
@@ -467,13 +481,13 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value *valWi
 		data, err := g.getLocally(ctx, key, dest)
 		if err != nil {
 			// TODO(@odeke-em): Remove .Stats
-			g.Stats.LocalLoadErrs.Add(1)
-			stats.Record(ctx, MLocalLoadErrors.M(1))
+			g.Stats.BackendLoadErrors.Add(1)
+			stats.Record(ctx, MBackendLoadErrors.M(1))
 			return nil, err
 		}
 		// TODO(@odeke-em): Remove .Stats
-		g.Stats.LocalLoads.Add(1)
-		stats.Record(ctx, MSFLocalLoads.M(1), MSFBackendLoads.M(1))
+		g.Stats.SFBackendLoads.Add(1)
+		stats.Record(ctx, MSFBackendLoads.M(1))
 		destPopulated = true // only one caller of load gets this return value
 		value = newValWithStat(data, nil)
 		g.populateCache(key, value, &g.mainCache)
@@ -482,7 +496,7 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value *valWi
 	if err == nil {
 		value = viewi.(*valWithLevel).val
 		level := viewi.(*valWithLevel).level
-		level.RecordRequest(ctx) // record the hits for all load calls, including those that tagged onto the singleflight
+		g.RecordRequest(ctx, level) // record the hits for all load calls, including those that tagged onto the singleflight
 	}
 	return
 }

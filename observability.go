@@ -39,17 +39,15 @@ var (
 
 // Opencensus stats
 var (
-	MGets            = stats.Int64("gets", "The number of Get requests", unitDimensionless)
-	MCacheHits       = stats.Int64("cache_hits", "The number of times that the cache was good", unitDimensionless)
-	MCacheMisses     = stats.Int64("cache_misses", "The number of times that either cache was not good", unitDimensionless)
-	MPeerLoads       = stats.Int64("peer_loads", "The number of remote loads or remote cache hits", unitDimensionless)
-	MPeerErrors      = stats.Int64("peer_errors", "The number of remote errors", unitDimensionless)
-	MLoads           = stats.Int64("loads", "The number of gets/cacheHits", unitDimensionless)
-	MLoadErrors      = stats.Int64("loads_errors", "The number of errors encountered during Get", unitDimensionless)
-	MLoadsDeduped    = stats.Int64("loads_deduped", "The number of loads after singleflight", unitDimensionless)
-	MLocalLoads      = stats.Int64("local_loads", "The number of good local loads", unitDimensionless)
-	MLocalLoadErrors = stats.Int64("local_load_errors", "The number of bad local loads", unitDimensionless)
-	MBackendLoads    = stats.Int64("backend_loads", "The number of good loads from the backend getter", unitDimensionless)
+	MGets              = stats.Int64("gets", "The number of Get requests", unitDimensionless)
+	MCacheHits         = stats.Int64("cache_hits", "The number of times that the cache was good", unitDimensionless)
+	MPeerLoads         = stats.Int64("peer_loads", "The number of remote loads or remote cache hits", unitDimensionless)
+	MPeerLoadErrors    = stats.Int64("peer_errors", "The number of remote errors", unitDimensionless)
+	MLoads             = stats.Int64("loads", "The number of gets/cacheHits", unitDimensionless)
+	MLoadErrors        = stats.Int64("loads_errors", "The number of errors encountered during Get", unitDimensionless)
+	MLoadsDeduped      = stats.Int64("loads_deduped", "The number of loads after singleflight", unitDimensionless)
+	MBackendLoads      = stats.Int64("backend_loads", "The number of good loads from the backend getter", unitDimensionless)
+	MBackendLoadErrors = stats.Int64("local_load_errors", "The number of bad local loads", unitDimensionless)
 
 	MSFCacheHits    = stats.Int64("sf_cache_hits", "The number of times that the cache was good while in singleflight", unitDimensionless)
 	MSFPeerLoads    = stats.Int64("sf_peer_loads", "The number of remote loads or remote cache hits in singleflight", unitDimensionless)
@@ -72,15 +70,13 @@ var CacheLevelKey = tag.MustNewKey("cache-hit-level")
 // AllViews is a slice of default views for people to use
 var AllViews = []*view.View{
 	{Name: "galaxycache/gets", Description: "The number of Get requests", TagKeys: []tag.Key{GalaxyKey}, Measure: MGets, Aggregation: view.Count()},
-	{Name: "galaxycache/cache_hits", Description: "The number of times that the cache was good", TagKeys: []tag.Key{GalaxyKey, CacheLevelKey}, Measure: MCacheHits, Aggregation: view.Count()},
-	{Name: "galaxycache/cache_misses", Description: "The number of times that either cache was not good", TagKeys: []tag.Key{GalaxyKey}, Measure: MCacheMisses, Aggregation: view.Count()},
-	{Name: "galaxycache/peer_loads", Description: "The number of remote loads or remote cache hits", TagKeys: []tag.Key{GalaxyKey}, Measure: MPeerLoads, Aggregation: view.Count()},
-	{Name: "galaxycache/peer_errors", Description: "The number of remote errors", TagKeys: []tag.Key{GalaxyKey}, Measure: MPeerErrors, Aggregation: view.Count()},
 	{Name: "galaxycache/loads", Description: "The number of loads after singleflight", TagKeys: []tag.Key{GalaxyKey}, Measure: MLoads, Aggregation: view.Count()},
 	{Name: "galaxycache/loads_deduped", Description: "The number of loads after singleflight", TagKeys: []tag.Key{GalaxyKey}, Measure: MLoadsDeduped, Aggregation: view.Count()},
-	{Name: "galaxycache/local_loads", Description: "The number of good local loads", TagKeys: []tag.Key{GalaxyKey}, Measure: MLocalLoads, Aggregation: view.Count()},
-	{Name: "galaxycache/local_load_errors", Description: "The number of bad local loads", TagKeys: []tag.Key{GalaxyKey}, Measure: MLocalLoadErrors, Aggregation: view.Count()},
-	{Name: "galaxycache/backend_loads", Description: "The number of good backend loads", TagKeys: []tag.Key{GalaxyKey}, Measure: MBackendLoads, Aggregation: view.Count()},
+	{Name: "galaxycache/cache_hits", Description: "The number of times that the cache was good", TagKeys: []tag.Key{GalaxyKey, CacheLevelKey}, Measure: MCacheHits, Aggregation: view.Count()},
+	{Name: "galaxycache/peer_loads", Description: "The number of remote loads or remote cache hits", TagKeys: []tag.Key{GalaxyKey}, Measure: MPeerLoads, Aggregation: view.Count()},
+	{Name: "galaxycache/peer_errors", Description: "The number of remote errors", TagKeys: []tag.Key{GalaxyKey}, Measure: MPeerLoadErrors, Aggregation: view.Count()},
+	{Name: "galaxycache/backend_loads", Description: "The number of good local backend loads", TagKeys: []tag.Key{GalaxyKey}, Measure: MBackendLoads, Aggregation: view.Count()},
+	{Name: "galaxycache/backend_load_errors", Description: "The number of bad local loads", TagKeys: []tag.Key{GalaxyKey}, Measure: MBackendLoadErrors, Aggregation: view.Count()},
 
 	{Name: "galaxycache/sf_cache_hits", Description: "The number of times that the cache was good while in singleflight", TagKeys: []tag.Key{GalaxyKey, CacheLevelKey}, Measure: MSFCacheHits, Aggregation: view.Count()},
 	{Name: "galaxycache/sf_peer_loads", Description: "The number of remote loads or remote cache hits in singleflight", TagKeys: []tag.Key{GalaxyKey}, Measure: MSFPeerLoads, Aggregation: view.Count()},
