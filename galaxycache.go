@@ -102,8 +102,9 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 	if getter == nil {
 		panic("nil Getter")
 	}
-	if !isNameValid(name) {
-		panic("must use valid galaxy name")
+	nameErr := isNameValid(name)
+	if nameErr != nil {
+		panic(fmt.Errorf("Invalid galaxy name: %s", nameErr))
 	}
 
 	universe.mu.Lock()
@@ -152,10 +153,10 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 	return g
 }
 
-func isNameValid(name string) bool {
+func isNameValid(name string) error {
 	// check galaxy name validity with tag.New() validity checks
-	_, err := tag.New(context.Background(), tag.Insert(galaxyGetKey, name))
-	return err == nil
+	_, err := tag.New(context.Background(), tag.Insert(GalaxyKey, name))
+	return err
 }
 
 // GetGalaxy returns the named galaxy previously created with NewGalaxy, or
@@ -302,6 +303,47 @@ func (g *Galaxy) Name() string {
 	return g.name
 }
 
+// hitLevel specifies the level at which data was found on Get
+type hitLevel int
+
+const (
+	hitHotcache hitLevel = iota + 1
+	hitMaincache
+	hitPeer
+	hitBackend
+)
+
+func (h hitLevel) string() string {
+	switch h {
+	case hitHotcache:
+		return "hotcache"
+	case hitMaincache:
+		return "maincache"
+	case hitPeer:
+		return "peer"
+	case hitBackend:
+		return "backend"
+	}
+	return ""
+}
+
+// RecordHit records the corresponding opencensus measurement
+// to the level at which data was found on Get/load
+func (h hitLevel) RecordHit(ctx context.Context) {
+	var measurement *stats.Int64Measure
+	switch h {
+	case hitHotcache:
+		measurement = MHotcacheHits
+	case hitMaincache:
+		measurement = MMaincacheHits
+	case hitPeer:
+		measurement = MPeerLoads
+	case hitBackend:
+		measurement = MBackendLoads
+	}
+	stats.RecordWithTags(ctx, []tag.Mutator{tag.Insert(HitLevelKey, h.string())}, measurement.M(1))
+}
+
 // Get as defined here is the primary "get" called on a galaxy to
 // find the value for the given key, using the following logic:
 // - First, try the local cache; if its a cache hit, we're done
@@ -312,7 +354,7 @@ func (g *Galaxy) Name() string {
 // canonical owner, call the BackendGetter to retrieve the value
 // (which will now be cached locally)
 func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
-	ctx, tagErr := tag.New(ctx, tag.Insert(galaxyGetKey, g.name))
+	ctx, tagErr := tag.New(ctx, tag.Insert(GalaxyKey, g.name))
 	if tagErr != nil {
 		panic(fmt.Errorf("Error tagging context: %s", tagErr))
 	}
@@ -331,15 +373,16 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 		span.SetStatus(trace.Status{Code: trace.StatusCodeInvalidArgument, Message: "no Codec was provided"})
 		return errors.New("galaxycache: no Codec was provided")
 	}
-	value, cacheHit := g.lookupCache(key)
+	value, cacheHit, hlvl := g.lookupCache(key)
 	stats.Record(ctx, MKeyLength.M(int64(len(key))))
 
 	if cacheHit {
 		span.Annotatef(nil, "Cache hit")
 		// TODO(@odeke-em): Remove .Stats
 		g.Stats.CacheHits.Add(1)
-		stats.Record(ctx, MCacheHits.M(1), MValueLength.M(int64(len(value.data))))
 		value.stats.touch()
+		hlvl.RecordHit(ctx)
+		stats.Record(ctx, MValueLength.M(int64(len(value.data))))
 		return dest.UnmarshalBinary(value.data)
 	}
 
@@ -362,6 +405,11 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 		return nil
 	}
 	return dest.UnmarshalBinary(value.data)
+}
+
+type valWithLevel struct {
+	val   *valWithStat
+	level hitLevel
 }
 
 // load loads key either by invoking the getter locally or by sending it to another machine.
@@ -392,11 +440,15 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value *valWi
 		// 1: fn()
 		// 2: loadGroup.Do("key", fn)
 		// 2: fn()
-		if value, cacheHit := g.lookupCache(key); cacheHit {
+		if value, cacheHit, hlvl := g.lookupCache(key); cacheHit {
 			// TODO(@odeke-em): Remove .Stats
 			g.Stats.CacheHits.Add(1)
-			stats.Record(ctx, MCacheHits.M(1), MLocalLoads.M(1))
-			return value, nil
+			if hlvl == hitHotcache {
+				stats.RecordWithTags(ctx, []tag.Mutator{tag.Insert(HitLevelKey, hlvl.string())}, MSFHotcacheHits.M(1), MSFLocalLoads.M(1))
+				return &valWithLevel{value, hlvl}, nil
+			}
+			stats.RecordWithTags(ctx, []tag.Mutator{tag.Insert(HitLevelKey, hlvl.string())}, MSFMaincacheHits.M(1), MSFLocalLoads.M(1))
+			return &valWithLevel{value, hlvl}, nil
 		}
 		// TODO(@odeke-em): Remove .Stats
 		g.Stats.LoadsDeduped.Add(1)
@@ -408,8 +460,8 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value *valWi
 			if err == nil {
 				// TODO(@odeke-em): Remove .Stats
 				g.Stats.PeerLoads.Add(1)
-				stats.Record(ctx, MPeerLoads.M(1))
-				return value, nil
+				stats.Record(ctx, MSFPeerLoads.M(1))
+				return &valWithLevel{value, hitPeer}, nil
 			}
 			// TODO(@odeke-em): Remove .Stats
 			g.Stats.PeerErrors.Add(1)
@@ -428,14 +480,16 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value *valWi
 		}
 		// TODO(@odeke-em): Remove .Stats
 		g.Stats.LocalLoads.Add(1)
-		stats.Record(ctx, MLocalLoads.M(1))
+		stats.Record(ctx, MSFLocalLoads.M(1), MSFBackendLoads.M(1))
 		destPopulated = true // only one caller of load gets this return value
 		value = newValWithStat(data, nil)
 		g.populateCache(key, value, &g.mainCache)
-		return value, nil
+		return &valWithLevel{value, hitBackend}, nil
 	})
 	if err == nil {
-		value = viewi.(*valWithStat)
+		value = viewi.(*valWithLevel).val
+		level := viewi.(*valWithLevel).level
+		level.RecordHit(ctx) // record the hits for all load calls, including those that tagged onto the singleflight
 	}
 	return
 }
@@ -472,20 +526,20 @@ func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string
 	return value, nil
 }
 
-func (g *Galaxy) lookupCache(key string) (*valWithStat, bool) {
+func (g *Galaxy) lookupCache(key string) (*valWithStat, bool, hitLevel) {
 	if g.cacheBytes <= 0 {
-		return nil, false
+		return nil, false, 0
 	}
 	vi, ok := g.mainCache.get(key)
 	if ok {
-		return vi.(*valWithStat), ok
+		return vi.(*valWithStat), ok, hitMaincache
 	}
 	vi, ok = g.hotCache.get(key)
 	if !ok {
-		return nil, false
+		return nil, false, 0
 	}
 	g.Stats.HotcacheHits.Add(1)
-	return vi.(*valWithStat), ok
+	return vi.(*valWithStat), ok, hitHotcache
 }
 
 func (g *Galaxy) populateCache(key string, value *valWithStat, cache *cache) {
@@ -655,7 +709,7 @@ func (i *AtomicInt) Get() int64 {
 	return atomic.LoadInt64((*int64)(i))
 }
 
-func (i *AtomicInt) String() string {
+func (i *AtomicInt) string() string {
 	return strconv.FormatInt(i.Get(), 10)
 }
 
