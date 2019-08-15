@@ -339,10 +339,10 @@ func (g *Galaxy) RecordRequest(ctx context.Context, h hitLevel) {
 	switch h {
 	case hitMaincache:
 		g.Stats.MaincacheHits.Add(1)
-		stats.RecordWithTags(ctx, []tag.Mutator{tag.Insert(CacheLevelKey, h.string())}, MCacheHits.M(1))
+		stats.RecordWithTags(ctx, []tag.Mutator{tag.Upsert(CacheLevelKey, h.string())}, MCacheHits.M(1))
 	case hitHotcache:
 		g.Stats.HotcacheHits.Add(1)
-		stats.RecordWithTags(ctx, []tag.Mutator{tag.Insert(CacheLevelKey, h.string())}, MCacheHits.M(1))
+		stats.RecordWithTags(ctx, []tag.Mutator{tag.Upsert(CacheLevelKey, h.string())}, MCacheHits.M(1))
 	case hitPeer:
 		g.Stats.PeerLoads.Add(1)
 		stats.Record(ctx, MPeerLoads.M(1))
@@ -362,7 +362,7 @@ func (g *Galaxy) RecordRequest(ctx context.Context, h hitLevel) {
 // canonical owner, call the BackendGetter to retrieve the value
 // (which will now be cached locally)
 func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
-	ctx, tagErr := tag.New(ctx, tag.Insert(GalaxyKey, g.name))
+	ctx, tagErr := tag.New(ctx, tag.Upsert(GalaxyKey, g.name))
 	if tagErr != nil {
 		panic(fmt.Errorf("Error tagging context: %s", tagErr))
 	}
