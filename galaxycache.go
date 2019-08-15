@@ -102,8 +102,7 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 	if getter == nil {
 		panic("nil Getter")
 	}
-	nameErr := isNameValid(name)
-	if nameErr != nil {
+	if nameErr := isNameValid(name); nameErr != nil {
 		panic(fmt.Errorf("Invalid galaxy name: %s", nameErr))
 	}
 
@@ -154,7 +153,7 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 }
 
 func isNameValid(name string) error {
-	// check galaxy name validity with tag.New() validity checks
+	// check galaxy name is valid for an opencensus tag value
 	_, err := tag.New(context.Background(), tag.Insert(GalaxyKey, name))
 	return err
 }
@@ -288,18 +287,18 @@ type flightGroup interface {
 type GalaxyStats struct {
 	Gets              AtomicInt // any Get request, including from peers
 	Loads             AtomicInt // (gets - cacheHits)
-	LoadsDeduped      AtomicInt // after singleflight
-	MaincacheHits     AtomicInt // maincache was good
-	HotcacheHits      AtomicInt // hotcache was good
+	CoalescedLoads    AtomicInt // inside singleflight
+	MaincacheHits     AtomicInt // number of maincache hits
+	HotcacheHits      AtomicInt // number of hotcache hits
 	PeerLoads         AtomicInt // either remote load or remote cache hit (not an error)
 	PeerLoadErrors    AtomicInt // errors on getFromPeer
 	BackendLoads      AtomicInt // load from backend locally
 	BackendLoadErrors AtomicInt // total bad local loads
 
-	SFMaincacheHits AtomicInt // maincache hit in singleflight
-	SFHotcacheHits  AtomicInt // hotcache hit in singleflight
-	SFPeerLoads     AtomicInt // peer load in singleflight
-	SFBackendLoads  AtomicInt // backend load in singleflight
+	CoalescedMaincacheHits AtomicInt // maincache hit in singleflight
+	CoalescedHotcacheHits  AtomicInt // hotcache hit in singleflight
+	CoalescedPeerLoads     AtomicInt // peer load in singleflight
+	CoalescedBackendLoads  AtomicInt // backend load in singleflight
 
 	ServerRequests AtomicInt // gets that came over the network from peers
 }
@@ -333,9 +332,9 @@ func (h hitLevel) string() string {
 	return ""
 }
 
-// RecordRequest records the corresponding opencensus measurement
+// recordRequest records the corresponding opencensus measurement
 // to the level at which data was found on Get/load
-func (g *Galaxy) RecordRequest(ctx context.Context, h hitLevel) {
+func (g *Galaxy) recordRequest(ctx context.Context, h hitLevel) {
 	switch h {
 	case hitMaincache:
 		g.Stats.MaincacheHits.Add(1)
@@ -374,7 +373,6 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 		span.End()
 	}()
 
-	// TODO(@odeke-em): Remove .Stats
 	g.Stats.Gets.Add(1)
 	stats.Record(ctx, MGets.M(1))
 	if dest == nil {
@@ -386,9 +384,8 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 
 	if cacheHit {
 		span.Annotatef(nil, "Cache hit")
-		// TODO(@odeke-em): Remove .Stats
 		value.stats.touch()
-		g.RecordRequest(ctx, hlvl)
+		g.recordRequest(ctx, hlvl)
 		stats.Record(ctx, MValueLength.M(int64(len(value.data))))
 		return dest.UnmarshalBinary(value.data)
 	}
@@ -420,7 +417,6 @@ type valWithLevel struct {
 
 // load loads key either by invoking the getter locally or by sending it to another machine.
 func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value *valWithStat, destPopulated bool, err error) {
-	// TODO(@odeke-em): Remove .Stats
 	g.Stats.Loads.Add(1)
 	stats.Record(ctx, MLoads.M(1))
 
@@ -447,30 +443,27 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value *valWi
 		// 2: loadGroup.Do("key", fn)
 		// 2: fn()
 		if value, cacheHit, hlvl := g.lookupCache(key); cacheHit {
-			// TODO(@odeke-em): Remove .Stats
 			if hlvl == hitHotcache {
-				g.Stats.SFHotcacheHits.Add(1)
+				g.Stats.CoalescedHotcacheHits.Add(1)
 			} else {
-				g.Stats.SFMaincacheHits.Add(1)
+				g.Stats.CoalescedMaincacheHits.Add(1)
 			}
-			stats.RecordWithTags(ctx, []tag.Mutator{tag.Insert(CacheLevelKey, hlvl.string())}, MSFCacheHits.M(1))
+			stats.RecordWithTags(ctx, []tag.Mutator{tag.Insert(CacheLevelKey, hlvl.string())}, MCoalescedCacheHits.M(1))
 			return &valWithLevel{value, hlvl}, nil
 
 		}
-		// TODO(@odeke-em): Remove .Stats
-		g.Stats.LoadsDeduped.Add(1)
-		stats.Record(ctx, MLoadsDeduped.M(1))
+		g.Stats.CoalescedLoads.Add(1)
+		stats.Record(ctx, MCoalescedLoads.M(1))
 
 		var err error
 		if peer, ok := g.peerPicker.pickPeer(key); ok {
 			value, err = g.getFromPeer(ctx, peer, key)
 			if err == nil {
-				// TODO(@odeke-em): Remove .Stats
-				g.Stats.SFPeerLoads.Add(1)
-				stats.Record(ctx, MSFPeerLoads.M(1))
+				g.Stats.CoalescedPeerLoads.Add(1)
+				stats.Record(ctx, MCoalescedPeerLoads.M(1))
 				return &valWithLevel{value, hitPeer}, nil
 			}
-			// TODO(@odeke-em): Remove .Stats
+
 			g.Stats.PeerLoadErrors.Add(1)
 			stats.Record(ctx, MPeerLoadErrors.M(1))
 			// TODO(bradfitz): log the peer's error? keep
@@ -480,14 +473,13 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value *valWi
 		}
 		data, err := g.getLocally(ctx, key, dest)
 		if err != nil {
-			// TODO(@odeke-em): Remove .Stats
 			g.Stats.BackendLoadErrors.Add(1)
 			stats.Record(ctx, MBackendLoadErrors.M(1))
 			return nil, err
 		}
-		// TODO(@odeke-em): Remove .Stats
-		g.Stats.SFBackendLoads.Add(1)
-		stats.Record(ctx, MSFBackendLoads.M(1))
+
+		g.Stats.CoalescedBackendLoads.Add(1)
+		stats.Record(ctx, MCoalescedBackendLoads.M(1))
 		destPopulated = true // only one caller of load gets this return value
 		value = newValWithStat(data, nil)
 		g.populateCache(key, value, &g.mainCache)
@@ -496,7 +488,7 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value *valWi
 	if err == nil {
 		value = viewi.(*valWithLevel).val
 		level := viewi.(*valWithLevel).level
-		g.RecordRequest(ctx, level) // record the hits for all load calls, including those that tagged onto the singleflight
+		g.recordRequest(ctx, level) // record the hits for all load calls, including those that tagged onto the singleflight
 	}
 	return
 }
