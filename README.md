@@ -72,6 +72,8 @@ u.Shutdown()
 
 ## Changes from groupcache
 
+![galaxycache Caching Example Diagram](/diagram.png)
+
 Our changes include the following:
 * Overhauled API to improve useability and configurability
 * Improvements to testing by removing global state
