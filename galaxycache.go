@@ -329,8 +329,9 @@ func (h hitLevel) String() string {
 		return "peer"
 	case hitBackend:
 		return "backend"
+	default:
+		return ""
 	}
-	return ""
 }
 
 func (h hitLevel) isHit() bool {
