@@ -158,7 +158,7 @@ Use the golang-nuts mailing list for any discussion or questions.
 [`Get`]:https://godoc.org/github.com/vimeo/galaxycache#Galaxy.Get
 [`PeerPicker`]:https://godoc.org/github.com/vimeo/galaxycache#PeerPicker
 [`Codec`]:https://godoc.org/github.com/vimeo/galaxycache#Codec
-[`FetchProtocol`]:https://godoc.org/github.com/vimeo/galaxycache#FetchProtocol)
+[`FetchProtocol`]:https://godoc.org/github.com/vimeo/galaxycache#FetchProtocol
 [`RemoteFetcher`]:https://godoc.org/github.com/vimeo/galaxycache#RemoteFetcher
 [`BackendGetter`]:https://godoc.org/github.com/vimeo/galaxycache#BackendGetter
 [`ShouldPromote.Interface`]:https://godoc.org/github.com/vimeo/galaxycache/promoter#Interface
