@@ -104,7 +104,7 @@ When [`Get`] is called for a key in a [`Galaxy`] in some process called Process_
 - If the Process_A is the authority:
    - Process_A uses its [`BackendGetter`] to get the data, and populates its local maincache
 - If Process_A is _not_ the authority:
-   - Process_A calls [`Fetch`] on the authoritative remote peer, Process_B
+   - Process_A calls `Fetch` on the authoritative remote peer, Process_B (method determined by [`FetchProtocol`](https://godoc.org/github.com/vimeo/galaxycache#FetchProtocol))
    - Process_B then performs a [`Get`] to either find the data from its own local cache or use the specified [`BackendGetter`] to get the data from elsewhere, such as by querying a database
    - Process_B populates its maincache with the data before serving it back to Process_A
    - Process_A determines whether the key is hot enough to promote to the hotcache
@@ -122,7 +122,7 @@ Our changes include the following:
 
 ### New architecture and API
 
-* Renamed `Group` type to [`Galaxy`], `Getter` to [`BackendGetter`], `Get` to [`Fetch`] (for newly named [`RemoteFetcher`] interface, previously called `ProtoGetter`)
+* Renamed `Group` type to [`Galaxy`], `Getter` to [`BackendGetter`], `Get` to `Fetch` (for newly named [`RemoteFetcher`] interface, previously called `ProtoGetter`)
 * Reworked [`PeerPicker`] interface into a struct; contains a [`FetchProtocol`] and [`RemoteFetchers`] (generalizing for HTTP and GRPC fetching implementations), a hash map of other peer addresses, and a self URL
 
 ### No more global state
