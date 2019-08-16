@@ -62,24 +62,24 @@ var CacheLevelKey = tag.MustNewKey("cache-hit-level")
 
 // AllViews is a slice of default views for people to use
 var AllViews = []*view.View{
-	{Name: "galaxycache/gets", Description: "The number of Get requests", TagKeys: []tag.Key{GalaxyKey}, Measure: MGets, Aggregation: view.Count()},
-	{Name: "galaxycache/loads", Description: "The number of loads after singleflight", TagKeys: []tag.Key{GalaxyKey}, Measure: MLoads, Aggregation: view.Count()},
-	{Name: "galaxycache/cache_hits", Description: "The number of times that the cache was good", TagKeys: []tag.Key{GalaxyKey, CacheLevelKey}, Measure: MCacheHits, Aggregation: view.Count()},
-	{Name: "galaxycache/peer_loads", Description: "The number of remote loads or remote cache hits", TagKeys: []tag.Key{GalaxyKey}, Measure: MPeerLoads, Aggregation: view.Count()},
-	{Name: "galaxycache/peer_errors", Description: "The number of remote errors", TagKeys: []tag.Key{GalaxyKey}, Measure: MPeerLoadErrors, Aggregation: view.Count()},
-	{Name: "galaxycache/backend_loads", Description: "The number of successful loads from the backend", TagKeys: []tag.Key{GalaxyKey}, Measure: MBackendLoads, Aggregation: view.Count()},
-	{Name: "galaxycache/backend_load_errors", Description: "The number of failed local backend loads", TagKeys: []tag.Key{GalaxyKey}, Measure: MBackendLoadErrors, Aggregation: view.Count()},
+	{Measure: MGets, TagKeys: []tag.Key{GalaxyKey}, Aggregation: view.Count()},
+	{Measure: MLoads, TagKeys: []tag.Key{GalaxyKey}, Aggregation: view.Count()},
+	{Measure: MCacheHits, TagKeys: []tag.Key{GalaxyKey, CacheLevelKey}, Aggregation: view.Count()},
+	{Measure: MPeerLoads, TagKeys: []tag.Key{GalaxyKey}, Aggregation: view.Count()},
+	{Measure: MPeerLoadErrors, TagKeys: []tag.Key{GalaxyKey}, Aggregation: view.Count()},
+	{Measure: MBackendLoads, TagKeys: []tag.Key{GalaxyKey}, Aggregation: view.Count()},
+	{Measure: MBackendLoadErrors, TagKeys: []tag.Key{GalaxyKey}, Aggregation: view.Count()},
 
-	{Name: "galaxycache/coalesced_loads", Description: "The number of loads after singleflight", TagKeys: []tag.Key{GalaxyKey}, Measure: MCoalescedLoads, Aggregation: view.Count()},
-	{Name: "galaxycache/coalesced_cache_hits", Description: "The number of coalesced times that the cache was hit", TagKeys: []tag.Key{GalaxyKey, CacheLevelKey}, Measure: MCoalescedCacheHits, Aggregation: view.Count()},
-	{Name: "galaxycache/coalesced_peer_loads", Description: "The number of coalesced remote loads or remote cache hits", TagKeys: []tag.Key{GalaxyKey}, Measure: MCoalescedPeerLoads, Aggregation: view.Count()},
-	{Name: "galaxycache/coalesced_backend_loads", Description: "The number of coalesced successful loads from the backend getter", TagKeys: []tag.Key{GalaxyKey}, Measure: MCoalescedBackendLoads, Aggregation: view.Count()},
+	{Measure: MCoalescedLoads, TagKeys: []tag.Key{GalaxyKey}, Aggregation: view.Count()},
+	{Measure: MCoalescedCacheHits, TagKeys: []tag.Key{GalaxyKey, CacheLevelKey}, Aggregation: view.Count()},
+	{Measure: MCoalescedPeerLoads, TagKeys: []tag.Key{GalaxyKey}, Aggregation: view.Count()},
+	{Measure: MCoalescedBackendLoads, TagKeys: []tag.Key{GalaxyKey}, Aggregation: view.Count()},
 
-	{Name: "galaxycache/server_requests", Description: "The number of Gets that came over the network from peers", TagKeys: []tag.Key{GalaxyKey}, Measure: MServerRequests, Aggregation: view.Count()},
-	{Name: "galaxycache/key_length", Description: "The distribution of the key lengths", TagKeys: []tag.Key{GalaxyKey}, Measure: MKeyLength, Aggregation: defaultBytesDistribution},
-	{Name: "galaxycache/value_length", Description: "The distribution of the value lengths", TagKeys: []tag.Key{GalaxyKey}, Measure: MValueLength, Aggregation: defaultBytesDistribution},
+	{Measure: MServerRequests, TagKeys: []tag.Key{GalaxyKey}, Aggregation: view.Count()},
+	{Measure: MKeyLength, TagKeys: []tag.Key{GalaxyKey}, Aggregation: defaultBytesDistribution},
+	{Measure: MValueLength, TagKeys: []tag.Key{GalaxyKey}, Aggregation: defaultBytesDistribution},
 
-	{Name: "galaxycache/roundtrip_latency", Description: "The roundtrip latency", TagKeys: []tag.Key{GalaxyKey}, Measure: MRoundtripLatencyMilliseconds, Aggregation: defaultMillisecondsDistribution},
+	{Measure: MRoundtripLatencyMilliseconds, TagKeys: []tag.Key{GalaxyKey}, Aggregation: defaultMillisecondsDistribution},
 }
 
 func sinceInMilliseconds(start time.Time) float64 {
