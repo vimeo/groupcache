@@ -91,13 +91,13 @@ The cache within each galaxy is divided into a "maincache" and a "hotcache".
 
 The "maincache" contains data that the local process is authoritative over. The maincache is always populated whenever data is fetched from the backend (with a LRU eviction policy). 
 
-In order to eliminate network hops, a portion of the cache space in each process is reserved for especially popular keys that the local process is not authoritative over. By default, this "hotcache" is populated by a key and its associated data by means of a requests-per-second metric. The logic for hotcache promotion can be configured by implementing a custom solution with the `ShouldPromote` interface.
+In order to eliminate network hops, a portion of the cache space in each process is reserved for especially popular keys that the local process is not authoritative over. By default, this "hotcache" is populated by a key and its associated data by means of a requests-per-second metric. The logic for hotcache promotion can be configured by implementing a custom solution with [the `ShouldPromote` interface](https://godoc.org/github.com/vimeo/galaxycache/promoter#Interface).
 
 ## Step-by-Step Breakdown of a Get()
 
 ![galaxycache Caching Example Diagram](/diagram.png)
 
-When `Get` is called for a key in a `Galaxy` in some process called Process_A:
+When `Get` is called for a key in a [`Galaxy`](https://godoc.org/github.com/vimeo/galaxycache#Galaxy) in some process called Process_A:
 1. The local cache (both maincache and hotcache) in Process_A is checked first
 2. On a cache miss, the `PeerPicker` object delegates to the peer authoritative over the requested key
 3. Depends on which peer is authoritative over this key...
@@ -117,7 +117,7 @@ Our changes include the following:
 * Overhauled API to improve usability and configurability
 * Improvements to testing by removing global state
 * Improvement to connection efficiency between peers with the addition of gRPC
-* Added a `Promoter` interface for choosing which keys get hotcached
+* Added a [`Promoter` interface](https://godoc.org/github.com/vimeo/galaxycache/promoter#Interface) for choosing which keys get hotcached
 * Made some core functionality more generic (e.g. replaced the `Sink` object with a `Codec` marshaler interface, removed `Byteview`)
 
 ### New architecture and API
