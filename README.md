@@ -45,7 +45,9 @@ RegisterGRPCServer(u, grpcServer)
 RegisterHTTPHandler(u, nil, nil)
 
 // Refer to the http/grpc godocs for information on how to serve using the registered HTTP handler
-// or gRPC server, respectively
+// or gRPC server, respectively:
+// HTTP: https://golang.org/pkg/net/http/#Handler
+// gRPC: https://godoc.org/google.golang.org/grpc#Server
 
 ```
 ### Getting a value
@@ -106,7 +108,7 @@ When `Get` is called for a key in a `Galaxy` in some process called Process_A:
 ## Changes from groupcache
 
 Our changes include the following:
-* Overhauled API to improve useability and configurability
+* Overhauled API to improve usability and configurability
 * Improvements to testing by removing global state
 * Improvement to connection efficiency between peers with the addition of gRPC
 * Added a `Promoter` interface for choosing which keys get hotcached
