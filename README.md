@@ -77,13 +77,13 @@ A consistent hashing algorithm determines the sharding of keys across peers in g
 
 ### Universe 
 
-To keep galaxycache instances non-global (i.e. for multithreaded testing), a `Universe` object contains all of the moving parts of the cache, including the logic for connecting to peers, consistent hashing, and maintaining the set of galaxies.
+To keep galaxycache instances non-global (i.e. for multithreaded testing), a [`Universe`] object contains all of the moving parts of the cache, including the logic for connecting to peers, consistent hashing, and maintaining the set of galaxies.
 
 ### Galaxy
 
-A `Galaxy` is a grouping of keys based on a category determined by the user. For example, you might have a galaxy for Users and a galaxy for Video Metadata; those data types may require different fetching protocols on the backend -- separating them into different `Galaxies` allows for this flexibility.
+A [`Galaxy`] is a grouping of keys based on a category determined by the user. For example, you might have a galaxy for Users and a galaxy for Video Metadata; those data types may require different fetching protocols on the backend -- separating them into different [`Galaxies`](https://godoc.org/github.com/vimeo/galaxycache#Galaxy) allows for this flexibility.
 
-Each `Galaxy` contains its own cache space. The cache is immutable; all cache population and eviction is handled by internal logic.
+Each [`Galaxy`] contains its own cache space. The cache is immutable; all cache population and eviction is handled by internal logic.
 
 ### Maincache vs Hotcache
 
@@ -91,57 +91,58 @@ The cache within each galaxy is divided into a "maincache" and a "hotcache".
 
 The "maincache" contains data that the local process is authoritative over. The maincache is always populated whenever data is fetched from the backend (with a LRU eviction policy). 
 
-In order to eliminate network hops, a portion of the cache space in each process is reserved for especially popular keys that the local process is not authoritative over. By default, this "hotcache" is populated by a key and its associated data by means of a requests-per-second metric. The logic for hotcache promotion can be configured by implementing a custom solution with [the `ShouldPromote` interface](https://godoc.org/github.com/vimeo/galaxycache/promoter#Interface).
+In order to eliminate network hops, a portion of the cache space in each process is reserved for especially popular keys that the local process is not authoritative over. By default, this "hotcache" is populated by a key and its associated data by means of a requests-per-second metric. The logic for hotcache promotion can be configured by implementing a custom solution with the [`ShouldPromote.Interface`].
 
 ## Step-by-Step Breakdown of a Get()
 
 ![galaxycache Caching Example Diagram](/diagram.png)
 
-When `Get` is called for a key in a [`Galaxy`](https://godoc.org/github.com/vimeo/galaxycache#Galaxy) in some process called Process_A:
+When [`Get`] is called for a key in a [`Galaxy`] in some process called Process_A:
 1. The local cache (both maincache and hotcache) in Process_A is checked first
-2. On a cache miss, the `PeerPicker` object delegates to the peer authoritative over the requested key
+2. On a cache miss, the [`PeerPicker`] object delegates to the peer authoritative over the requested key
 3. Depends on which peer is authoritative over this key...
 - If the Process_A is the authority:
-   - Process_A uses its `BackendGetter` to get the data, and populates its local maincache
+   - Process_A uses its [`BackendGetter`] to get the data, and populates its local maincache
 - If Process_A is _not_ the authority:
-   - Process_A calls `Fetch` on the authoritative remote peer, Process_B
-   - Process_B then performs a `Get` to either find the data from its own local cache or use the specified `BackendGetter` to get the data from elsewhere, such as by querying a database
+   - Process_A calls [`Fetch`] on the authoritative remote peer, Process_B
+   - Process_B then performs a [`Get`] to either find the data from its own local cache or use the specified [`BackendGetter`] to get the data from elsewhere, such as by querying a database
    - Process_B populates its maincache with the data before serving it back to Process_A
    - Process_A determines whether the key is hot enough to promote to the hotcache
       - If it is, then the hotcache for Process_A is populated with the key/data
-4. The data is unmarshaled into the `Codec` passed into `Get`
+4. The data is unmarshaled into the [`Codec`] passed into [`Get`]
 
 ## Changes from groupcache
 
 Our changes include the following:
 * Overhauled API to improve usability and configurability
 * Improvements to testing by removing global state
-* Improvement to connection efficiency between peers with the addition of gRPC
-* Added a [`Promoter` interface](https://godoc.org/github.com/vimeo/galaxycache/promoter#Interface) for choosing which keys get hotcached
-* Made some core functionality more generic (e.g. replaced the `Sink` object with a `Codec` marshaler interface, removed `Byteview`)
+* Improvement to connection efficiency between peers with the addition of [gRPC](https://godoc.org/github.com/vimeo/galaxycache/grpc)
+* Added a [`Promoter.Interface`](https://godoc.org/github.com/vimeo/galaxycache/promoter#Interface) for choosing which keys get hotcached
+* Made some core functionality more generic (e.g. replaced the `Sink` object with a [`Codec`] marshaler interface, removed `Byteview`)
 
 ### New architecture and API
 
-* Renamed `Group` type to `Galaxy`, `Getter` to `BackendGetter`, `Get` to `Fetch` (for newly named `RemoteFetcher` interface, previously called `ProtoGetter`)
-* Reworked `PeerPicker` interface into a struct; contains a `FetchProtocol` and `RemoteFetchers` (generalizing for HTTP and GRPC fetching implementations), a hash map of other peer addresses, and a self URL
+* Renamed `Group` type to [`Galaxy`], `Getter` to [`BackendGetter`], `Get` to [`Fetch`] (for newly named [`RemoteFetcher`] interface, previously called `ProtoGetter`)
+* Reworked [`PeerPicker`] interface into a struct; contains a [`FetchProtocol`] and [`RemoteFetchers`] (generalizing for HTTP and GRPC fetching implementations), a hash map of other peer addresses, and a self URL
 
 ### No more global state
 
-* Removed all global variables to allow for multithreaded testing by implementing a `Universe` container that holds the `Galaxies` (previously a global `groups` map) and `PeerPicker` (part of what used to be `HTTPPool`)
-* Added methods to `Universe` to allow for simpler handling of most galaxycache operations (setting Peers, instantiating a Picker, etc)
+* Removed all global variables to allow for multithreaded testing by implementing a `Universe` container that holds the [`Galaxies`] (previously a global `groups` map) and [`PeerPicker`] (part of what used to be `HTTPPool`)
+* Added methods to [`Universe`] to allow for simpler handling of most galaxycache operations (setting Peers, instantiating a Picker, etc)
 
 ### New structure for fetching from peers (with gRPC support)
 
-* Added an `HTTPHandler` and associated registration function for serving HTTP requests by reaching into an associated `Universe` (deals with the other function of the deprecated `HTTPPool`)
+* Added an [`HTTPHandler`] and associated registration function for serving HTTP requests by reaching into an associated [`Universe`] (deals with the other function of the deprecated `HTTPPool`)
+* Added [gRPC support](https://godoc.org/github.com/vimeo/galaxycache/grpc) for peer communication
 * Reworked tests to fit new architecture
 * Renamed files to match new type names
 
 ### A smarter Hotcache with configurable promotion logic
 
 * New default promotion logic uses key access statistics tied to every key to make decisions about populating the hotcache
-* Promoter package provides an interface for creating your own `ShouldPromote` method to determine whether a key should be added to the hotcache
+* Promoter package provides a [`ShouldPromote.Interface`] for creating your own method to determine whether a key should be added to the hotcache
 * Newly added candidate cache keeps track of peer-owned keys (without associated data) that have not yet been promoted to the hotcache
-* Provided variadic options for `Galaxy` construction to override default promotion logic (with your promoter, max number of candidates, and relative hotcache size to maincache)
+* Provided variadic options for [`Galaxy`] construction to override default promotion logic (with your promoter, max number of candidates, and relative hotcache size to maincache)
 
 
 ## Comparison to memcached
@@ -151,3 +152,13 @@ See: https://github.com/golang/groupcache/blob/master/README.md
 ## Help
 
 Use the golang-nuts mailing list for any discussion or questions.
+
+[`Universe`]:https://godoc.org/github.com/vimeo/galaxycache#Universe
+[`Galaxy`]:https://godoc.org/github.com/vimeo/galaxycache#Galaxy
+[`Get`]:https://godoc.org/github.com/vimeo/galaxycache#Galaxy.Get
+[`PeerPicker`]:https://godoc.org/github.com/vimeo/galaxycache#PeerPicker
+[`Codec`]:https://godoc.org/github.com/vimeo/galaxycache#Codec
+[`RemoteFetcher`]:https://godoc.org/github.com/vimeo/galaxycache#RemoteFetcher
+[`BackendGetter`]:https://godoc.org/github.com/vimeo/galaxycache#BackendGetter
+[`ShouldPromote.Interface`]:https://godoc.org/github.com/vimeo/galaxycache/promoter#Interface
+
