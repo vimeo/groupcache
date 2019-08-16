@@ -24,12 +24,6 @@ import (
 	"go.opencensus.io/tag"
 )
 
-const (
-	unitDimensionless = "1"
-	unitBytes         = "By"
-	unitMillisecond   = "ms"
-)
-
 var (
 	// Copied from https://github.com/census-instrumentation/opencensus-go/blob/ff7de98412e5c010eb978f11056f90c00561637f/plugin/ocgrpc/stats_common.go#L54
 	defaultBytesDistribution = view.Distribution(0, 1024, 2048, 4096, 16384, 65536, 262144, 1048576, 4194304, 16777216, 67108864, 268435456, 1073741824, 4294967296)
@@ -39,25 +33,25 @@ var (
 
 // Opencensus stats
 var (
-	MGets              = stats.Int64("gets", "The number of Get requests", unitDimensionless)
-	MCacheHits         = stats.Int64("cache_hits", "The number of times that the cache was hit", unitDimensionless)
-	MPeerLoads         = stats.Int64("peer_loads", "The number of remote loads or remote cache hits", unitDimensionless)
-	MPeerLoadErrors    = stats.Int64("peer_errors", "The number of remote errors", unitDimensionless)
-	MLoads             = stats.Int64("loads", "The number of gets/cacheHits", unitDimensionless)
-	MLoadErrors        = stats.Int64("loads_errors", "The number of errors encountered during Get", unitDimensionless)
-	MCoalescedLoads    = stats.Int64("loads_deduped", "The number of loads coalesced by singleflight", unitDimensionless)
-	MBackendLoads      = stats.Int64("backend_loads", "The number of successful loads from the backend getter", unitDimensionless)
-	MBackendLoadErrors = stats.Int64("local_load_errors", "The number of failed backend loads", unitDimensionless)
+	MGets              = stats.Int64("gets", "The number of Get requests", stats.UnitDimensionless)
+	MCacheHits         = stats.Int64("cache_hits", "The number of times that the cache was hit", stats.UnitDimensionless)
+	MPeerLoads         = stats.Int64("peer_loads", "The number of remote loads or remote cache hits", stats.UnitDimensionless)
+	MPeerLoadErrors    = stats.Int64("peer_errors", "The number of remote errors", stats.UnitDimensionless)
+	MLoads             = stats.Int64("loads", "The number of gets/cacheHits", stats.UnitDimensionless)
+	MLoadErrors        = stats.Int64("loads_errors", "The number of errors encountered during Get", stats.UnitDimensionless)
+	MCoalescedLoads    = stats.Int64("coalesced_loads", "The number of loads coalesced by singleflight", stats.UnitDimensionless)
+	MBackendLoads      = stats.Int64("backend_loads", "The number of successful loads from the backend getter", stats.UnitDimensionless)
+	MBackendLoadErrors = stats.Int64("local_load_errors", "The number of failed backend loads", stats.UnitDimensionless)
 
-	MCoalescedCacheHits    = stats.Int64("coalesced_cache_hits", "The number of coalesced times that the cache was hit", unitDimensionless)
-	MCoalescedPeerLoads    = stats.Int64("coalesced_peer_loads", "The number of coalesced remote loads or remote cache hits", unitDimensionless)
-	MCoalescedBackendLoads = stats.Int64("coalesced_backend_loads", "The number of coalesced successful loads from the backend getter", unitDimensionless)
+	MCoalescedCacheHits    = stats.Int64("coalesced_cache_hits", "The number of coalesced times that the cache was hit", stats.UnitDimensionless)
+	MCoalescedPeerLoads    = stats.Int64("coalesced_peer_loads", "The number of coalesced remote loads or remote cache hits", stats.UnitDimensionless)
+	MCoalescedBackendLoads = stats.Int64("coalesced_backend_loads", "The number of coalesced successful loads from the backend getter", stats.UnitDimensionless)
 
-	MServerRequests = stats.Int64("server_requests", "The number of Gets that came over the network from peers", unitDimensionless)
-	MKeyLength      = stats.Int64("key_length", "The length of keys", unitBytes)
-	MValueLength    = stats.Int64("value_length", "The length of values", unitBytes)
+	MServerRequests = stats.Int64("server_requests", "The number of Gets that came over the network from peers", stats.UnitDimensionless)
+	MKeyLength      = stats.Int64("key_length", "The length of keys", stats.UnitBytes)
+	MValueLength    = stats.Int64("value_length", "The length of values", stats.UnitBytes)
 
-	MRoundtripLatencyMilliseconds = stats.Float64("roundtrip_latency", "Roundtrip latency in milliseconds", unitMillisecond)
+	MRoundtripLatencyMilliseconds = stats.Float64("roundtrip_latency", "Roundtrip latency in milliseconds", stats.UnitMilliseconds)
 )
 
 // GalaxyKey tags the name of the galaxy
