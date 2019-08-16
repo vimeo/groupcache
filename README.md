@@ -73,7 +73,7 @@ u.Shutdown()
 
 ### Consistent hash determines authority
 
-A consistent hashing algorithm determines the sharding of keys across peers in galaxycache. Further reading can be found (https://medium.com/@orijtech/groupcache-instrumented-by-opencensus-6a625c3724c)[here] and (https://www.toptal.com/big-data/consistent-hashing)[here].
+A consistent hashing algorithm determines the sharding of keys across peers in galaxycache. Further reading can be found [https://medium.com/@orijtech/groupcache-instrumented-by-opencensus-6a625c3724c](here) and [https://www.toptal.com/big-data/consistent-hashing](here).
 
 ### Universe 
 
@@ -83,9 +83,15 @@ To keep galaxycache instances non-global (i.e. for multithreaded testing), a `Un
 
 A `Galaxy` is a grouping of keys based on a category determined by the user. For example, you might have a galaxy for Users and a galaxy for Video Metadata; those data types may require different fetching protocols on the backend -- separating them into different `Galaxies` allows for this flexibility.
 
-### Hotcache
+Each `Galaxy` contains its own cache space. The cache is immutable; all cache population and eviction is handled by internal logic.
 
-In order to eliminate network hops, portion of the cache space in each process is reserved for especially popular keys that the local process is not authoritative over. By default, this "hotcache" is populated by a key and its associated data by means of a requests-per-second metric. The logic for hotcache promotion can be configured by implementing a custom solution with the `ShouldPromote` interface.
+### Maincache vs Hotcache
+
+The cache within each galaxy is divided into a "maincache" and a "hotcache".
+
+The "maincache" contains data that the local process is authoritative over. The maincache is always populated whenever data is fetched from the backend (with a LRU eviction policy). 
+
+In order to eliminate network hops, a portion of the cache space in each process is reserved for especially popular keys that the local process is not authoritative over. By default, this "hotcache" is populated by a key and its associated data by means of a requests-per-second metric. The logic for hotcache promotion can be configured by implementing a custom solution with the `ShouldPromote` interface.
 
 ## Step-by-Step Breakdown of a Get()
 
