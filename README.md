@@ -23,16 +23,13 @@ u := NewUniverse(grpcProto, "my-url")
 u.Set("peer1-url", "peer2-url", "peer3-url")
 
 // Define a BackendGetter (here as a function) for retrieving data
-getter := GetterFunc(func(_ context.Context, key string, dest Codec) error {
+getter := GetterFunc(func(ctx context.Context, key string, dest Codec) error {
    // Define your method for retrieving non-cached data here, i.e. from a database
 })
 
 // Create a new Galaxy within the Universe with a name, the max capacity of cache space you would
-// like to allocate, and your BackendGetter. The hotcache defaults to 1/8 of the total cache size,
-// the Promoter defaults to a simple QPS comparison, and the maximum number of hotcache candidates
-// defaults to 100; these can be overwritten with variadic options (WithHotCacheRatio() used below
-// as an example to make the hotcache 1/4 the total cache size)
-g := u.NewGalaxy("galaxy-1", 1 << 20, getter, WithHotCacheRatio(4))
+// like to allocate, and your BackendGetter
+g := u.NewGalaxy("galaxy-1", 1 << 20, getter)
 
 // In order to receive Fetch requests from peers over HTTP or gRPC, we must register this universe
 // to handle those requests
@@ -55,12 +52,12 @@ RegisterHTTPHandler(u, nil, nil)
 ```go
 // Create a Codec for unmarshaling data into your format of choice - the package includes 
 // implementations for []byte and string formats, and the protocodec subpackage includes the 
-// protobuf format
+// protobuf adapter
 sCodec := StringCodec{}
 
 // Call Get on the Galaxy to retrieve data and unmarshal it into your Codec
 ctx := context.Background()
-err := g.Get(ctx, "my-key", sCodec)
+err := g.Get(ctx, "my-key", &sCodec)
 if err != nil {
    // handle if Get returns an error
 }
@@ -70,20 +67,27 @@ u.Shutdown()
 
 ```
 
-## Changes from groupcache
+## Concepts and Glossary
+
+### Consistent hash determines authority
+
+A consistent hashing algorithm determines the sharding of keys across peers in galaxycache. Further reading can be found (https://medium.com/@orijtech/groupcache-instrumented-by-opencensus-6a625c3724c)[here] and (https://www.toptal.com/big-data/consistent-hashing)[here].
+
+### Universe 
+
+To keep galaxycache instances non-global (i.e. for multithreaded testing), a `Universe` object contains all of the moving parts of the cache, including the logic for connecting to peers, consistent hashing, and maintaining the set of galaxies.
+
+### Galaxy
+
+A `Galaxy` is a grouping of keys based on a category determined by the user. For example, you might have a galaxy for Users and a galaxy for Video Metadata; those data types may require different fetching protocols on the backend -- separating them into different `Galaxies` allows for this flexibility.
+
+### Hotcache
+
+In order to eliminate network hops, portion of the cache space in each process is reserved for especially popular keys that the local process is not authoritative over. By default, this "hotcache" is populated by a key and its associated data by means of a requests-per-second metric. The logic for hotcache promotion can be configured by implementing a custom solution with the `ShouldPromote` interface.
+
+## Step-by-Step Breakdown of a Get()
 
 ![galaxycache Caching Example Diagram](/diagram.png)
-
-Our changes include the following:
-* Overhauled API to improve useability and configurability
-* Improvements to testing by removing global state
-* Improvement to connection efficiency between peers with the addition of gRPC
-* Added a `Promoter` interface for choosing which keys get hotcached
-* Made some core functionality more generic (e.g. replaced the `Sink` object with a `Codec` marshaler interface, removed `Byteview`)
-
-We also changed the naming scheme of objects and methods to clarify their purpose with the help of a space-themed scenario:
-
-Each process within a set of peer processes contains a `Universe` which encapsulates a map of `Galaxies` (previously called `Groups`). Each `Universe` contains the same set of `Galaxies`, but each `key` (think of it as a "star") has a single associated authoritative peer (determined by the consistent hash function). 
 
 When `Get` is called for a key in a `Galaxy` in some process called Process_A:
 1. The local cache (both maincache and hotcache) in Process_A is checked first
@@ -99,6 +103,18 @@ When `Get` is called for a key in a `Galaxy` in some process called Process_A:
       - If it is, then the hotcache for Process_A is populated with the key/data
 4. The data is unmarshaled into the `Codec` passed into `Get`
 
+## Changes from groupcache
+
+Our changes include the following:
+* Overhauled API to improve useability and configurability
+* Improvements to testing by removing global state
+* Improvement to connection efficiency between peers with the addition of gRPC
+* Added a `Promoter` interface for choosing which keys get hotcached
+* Made some core functionality more generic (e.g. replaced the `Sink` object with a `Codec` marshaler interface, removed `Byteview`)
+
+We also changed the naming scheme of objects and methods to clarify their purpose with the help of a space-themed scenario:
+
+Each process within a set of peer processes contains a `Universe` which encapsulates a map of `Galaxies` (previously called `Groups`). Each `Universe` contains the same set of `Galaxies`, but each `key` (think of it as a "star") has a single associated authoritative peer (determined by the consistent hash function). 
 
 ### New architecture and API
 
