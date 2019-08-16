@@ -316,9 +316,10 @@ const (
 	hitMaincache
 	hitPeer
 	hitBackend
+	miss // for checking cache hit/miss in lookupCache
 )
 
-func (h hitLevel) string() string {
+func (h hitLevel) String() string {
 	switch h {
 	case hitHotcache:
 		return "hotcache"
@@ -332,16 +333,20 @@ func (h hitLevel) string() string {
 	return ""
 }
 
+func (h hitLevel) isHit() bool {
+	return h != miss
+}
+
 // recordRequest records the corresponding opencensus measurement
 // to the level at which data was found on Get/load
 func (g *Galaxy) recordRequest(ctx context.Context, h hitLevel) {
 	switch h {
 	case hitMaincache:
 		g.Stats.MaincacheHits.Add(1)
-		stats.RecordWithTags(ctx, []tag.Mutator{tag.Upsert(CacheLevelKey, h.string())}, MCacheHits.M(1))
+		stats.RecordWithTags(ctx, []tag.Mutator{tag.Upsert(CacheLevelKey, h.String())}, MCacheHits.M(1))
 	case hitHotcache:
 		g.Stats.HotcacheHits.Add(1)
-		stats.RecordWithTags(ctx, []tag.Mutator{tag.Upsert(CacheLevelKey, h.string())}, MCacheHits.M(1))
+		stats.RecordWithTags(ctx, []tag.Mutator{tag.Upsert(CacheLevelKey, h.String())}, MCacheHits.M(1))
 	case hitPeer:
 		g.Stats.PeerLoads.Add(1)
 		stats.Record(ctx, MPeerLoads.M(1))
@@ -379,10 +384,10 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 		span.SetStatus(trace.Status{Code: trace.StatusCodeInvalidArgument, Message: "no Codec was provided"})
 		return errors.New("galaxycache: no Codec was provided")
 	}
-	value, cacheHit, hlvl := g.lookupCache(key)
+	value, hlvl := g.lookupCache(key)
 	stats.Record(ctx, MKeyLength.M(int64(len(key))))
 
-	if cacheHit {
+	if hlvl.isHit() {
 		span.Annotatef(nil, "Cache hit")
 		value.stats.touch()
 		g.recordRequest(ctx, hlvl)
@@ -442,13 +447,13 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value *valWi
 		// 1: fn()
 		// 2: loadGroup.Do("key", fn)
 		// 2: fn()
-		if value, cacheHit, hlvl := g.lookupCache(key); cacheHit {
+		if value, hlvl := g.lookupCache(key); hlvl.isHit() {
 			if hlvl == hitHotcache {
 				g.Stats.CoalescedHotcacheHits.Add(1)
 			} else {
 				g.Stats.CoalescedMaincacheHits.Add(1)
 			}
-			stats.RecordWithTags(ctx, []tag.Mutator{tag.Insert(CacheLevelKey, hlvl.string())}, MCoalescedCacheHits.M(1))
+			stats.RecordWithTags(ctx, []tag.Mutator{tag.Insert(CacheLevelKey, hlvl.String())}, MCoalescedCacheHits.M(1))
 			return &valWithLevel{value, hlvl}, nil
 
 		}
@@ -525,20 +530,20 @@ func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string
 	return value, nil
 }
 
-func (g *Galaxy) lookupCache(key string) (*valWithStat, bool, hitLevel) {
+func (g *Galaxy) lookupCache(key string) (*valWithStat, hitLevel) {
 	if g.cacheBytes <= 0 {
-		return nil, false, 0
+		return nil, miss
 	}
 	vi, ok := g.mainCache.get(key)
 	if ok {
-		return vi.(*valWithStat), ok, hitMaincache
+		return vi.(*valWithStat), hitMaincache
 	}
 	vi, ok = g.hotCache.get(key)
 	if !ok {
-		return nil, false, 0
+		return nil, miss
 	}
 	g.Stats.HotcacheHits.Add(1)
-	return vi.(*valWithStat), ok, hitHotcache
+	return vi.(*valWithStat), hitHotcache
 }
 
 func (g *Galaxy) populateCache(key string, value *valWithStat, cache *cache) {
@@ -708,7 +713,7 @@ func (i *AtomicInt) Get() int64 {
 	return atomic.LoadInt64((*int64)(i))
 }
 
-func (i *AtomicInt) string() string {
+func (i *AtomicInt) String() string {
 	return strconv.FormatInt(i.Get(), 10)
 }
 
