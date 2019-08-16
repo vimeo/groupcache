@@ -24,12 +24,6 @@ import (
 	"go.opencensus.io/tag"
 )
 
-const (
-	unitDimensionless = "1"
-	unitBytes         = "By"
-	unitMillisecond   = "ms"
-)
-
 var (
 	// Copied from https://github.com/census-instrumentation/opencensus-go/blob/ff7de98412e5c010eb978f11056f90c00561637f/plugin/ocgrpc/stats_common.go#L54
 	defaultBytesDistribution = view.Distribution(0, 1024, 2048, 4096, 16384, 65536, 262144, 1048576, 4194304, 16777216, 67108864, 268435456, 1073741824, 4294967296)
@@ -39,42 +33,53 @@ var (
 
 // Opencensus stats
 var (
-	MGets            = stats.Int64("gets", "The number of Get requests", unitDimensionless)
-	MCacheHits       = stats.Int64("cache_hits", "The number of times that either cache was good", unitDimensionless)
-	MHotcacheHits    = stats.Int64("hotcache_hits", "The number of times that the hotcache cache was good", unitDimensionless)
-	MCacheMisses     = stats.Int64("cache_misses", "The number of times that either cache was not good", unitDimensionless)
-	MPeerLoads       = stats.Int64("peer_loads", "The number of remote loads or remote cache hits", unitDimensionless)
-	MPeerErrors      = stats.Int64("peer_errors", "The number of remote errors", unitDimensionless)
-	MLoads           = stats.Int64("loads", "The number of gets/cacheHits", unitDimensionless)
-	MLoadErrors      = stats.Int64("loads_errors", "The number of errors encountered during Get", unitDimensionless)
-	MLoadsDeduped    = stats.Int64("loads_deduped", "The number of loads after singleflight", unitDimensionless)
-	MLocalLoads      = stats.Int64("local_loads", "The number of good local loads", unitDimensionless)
-	MLocalLoadErrors = stats.Int64("local_load_errors", "The number of bad local loads", unitDimensionless)
-	MServerRequests  = stats.Int64("server_requests", "The number of Gets that came over the network from peers", unitDimensionless)
-	MKeyLength       = stats.Int64("key_length", "The length of keys", unitBytes)
-	MValueLength     = stats.Int64("value_length", "The length of values", unitBytes)
+	MGets              = stats.Int64("galaxycache/gets", "The number of Get requests", stats.UnitDimensionless)
+	MLoads             = stats.Int64("galaxycache/loads", "The number of gets/cacheHits", stats.UnitDimensionless)
+	MLoadErrors        = stats.Int64("galaxycache/loads_errors", "The number of errors encountered during Get", stats.UnitDimensionless)
+	MCacheHits         = stats.Int64("galaxycache/cache_hits", "The number of times that the cache was hit", stats.UnitDimensionless)
+	MPeerLoads         = stats.Int64("galaxycache/peer_loads", "The number of remote loads or remote cache hits", stats.UnitDimensionless)
+	MPeerLoadErrors    = stats.Int64("galaxycache/peer_errors", "The number of remote errors", stats.UnitDimensionless)
+	MBackendLoads      = stats.Int64("galaxycache/backend_loads", "The number of successful loads from the backend getter", stats.UnitDimensionless)
+	MBackendLoadErrors = stats.Int64("galaxycache/local_load_errors", "The number of failed backend loads", stats.UnitDimensionless)
 
-	MRoundtripLatencyMilliseconds = stats.Float64("roundtrip_latency", "Roundtrip latency in milliseconds", unitMillisecond)
+	MCoalescedLoads        = stats.Int64("galaxycache/coalesced_loads", "The number of loads coalesced by singleflight", stats.UnitDimensionless)
+	MCoalescedCacheHits    = stats.Int64("galaxycache/coalesced_cache_hits", "The number of coalesced times that the cache was hit", stats.UnitDimensionless)
+	MCoalescedPeerLoads    = stats.Int64("galaxycache/coalesced_peer_loads", "The number of coalesced remote loads or remote cache hits", stats.UnitDimensionless)
+	MCoalescedBackendLoads = stats.Int64("galaxycache/coalesced_backend_loads", "The number of coalesced successful loads from the backend getter", stats.UnitDimensionless)
+
+	MServerRequests = stats.Int64("galaxycache/server_requests", "The number of Gets that came over the network from peers", stats.UnitDimensionless)
+	MKeyLength      = stats.Int64("galaxycache/key_length", "The length of keys", stats.UnitBytes)
+	MValueLength    = stats.Int64("galaxycache/value_length", "The length of values", stats.UnitBytes)
+
+	MRoundtripLatencyMilliseconds = stats.Float64("galaxycache/roundtrip_latency", "Roundtrip latency in milliseconds", stats.UnitMilliseconds)
 )
 
-var keyCommand, _ = tag.NewKey("command")
+// GalaxyKey tags the name of the galaxy
+var GalaxyKey = tag.MustNewKey("galaxy")
+
+// CacheLevelKey tags the level at which data was found on Get
+var CacheLevelKey = tag.MustNewKey("cache-hit-level")
 
 // AllViews is a slice of default views for people to use
 var AllViews = []*view.View{
-	{Name: "galaxycache/gets", Description: "The number of Get requests", Measure: MGets, Aggregation: view.Count()},
-	{Name: "galaxycache/cache_hits", Description: "The number of times that either cache was good", Measure: MCacheHits, Aggregation: view.Count()},
-	{Name: "galaxycache/hotcache_hits", Description: "The number of times that the hotcache was good", Measure: MHotcacheHits, Aggregation: view.Count()},
-	{Name: "galaxycache/cache_misses", Description: "The number of times that either cache was not good", Measure: MCacheMisses, Aggregation: view.Count()},
-	{Name: "galaxycache/peer_loads", Description: "The number of remote loads or remote cache hits", Measure: MPeerLoads, Aggregation: view.Count()},
-	{Name: "galaxycache/peer_errors", Description: "The number of remote errors", Measure: MPeerErrors, Aggregation: view.Count()},
-	{Name: "galaxycache/loads", Description: "The number of loads after singleflight", Measure: MLoads, Aggregation: view.Count()},
-	{Name: "galaxycache/loads_deduped", Description: "The number of loads after singleflight", Measure: MLoadsDeduped, Aggregation: view.Count()},
-	{Name: "galaxycache/local_loads", Description: "The number of good local loads", Measure: MLocalLoads, Aggregation: view.Count()},
-	{Name: "galaxycache/local_load_errors", Description: "The number of bad local loads", Measure: MLocalLoadErrors, Aggregation: view.Count()},
-	{Name: "galaxycache/server_requests", Description: "The number of Gets that came over the network from peers", Measure: MServerRequests, Aggregation: view.Count()},
-	{Name: "galaxycache/key_length", Description: "The distribution of the key lengths", Measure: MKeyLength, Aggregation: defaultBytesDistribution},
-	{Name: "galaxycache/value_length", Description: "The distribution of the value lengths", Measure: MValueLength, Aggregation: defaultBytesDistribution},
-	{Name: "galaxycache/roundtrip_latency", Description: "The roundtrip latency", Measure: MRoundtripLatencyMilliseconds, Aggregation: defaultMillisecondsDistribution},
+	{Measure: MGets, TagKeys: []tag.Key{GalaxyKey}, Aggregation: view.Count()},
+	{Measure: MLoads, TagKeys: []tag.Key{GalaxyKey}, Aggregation: view.Count()},
+	{Measure: MCacheHits, TagKeys: []tag.Key{GalaxyKey, CacheLevelKey}, Aggregation: view.Count()},
+	{Measure: MPeerLoads, TagKeys: []tag.Key{GalaxyKey}, Aggregation: view.Count()},
+	{Measure: MPeerLoadErrors, TagKeys: []tag.Key{GalaxyKey}, Aggregation: view.Count()},
+	{Measure: MBackendLoads, TagKeys: []tag.Key{GalaxyKey}, Aggregation: view.Count()},
+	{Measure: MBackendLoadErrors, TagKeys: []tag.Key{GalaxyKey}, Aggregation: view.Count()},
+
+	{Measure: MCoalescedLoads, TagKeys: []tag.Key{GalaxyKey}, Aggregation: view.Count()},
+	{Measure: MCoalescedCacheHits, TagKeys: []tag.Key{GalaxyKey, CacheLevelKey}, Aggregation: view.Count()},
+	{Measure: MCoalescedPeerLoads, TagKeys: []tag.Key{GalaxyKey}, Aggregation: view.Count()},
+	{Measure: MCoalescedBackendLoads, TagKeys: []tag.Key{GalaxyKey}, Aggregation: view.Count()},
+
+	{Measure: MServerRequests, TagKeys: []tag.Key{GalaxyKey}, Aggregation: view.Count()},
+	{Measure: MKeyLength, TagKeys: []tag.Key{GalaxyKey}, Aggregation: defaultBytesDistribution},
+	{Measure: MValueLength, TagKeys: []tag.Key{GalaxyKey}, Aggregation: defaultBytesDistribution},
+
+	{Measure: MRoundtripLatencyMilliseconds, TagKeys: []tag.Key{GalaxyKey}, Aggregation: defaultMillisecondsDistribution},
 }
 
 func sinceInMilliseconds(start time.Time) float64 {
