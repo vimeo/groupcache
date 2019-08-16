@@ -1,5 +1,7 @@
 # galaxycache
 
+[![Build Status](https://travis-ci.org/vimeo/galaxycache.svg?branch=master)](https://travis-ci.org/vimeo/galaxycache)
+
 galaxycache is a caching and cache-filling library, adapted from groupcache, intended as a
 replacement for memcached in many cases.
 
