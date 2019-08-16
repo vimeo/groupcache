@@ -73,7 +73,7 @@ u.Shutdown()
 
 ### Consistent hash determines authority
 
-A consistent hashing algorithm determines the sharding of keys across peers in galaxycache. Further reading can be found [https://medium.com/@orijtech/groupcache-instrumented-by-opencensus-6a625c3724c](here) and [https://www.toptal.com/big-data/consistent-hashing](here).
+A consistent hashing algorithm determines the sharding of keys across peers in galaxycache. Further reading can be found [here](https://medium.com/@orijtech/groupcache-instrumented-by-opencensus-6a625c3724c) and [here](https://www.toptal.com/big-data/consistent-hashing).
 
 ### Universe 
 
@@ -119,10 +119,6 @@ Our changes include the following:
 * Improvement to connection efficiency between peers with the addition of gRPC
 * Added a `Promoter` interface for choosing which keys get hotcached
 * Made some core functionality more generic (e.g. replaced the `Sink` object with a `Codec` marshaler interface, removed `Byteview`)
-
-We also changed the naming scheme of objects and methods to clarify their purpose with the help of a space-themed scenario:
-
-Each process within a set of peer processes contains a `Universe` which encapsulates a map of `Galaxies` (previously called `Groups`). Each `Universe` contains the same set of `Galaxies`, but each `key` (think of it as a "star") has a single associated authoritative peer (determined by the consistent hash function). 
 
 ### New architecture and API
 
