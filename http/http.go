@@ -75,7 +75,12 @@ func NewHTTPFetchProtocol(opts *HTTPOptions) *HTTPFetchProtocol {
 
 // NewFetcher implements the Protocol interface for HTTPProtocol by constructing
 // a new fetcher to fetch from peers via HTTP
+// Prefixes URL with http:// if neither http:// nor https:// are prefixes of
+// the URL argument.
 func (hp *HTTPFetchProtocol) NewFetcher(url string) (gc.RemoteFetcher, error) {
+	if !(strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://")) {
+		url = "http://" + url
+	}
 	return &httpFetcher{transport: hp.transport, baseURL: url + hp.basePath}, nil
 }
 
