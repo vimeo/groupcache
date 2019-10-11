@@ -161,8 +161,8 @@ func (h *httpFetcher) Fetch(ctx context.Context, galaxy string, key string) ([]b
 	u := fmt.Sprintf(
 		"%v%v/%v",
 		h.baseURL,
-		url.QueryEscape(galaxy),
-		url.QueryEscape(key),
+		url.PathEscape(galaxy),
+		url.PathEscape(key),
 	)
 	req, err := http.NewRequest("GET", u, nil)
 	if err != nil {
