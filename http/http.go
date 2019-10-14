@@ -121,13 +121,33 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !strings.HasPrefix(r.URL.Path, h.basePath) {
 		panic("HTTPHandler serving unexpected path: " + r.URL.Path)
 	}
-	parts := strings.SplitN(r.URL.Path[len(h.basePath):], "/", 2)
+	strippedPath := r.URL.Path[len(h.basePath):]
+	needsUnescaping := false
+	if r.URL.RawPath != "" && r.URL.RawPath != r.URL.Path {
+		strippedPath = r.URL.RawPath[len(h.basePath):]
+		needsUnescaping = true
+	}
+	parts := strings.SplitN(strippedPath, "/", 2)
 	if len(parts) != 2 {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
 	galaxyName := parts[0]
 	key := parts[1]
+
+	if needsUnescaping {
+		gn, gnUnescapeErr := url.PathUnescape(galaxyName)
+		if gnUnescapeErr != nil {
+			http.Error(w, fmt.Sprintf("failed to unescape galaxy name %q: %s", galaxyName, gnUnescapeErr), http.StatusBadRequest)
+			return
+		}
+		k, keyUnescapeErr := url.PathUnescape(key)
+		if keyUnescapeErr != nil {
+			http.Error(w, fmt.Sprintf("failed to unescape key %q: %s", key, keyUnescapeErr), http.StatusBadRequest)
+			return
+		}
+		galaxyName, key = gn, k
+	}
 
 	// Fetch the value for this galaxy/key.
 	galaxy := h.universe.GetGalaxy(galaxyName)
