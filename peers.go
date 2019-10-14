@@ -25,6 +25,7 @@ package galaxycache
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -150,4 +151,26 @@ type FetchProtocol interface {
 	// remote peer and returns a RemoteFetcher to be used for fetching
 	// data from that peer
 	NewFetcher(url string) (RemoteFetcher, error)
+}
+
+// NullFetchProtocol implements FetchProtocol, but always returns errors.
+// (useful for unit-testing)
+type NullFetchProtocol struct{}
+
+// NewFetcher instantiates the connection between the current and a
+// remote peer and returns a RemoteFetcher to be used for fetching
+// data from that peer
+func (n *NullFetchProtocol) NewFetcher(url string) (RemoteFetcher, error) {
+	return &nullFetchFetcher{}, nil
+}
+
+type nullFetchFetcher struct{}
+
+func (n *nullFetchFetcher) Fetch(context context.Context, galaxy string, key string) ([]byte, error) {
+	return nil, errors.New("empty fetcher")
+}
+
+// Close closes a client-side connection (may be a nop)
+func (n *nullFetchFetcher) Close() error {
+	return nil
 }
