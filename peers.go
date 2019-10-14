@@ -89,7 +89,8 @@ func (pp *PeerPicker) pickPeer(key string) (RemoteFetcher, bool) {
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
 	if URL := pp.peers.Get(key); URL != "" && URL != pp.selfURL {
-		return pp.fetchers[URL], true
+		peer, ok := pp.fetchers[URL]
+		return peer, ok
 	}
 	return nil, false
 }
@@ -97,8 +98,6 @@ func (pp *PeerPicker) pickPeer(key string) (RemoteFetcher, bool) {
 func (pp *PeerPicker) set(peerURLs ...string) error {
 	pp.mu.Lock()
 	defer pp.mu.Unlock()
-	pp.peers = consistenthash.New(pp.opts.Replicas, pp.opts.HashFn)
-	pp.peers.Add(peerURLs...)
 	currFetchers := make(map[string]struct{})
 
 	for url := range pp.fetchers {
@@ -124,6 +123,8 @@ func (pp *PeerPicker) set(peerURLs ...string) error {
 			return err
 		}
 	}
+	pp.peers = consistenthash.New(pp.opts.Replicas, pp.opts.HashFn)
+	pp.peers.Add(peerURLs...)
 	return nil
 }
 
