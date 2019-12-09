@@ -57,11 +57,16 @@ var (
 	MCacheEntries = stats.Int64("galaxycache/cache_entries", "The number of entries in the cache", stats.UnitDimensionless)
 )
 
-// GalaxyKey tags the name of the galaxy
-var GalaxyKey = tag.MustNewKey("galaxy")
+var (
+	// GalaxyKey tags the name of the galaxy
+	GalaxyKey = tag.MustNewKey("galaxy")
 
-// CacheLevelKey tags the level at which data was found on Get
-var CacheLevelKey = tag.MustNewKey("cache-hit-level")
+	// CacheLevelKey tags the level at which data was found on Get
+	CacheLevelKey = tag.MustNewKey("cache-hit-level")
+
+	// CacheTypeKey tags the galaxy sub-cache the metric applies to
+	CacheTypeKey = tag.MustNewKey("cache-type")
+)
 
 // AllViews is a slice of default views for people to use
 var AllViews = []*view.View{
@@ -83,8 +88,8 @@ var AllViews = []*view.View{
 	{Measure: MValueLength, TagKeys: []tag.Key{GalaxyKey}, Aggregation: defaultBytesDistribution},
 
 	{Measure: MRoundtripLatencyMilliseconds, TagKeys: []tag.Key{GalaxyKey}, Aggregation: defaultMillisecondsDistribution},
-	{Measure: MCacheSize, TagKeys: []tag.Key{GalaxyKey, CacheLevelKey}, Aggregation: view.LastValue()},
-	{Measure: MCacheEntries, TagKeys: []tag.Key{GalaxyKey, CacheLevelKey}, Aggregation: view.LastValue()},
+	{Measure: MCacheSize, TagKeys: []tag.Key{GalaxyKey, CacheTypeKey}, Aggregation: view.LastValue()},
+	{Measure: MCacheEntries, TagKeys: []tag.Key{GalaxyKey, CacheTypeKey}, Aggregation: view.LastValue()},
 }
 
 func sinceInMilliseconds(start time.Time) float64 {

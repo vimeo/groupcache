@@ -568,7 +568,7 @@ func (g *Galaxy) populateCache(ctx context.Context, key string, value *valWithSt
 	cache.add(key, value)
 	// Record the size of this cache after we've finished evicting any necessary values.
 	defer func() {
-		stats.RecordWithTags(ctx, []tag.Mutator{tag.Upsert(CacheLevelKey, cache.ctype.String())},
+		stats.RecordWithTags(ctx, []tag.Mutator{tag.Upsert(CacheTypeKey, cache.ctype.String())},
 			MCacheSize.M(cache.bytes()), MCacheEntries.M(cache.items()))
 	}()
 
