@@ -19,7 +19,7 @@ var _CacheType_index = [...]uint8{0, 9, 17, 31}
 
 func (i CacheType) String() string {
 	i -= 1
-	if i < 0 || i >= CacheType(len(_CacheType_index)-1) {
+	if i >= CacheType(len(_CacheType_index)-1) {
 		return "CacheType(" + strconv.FormatInt(int64(i+1), 10) + ")"
 	}
 	return _CacheType_name[_CacheType_index[i]:_CacheType_index[i+1]]

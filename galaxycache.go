@@ -592,7 +592,7 @@ func (g *Galaxy) populateCache(ctx context.Context, key string, value *valWithSt
 }
 
 // CacheType represents a type of cache.
-type CacheType int
+type CacheType uint8
 
 const (
 	// MainCache is the cache for items that this peer is the
@@ -627,12 +627,12 @@ func (g *Galaxy) CacheStats(which CacheType) CacheStats {
 // and counts the size of all keys and values. Candidate cache only
 // utilizes the lru.Cache and mutex, not the included stats.
 type cache struct {
-	ctype      CacheType
 	mu         sync.Mutex
 	nbytes     int64 // of all keys and values
 	lru        *lru.Cache
 	nhit, nget int64
 	nevict     int64 // number of evictions
+	ctype      CacheType
 }
 
 func (c *cache) stats() CacheStats {
