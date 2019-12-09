@@ -127,13 +127,16 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 		peerPicker: universe.peerPicker,
 		cacheBytes: cacheBytes,
 		mainCache: cache{
-			lru: lru.New(0),
+			ctype: MainCache,
+			lru:   lru.New(0),
 		},
 		hotCache: cache{
-			lru: lru.New(0),
+			ctype: HotCache,
+			lru:   lru.New(0),
 		},
 		candidateCache: cache{
-			lru: lru.New(gOpts.maxCandidates),
+			ctype: CandidateCache,
+			lru:   lru.New(gOpts.maxCandidates),
 		},
 		hcStatsWithTime: HCStatsWithTime{
 			hcs: &promoter.HCStats{
@@ -498,7 +501,7 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value *valWi
 		stats.Record(ctx, MCoalescedBackendLoads.M(1))
 		destPopulated = true // only one caller of load gets this return value
 		value = newValWithStat(data, nil)
-		g.populateCache(key, value, &g.mainCache)
+		g.populateCache(ctx, key, value, &g.mainCache)
 		return &valWithLevel{value, hitBackend, authoritative, peerErr, err}, nil
 	})
 	if err == nil {
@@ -537,7 +540,7 @@ func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string
 	}
 	value := newValWithStat(data, kStats)
 	if g.opts.promoter.ShouldPromote(key, value.data, stats) {
-		g.populateCache(key, value, &g.hotCache)
+		g.populateCache(ctx, key, value, &g.hotCache)
 	}
 	return value, nil
 }
@@ -558,11 +561,16 @@ func (g *Galaxy) lookupCache(key string) (*valWithStat, hitLevel) {
 	return vi.(*valWithStat), hitHotcache
 }
 
-func (g *Galaxy) populateCache(key string, value *valWithStat, cache *cache) {
+func (g *Galaxy) populateCache(ctx context.Context, key string, value *valWithStat, cache *cache) {
 	if g.cacheBytes <= 0 {
 		return
 	}
 	cache.add(key, value)
+	// Record the size of this cache after we've finished evicting any necessary values.
+	defer func() {
+		stats.RecordWithTags(ctx, []tag.Mutator{tag.Upsert(CacheLevelKey, cache.ctype.String())},
+			MCacheSize.M(cache.bytes()), MCacheEntries.M(cache.items()))
+	}()
 
 	// Evict items from cache(s) if necessary.
 	for {
@@ -619,6 +627,7 @@ func (g *Galaxy) CacheStats(which CacheType) CacheStats {
 // and counts the size of all keys and values. Candidate cache only
 // utilizes the lru.Cache and mutex, not the included stats.
 type cache struct {
+	ctype      CacheType
 	mu         sync.Mutex
 	nbytes     int64 // of all keys and values
 	lru        *lru.Cache
@@ -737,3 +746,5 @@ type CacheStats struct {
 	Hits      int64
 	Evictions int64
 }
+
+//go:generate stringer -type=CacheType

@@ -52,6 +52,9 @@ var (
 	MValueLength    = stats.Int64("galaxycache/value_length", "The length of values", stats.UnitBytes)
 
 	MRoundtripLatencyMilliseconds = stats.Float64("galaxycache/roundtrip_latency", "Roundtrip latency in milliseconds", stats.UnitMilliseconds)
+
+	MCacheSize    = stats.Int64("galaxycache/cache_bytes", "The number of bytes used for storing Keys and Values in the cache", stats.UnitBytes)
+	MCacheEntries = stats.Int64("galaxycache/cache_entries", "The number of entries in the cache", stats.UnitDimensionless)
 )
 
 // GalaxyKey tags the name of the galaxy
@@ -80,6 +83,8 @@ var AllViews = []*view.View{
 	{Measure: MValueLength, TagKeys: []tag.Key{GalaxyKey}, Aggregation: defaultBytesDistribution},
 
 	{Measure: MRoundtripLatencyMilliseconds, TagKeys: []tag.Key{GalaxyKey}, Aggregation: defaultMillisecondsDistribution},
+	{Measure: MCacheSize, TagKeys: []tag.Key{GalaxyKey, CacheLevelKey}, Aggregation: view.LastValue()},
+	{Measure: MCacheEntries, TagKeys: []tag.Key{GalaxyKey, CacheLevelKey}, Aggregation: view.LastValue()},
 }
 
 func sinceInMilliseconds(start time.Time) float64 {
