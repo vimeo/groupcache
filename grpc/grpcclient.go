@@ -22,6 +22,7 @@ import (
 	gc "github.com/vimeo/galaxycache"
 	pb "github.com/vimeo/galaxycache/galaxycachepb"
 	"go.opencensus.io/plugin/ocgrpc"
+	"go.opencensus.io/trace"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
@@ -45,7 +46,13 @@ type grpcFetcher struct {
 // certificates on the peers operating as servers should specify
 // grpc.WithInsecure() as one of the arguments.
 func NewGRPCFetchProtocol(dialOpts ...grpc.DialOption) *GRPCFetchProtocol {
-	dialOpts = append(dialOpts, grpc.WithStatsHandler(&ocgrpc.ClientHandler{}))
+	dialOpts = append(dialOpts, grpc.WithStatsHandler(&ocgrpc.ClientHandler{
+		StartOptions: trace.StartOptions{
+			// Preserve the sampling-decision of the parent span
+			Sampler:  nil,
+			SpanKind: trace.SpanKindClient,
+		},
+	}))
 	return &GRPCFetchProtocol{PeerDialOptions: dialOpts}
 }
 
@@ -64,6 +71,8 @@ func (gp *GRPCFetchProtocol) NewFetcher(address string) (gc.RemoteFetcher, error
 // Fetch here implements the RemoteFetcher interface for
 // sending Gets to peers over an RPC connection
 func (g *grpcFetcher) Fetch(ctx context.Context, galaxy string, key string) ([]byte, error) {
+	span := trace.FromContext(ctx)
+	span.Annotatef(nil, "fetching from %s; connection state %s", g.address, g.conn.GetState())
 	resp, err := g.client.GetFromPeer(ctx, &pb.GetRequest{
 		Galaxy: galaxy,
 		Key:    key,

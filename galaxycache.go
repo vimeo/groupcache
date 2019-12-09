@@ -127,13 +127,16 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 		peerPicker: universe.peerPicker,
 		cacheBytes: cacheBytes,
 		mainCache: cache{
-			lru: lru.New(0),
+			ctype: MainCache,
+			lru:   lru.New(0),
 		},
 		hotCache: cache{
-			lru: lru.New(0),
+			ctype: HotCache,
+			lru:   lru.New(0),
 		},
 		candidateCache: cache{
-			lru: lru.New(gOpts.maxCandidates),
+			ctype: CandidateCache,
+			lru:   lru.New(gOpts.maxCandidates),
 		},
 		hcStatsWithTime: HCStatsWithTime{
 			hcs: &promoter.HCStats{
@@ -340,7 +343,9 @@ func (h hitLevel) isHit() bool {
 
 // recordRequest records the corresponding opencensus measurement
 // to the level at which data was found on Get/load
-func (g *Galaxy) recordRequest(ctx context.Context, h hitLevel) {
+func (g *Galaxy) recordRequest(ctx context.Context, h hitLevel, localAuthoritative bool) {
+	span := trace.FromContext(ctx)
+	span.Annotatef([]trace.Attribute{trace.StringAttribute("hit_level", h.String())}, "fetched from %s", h)
 	switch h {
 	case hitMaincache:
 		g.Stats.MaincacheHits.Add(1)
@@ -354,6 +359,9 @@ func (g *Galaxy) recordRequest(ctx context.Context, h hitLevel) {
 	case hitBackend:
 		g.Stats.BackendLoads.Add(1)
 		stats.Record(ctx, MBackendLoads.M(1))
+		if !localAuthoritative {
+			span.Annotate(nil, "failed to fetch from peer, not authoritative for key")
+		}
 	}
 }
 
@@ -389,14 +397,14 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 	stats.Record(ctx, MKeyLength.M(int64(len(key))))
 
 	if hlvl.isHit() {
-		span.Annotatef(nil, "Cache hit")
+		span.Annotatef([]trace.Attribute{trace.BoolAttribute("cache_hit", true)}, "Cache hit in %s", hlvl)
 		value.stats.touch()
-		g.recordRequest(ctx, hlvl)
+		g.recordRequest(ctx, hlvl, false)
 		stats.Record(ctx, MValueLength.M(int64(len(value.data))))
 		return dest.UnmarshalBinary(value.data)
 	}
 
-	span.Annotatef(nil, "Cache miss")
+	span.Annotatef([]trace.Attribute{trace.BoolAttribute("cache_hit", false)}, "Cache miss")
 	// Optimization to avoid double unmarshalling or copying: keep
 	// track of whether the dest was already populated. One caller
 	// (if local) will set this; the losers will not. The common
@@ -417,8 +425,11 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 }
 
 type valWithLevel struct {
-	val   *valWithStat
-	level hitLevel
+	val                *valWithStat
+	level              hitLevel
+	localAuthoritative bool
+	peerErr            error
+	localErr           error
 }
 
 // load loads key either by invoking the getter locally or by sending it to another machine.
@@ -455,19 +466,21 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value *valWi
 				g.Stats.CoalescedMaincacheHits.Add(1)
 			}
 			stats.RecordWithTags(ctx, []tag.Mutator{tag.Insert(CacheLevelKey, hlvl.String())}, MCoalescedCacheHits.M(1))
-			return &valWithLevel{value, hlvl}, nil
+			return &valWithLevel{value, hlvl, false, nil, nil}, nil
 
 		}
 		g.Stats.CoalescedLoads.Add(1)
 		stats.Record(ctx, MCoalescedLoads.M(1))
 
-		var err error
+		authoritative := true
+		var peerErr error
 		if peer, ok := g.peerPicker.pickPeer(key); ok {
-			value, err = g.getFromPeer(ctx, peer, key)
-			if err == nil {
+			value, peerErr = g.getFromPeer(ctx, peer, key)
+			authoritative = false
+			if peerErr == nil {
 				g.Stats.CoalescedPeerLoads.Add(1)
 				stats.Record(ctx, MCoalescedPeerLoads.M(1))
-				return &valWithLevel{value, hitPeer}, nil
+				return &valWithLevel{value, hitPeer, false, nil, nil}, nil
 			}
 
 			g.Stats.PeerLoadErrors.Add(1)
@@ -488,13 +501,14 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value *valWi
 		stats.Record(ctx, MCoalescedBackendLoads.M(1))
 		destPopulated = true // only one caller of load gets this return value
 		value = newValWithStat(data, nil)
-		g.populateCache(key, value, &g.mainCache)
-		return &valWithLevel{value, hitBackend}, nil
+		g.populateCache(ctx, key, value, &g.mainCache)
+		return &valWithLevel{value, hitBackend, authoritative, peerErr, err}, nil
 	})
 	if err == nil {
 		value = viewi.(*valWithLevel).val
 		level := viewi.(*valWithLevel).level
-		g.recordRequest(ctx, level) // record the hits for all load calls, including those that tagged onto the singleflight
+		authoritative := viewi.(*valWithLevel).localAuthoritative
+		g.recordRequest(ctx, level, authoritative) // record the hits for all load calls, including those that tagged onto the singleflight
 	}
 	return
 }
@@ -526,7 +540,7 @@ func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string
 	}
 	value := newValWithStat(data, kStats)
 	if g.opts.promoter.ShouldPromote(key, value.data, stats) {
-		g.populateCache(key, value, &g.hotCache)
+		g.populateCache(ctx, key, value, &g.hotCache)
 	}
 	return value, nil
 }
@@ -547,11 +561,16 @@ func (g *Galaxy) lookupCache(key string) (*valWithStat, hitLevel) {
 	return vi.(*valWithStat), hitHotcache
 }
 
-func (g *Galaxy) populateCache(key string, value *valWithStat, cache *cache) {
+func (g *Galaxy) populateCache(ctx context.Context, key string, value *valWithStat, cache *cache) {
 	if g.cacheBytes <= 0 {
 		return
 	}
 	cache.add(key, value)
+	// Record the size of this cache after we've finished evicting any necessary values.
+	defer func() {
+		stats.RecordWithTags(ctx, []tag.Mutator{tag.Upsert(CacheTypeKey, cache.ctype.String())},
+			MCacheSize.M(cache.bytes()), MCacheEntries.M(cache.items()))
+	}()
 
 	// Evict items from cache(s) if necessary.
 	for {
@@ -573,7 +592,7 @@ func (g *Galaxy) populateCache(key string, value *valWithStat, cache *cache) {
 }
 
 // CacheType represents a type of cache.
-type CacheType int
+type CacheType uint8
 
 const (
 	// MainCache is the cache for items that this peer is the
@@ -613,6 +632,7 @@ type cache struct {
 	lru        *lru.Cache
 	nhit, nget int64
 	nevict     int64 // number of evictions
+	ctype      CacheType
 }
 
 func (c *cache) stats() CacheStats {
@@ -726,3 +746,5 @@ type CacheStats struct {
 	Hits      int64
 	Evictions int64
 }
+
+//go:generate stringer -type=CacheType
