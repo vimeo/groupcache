@@ -360,7 +360,7 @@ func (g *Galaxy) recordRequest(ctx context.Context, h hitLevel, localAuthoritati
 		g.Stats.BackendLoads.Add(1)
 		stats.Record(ctx, MBackendLoads.M(1))
 		if !localAuthoritative {
-			span.Annotatef(nil, "failed to fetch from peer, not authoritative for key")
+			span.Annotate(nil, "failed to fetch from peer, not authoritative for key")
 		}
 	}
 }
