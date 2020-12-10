@@ -86,25 +86,33 @@ func TestConsistency(t *testing.T) {
 
 }
 
-func BenchmarkGet8(b *testing.B)   { benchmarkGet(b, 8) }
-func BenchmarkGet32(b *testing.B)  { benchmarkGet(b, 32) }
-func BenchmarkGet128(b *testing.B) { benchmarkGet(b, 128) }
-func BenchmarkGet512(b *testing.B) { benchmarkGet(b, 512) }
+func BenchmarkGet(b *testing.B) {
+	for _, itbl := range []struct {
+		segsPerKey int
+		shards     int
+	}{
+		{segsPerKey: 50, shards: 8},
+		{segsPerKey: 50, shards: 32},
+		{segsPerKey: 50, shards: 128},
+		{segsPerKey: 50, shards: 512},
+	} {
+		tbl := itbl
+		b.Run(fmt.Sprintf("segs%d-shards%d", tbl.segsPerKey, tbl.shards), func(b *testing.B) {
 
-func benchmarkGet(b *testing.B, shards int) {
+			hash := New(tbl.segsPerKey, nil)
 
-	hash := New(50, nil)
+			var buckets []string
+			for i := 0; i < tbl.shards; i++ {
+				buckets = append(buckets, fmt.Sprintf("shard-%d", i))
+			}
 
-	var buckets []string
-	for i := 0; i < shards; i++ {
-		buckets = append(buckets, fmt.Sprintf("shard-%d", i))
-	}
+			hash.Add(buckets...)
 
-	hash.Add(buckets...)
+			b.ResetTimer()
 
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		hash.Get(buckets[i&(shards-1)])
+			for i := 0; i < b.N; i++ {
+				hash.Get(buckets[i&(tbl.shards-1)])
+			}
+		})
 	}
 }
