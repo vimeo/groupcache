@@ -83,7 +83,59 @@ func TestConsistency(t *testing.T) {
 		hash1.Get("Bonny") != hash2.Get("Bonny") {
 		t.Errorf("Direct matches should always return the same entry")
 	}
+	if hash1.Get("Ben") != hash2.GetReplicated("Ben", 1)[0] ||
+		hash1.Get("Bob") != hash2.GetReplicated("Bob", 1)[0] ||
+		hash1.Get("Bonny") != hash2.GetReplicated("Bonny", 1)[0] {
+		t.Errorf("Direct matches should always return the same entry with GetReplicated")
+	}
 
+}
+
+func TestGetReplicated(t *testing.T) {
+	hr := New(20, nil)
+	hr.Add("Bill", "Bob", "Bonny", "Clyde", "Computer", "Long")
+
+	for _, itbl := range []struct {
+		replicas int
+		expKeys  int
+	}{
+		{replicas: 4, expKeys: 4},
+		{replicas: 5, expKeys: 5},
+		{replicas: 6, expKeys: 6},
+		{replicas: 7, expKeys: 6},
+		{replicas: 8, expKeys: 6},
+		{replicas: 9, expKeys: 6},
+		{replicas: 10, expKeys: 6},
+		{replicas: 11, expKeys: 6},
+		{replicas: 12, expKeys: 6},
+		{replicas: 13, expKeys: 6},
+		{replicas: 14, expKeys: 6},
+	} {
+		tbl := itbl
+		t.Run(fmt.Sprintf("repl%d", tbl.replicas), func(t *testing.T) {
+			oneHash := hr.Get("zombie")
+			multiHash := hr.GetReplicated("zombie", tbl.replicas)
+			if len(multiHash) != tbl.expKeys {
+				t.Fatalf("unexpected length of return from GetReplicated: %d (expected %d)",
+					len(multiHash), tbl.expKeys)
+			}
+			if multiHash[0] != oneHash {
+				t.Errorf("element zero from GetReplicated should match Get; got %q and %q respectively",
+					multiHash[0], oneHash)
+			}
+			for k := range hr.keys {
+				if hr.Get(k) != hr.GetReplicated(k, 1)[0] {
+					t.Errorf("Direct matches should always return the same entry with GetReplicated")
+				}
+				// Check that a manually constructed key gets the same hash as a
+				// computed one (this way we have a test ensuring stability across
+				// versions)
+				if gdo, gro := hr.idxedKeyReplica(string(append([]byte(k), 0xaa, 0xaa, 0x01)), 0), hr.idxedKeyReplica(k, 1); gdo != gro {
+					t.Errorf("mismatched second object-hashes for %q direct() = %d; keyed() = %d", k, gdo, gro)
+				}
+			}
+		})
+	}
 }
 
 func BenchmarkGet(b *testing.B) {
@@ -112,6 +164,47 @@ func BenchmarkGet(b *testing.B) {
 
 			for i := 0; i < b.N; i++ {
 				hash.Get(buckets[i&(tbl.shards-1)])
+			}
+		})
+	}
+}
+
+func BenchmarkGetReplicated(b *testing.B) {
+	for _, itbl := range []struct {
+		segsPerKey int
+		shards     int
+		replicas   int
+	}{
+		{segsPerKey: 50, shards: 8, replicas: 2},
+		{segsPerKey: 50, shards: 32, replicas: 2},
+		{segsPerKey: 50, shards: 128, replicas: 2},
+		{segsPerKey: 50, shards: 512, replicas: 2},
+		{segsPerKey: 50, shards: 8, replicas: 4},
+		{segsPerKey: 50, shards: 32, replicas: 4},
+		{segsPerKey: 50, shards: 128, replicas: 4},
+		{segsPerKey: 50, shards: 512, replicas: 4},
+		{segsPerKey: 50, shards: 8, replicas: 8},
+		{segsPerKey: 50, shards: 32, replicas: 8},
+		{segsPerKey: 50, shards: 128, replicas: 8},
+		{segsPerKey: 50, shards: 512, replicas: 8},
+	} {
+		tbl := itbl
+		b.Run(fmt.Sprintf("segs%d-shards%d-reps%d", tbl.segsPerKey, tbl.shards, tbl.replicas), func(b *testing.B) {
+			b.ReportAllocs()
+
+			hash := New(tbl.segsPerKey, nil)
+
+			var buckets []string
+			for i := 0; i < tbl.shards; i++ {
+				buckets = append(buckets, fmt.Sprintf("shard-%d", i))
+			}
+
+			hash.Add(buckets...)
+
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				hash.GetReplicated(buckets[i&(tbl.shards-1)], tbl.replicas)
 			}
 		})
 	}
