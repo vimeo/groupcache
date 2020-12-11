@@ -18,6 +18,7 @@ limitations under the License.
 package consistenthash // import "github.com/vimeo/galaxycache/consistenthash"
 
 import (
+	"encoding/binary"
 	"hash/crc32"
 	"sort"
 	"strconv"
@@ -76,6 +77,11 @@ func (m *Map) Get(key string) string {
 
 	hash := m.hash([]byte(key))
 
+	_, _, owner := m.findSegmentOwner(hash)
+	return owner
+}
+
+func (m *Map) findSegmentOwner(hash uint32) (int, uint32, string) {
 	// Binary search for appropriate replica.
 	idx := sort.Search(len(m.keyHashes), func(i int) bool { return m.keyHashes[i] >= hash })
 
@@ -84,5 +90,67 @@ func (m *Map) Get(key string) string {
 		idx = 0
 	}
 
-	return m.hashMap[m.keyHashes[idx]]
+	return idx, m.keyHashes[idx], m.hashMap[m.keyHashes[idx]]
+}
+
+func (m *Map) prevSegmentOwner(idx int, lastSegHash, hash uint32) (int, uint32, string) {
+	if len(m.keys) == 1 {
+		panic("attempt to find alternate owner for single-key map")
+	}
+	if idx == 0 {
+		// if idx is 0, then wrap around
+		return m.prevSegmentOwner(len(m.keyHashes)-1, lastSegHash, hash)
+	}
+
+	// we're moving backwards within a ring; decrement the index
+	idx--
+
+	return idx, m.keyHashes[idx], m.hashMap[m.keyHashes[idx]]
+}
+
+func (m *Map) idxedKeyReplica(key string, replica int) uint32 {
+	// For replica zero, do not append a suffix so Get() and GetReplicated are compatible
+	if replica == 0 {
+		return m.hash([]byte(key))
+	}
+	// Allocate an extra 2 bytes so we have 2 bytes of padding to function
+	// as a separator between the main key and the suffix
+	idxSuffixBuf := [binary.MaxVarintLen64 + 2]byte{}
+	// Set those 2 bytes of padding to a nice non-zero value with
+	// alternating zeros and ones.
+	idxSuffixBuf[0] = 0xaa
+	idxSuffixBuf[1] = 0xaa
+
+	// Encode the replica using unsigned varints which are more compact and cheaper to encode.
+	// definition: https://developers.google.com/protocol-buffers/docs/encoding#varints
+	vIntLen := binary.PutUvarint(idxSuffixBuf[2:], uint64(replica))
+
+	idxHashKey := append([]byte(key), idxSuffixBuf[:vIntLen+2]...)
+	return m.hash(idxHashKey)
+}
+
+// GetReplicated gets the closest item in the hash to a deterministic set of
+// keyReplicas variations of the provided key.
+// The returned set of segment-owning keys is dedup'd, and collisions are
+// resolved by traversing backwards in the hash-ring to find an unused
+// owning-key.
+func (m *Map) GetReplicated(key string, keyReplicas int) []string {
+	if m.IsEmpty() {
+		return []string{}
+	}
+	out := make([]string, 0, keyReplicas)
+	segOwners := make(map[string]struct{}, keyReplicas)
+
+	for i := 0; i < keyReplicas && len(out) < len(m.keys); i++ {
+		h := m.idxedKeyReplica(key, i)
+		segIdx, segBound, owner := m.findSegmentOwner(h)
+		for _, present := segOwners[owner]; present; _, present = segOwners[owner] {
+			// this may overflow, which is fine.
+			segIdx, segBound, owner = m.prevSegmentOwner(segIdx, segBound, h)
+		}
+		segOwners[owner] = struct{}{}
+		out = append(out, owner)
+	}
+
+	return out
 }
