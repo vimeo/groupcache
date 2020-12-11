@@ -30,8 +30,9 @@ type Hash func(data []byte) uint32
 type Map struct {
 	hash       Hash
 	segsPerKey int
-	keys       []int // Sorted
-	hashMap    map[int]string
+	keyHashes  []uint32 // Sorted
+	hashMap    map[uint32]string
+	keys       map[string]struct{}
 }
 
 // New constructs a new consistenthash hashring, with segsPerKey segments per added key.
@@ -39,7 +40,8 @@ func New(segsPerKey int, fn Hash) *Map {
 	m := &Map{
 		segsPerKey: segsPerKey,
 		hash:       fn,
-		hashMap:    make(map[int]string),
+		hashMap:    make(map[uint32]string),
+		keys:       make(map[string]struct{}),
 	}
 	if m.hash == nil {
 		m.hash = crc32.ChecksumIEEE
@@ -49,20 +51,21 @@ func New(segsPerKey int, fn Hash) *Map {
 
 // IsEmpty returns true if there are no items available.
 func (m *Map) IsEmpty() bool {
-	return len(m.keys) == 0
+	return len(m.keyHashes) == 0
 }
 
 // Add adds some keys to the hashring, establishing ownership of segsPerKey
 // segments.
 func (m *Map) Add(keys ...string) {
 	for _, key := range keys {
+		m.keys[key] = struct{}{}
 		for i := 0; i < m.segsPerKey; i++ {
-			hash := int(m.hash([]byte(strconv.Itoa(i) + key)))
-			m.keys = append(m.keys, hash)
+			hash := m.hash([]byte(strconv.Itoa(i) + key))
+			m.keyHashes = append(m.keyHashes, hash)
 			m.hashMap[hash] = key
 		}
 	}
-	sort.Ints(m.keys)
+	sort.Slice(m.keyHashes, func(i, j int) bool { return m.keyHashes[i] < m.keyHashes[j] })
 }
 
 // Get gets the closest item in the hash to the provided key.
@@ -71,15 +74,15 @@ func (m *Map) Get(key string) string {
 		return ""
 	}
 
-	hash := int(m.hash([]byte(key)))
+	hash := m.hash([]byte(key))
 
 	// Binary search for appropriate replica.
-	idx := sort.Search(len(m.keys), func(i int) bool { return m.keys[i] >= hash })
+	idx := sort.Search(len(m.keyHashes), func(i int) bool { return m.keyHashes[i] >= hash })
 
 	// Means we have cycled back to the first replica.
-	if idx == len(m.keys) {
+	if idx == len(m.keyHashes) {
 		idx = 0
 	}
 
-	return m.hashMap[m.keys[idx]]
+	return m.hashMap[m.keyHashes[idx]]
 }
