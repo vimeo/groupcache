@@ -62,30 +62,61 @@ func (f GetterFunc) Get(ctx context.Context, key string, dest Codec) error {
 	return f(ctx, key, dest)
 }
 
+type universeOpts struct {
+	hashOpts *HashOptions
+	recorder stats.Recorder
+}
+
+// UniverseOpt is a functional Universe option.
+type UniverseOpt func(*universeOpts)
+
+// WithHashOpts sets the HashOptions on a universe.
+func WithHashOpts(hashOpts *HashOptions) UniverseOpt {
+	return func(u *universeOpts) {
+		u.hashOpts = hashOpts
+	}
+}
+
+// WithRecorder allows you to override the default stats.Recorder used for
+// stats.
+func WithRecorder(recorder stats.Recorder) UniverseOpt {
+	return func(u *universeOpts) {
+		u.recorder = recorder
+	}
+}
+
 // Universe defines the primary container for all galaxycache operations.
 // It contains the galaxies and PeerPicker
 type Universe struct {
 	mu         sync.RWMutex
 	galaxies   map[string]*Galaxy // galaxies are indexed by their name
 	peerPicker *PeerPicker
+	recorder   stats.Recorder
 }
 
-// NewUniverse is the default constructor for the Universe object.
-// It is passed a FetchProtocol (to specify fetching via GRPC or HTTP)
-// and its own URL
-func NewUniverse(protocol FetchProtocol, selfURL string) *Universe {
-	return NewUniverseWithOpts(protocol, selfURL, nil)
-}
+// NewUniverse is the main constructor for the Universe object. It is passed a
+// FetchProtocol (to specify fetching via GRPC or HTTP) and its own URL along
+// with options.
+func NewUniverse(protocol FetchProtocol, selfURL string, opts ...UniverseOpt) *Universe {
+	options := &universeOpts{}
+	for _, opt := range opts {
+		opt(options)
+	}
 
-// NewUniverseWithOpts is the optional constructor for the Universe
-// object that defines a non-default hash function and number of replicas
-func NewUniverseWithOpts(protocol FetchProtocol, selfURL string, options *HashOptions) *Universe {
 	c := &Universe{
 		galaxies:   make(map[string]*Galaxy),
-		peerPicker: newPeerPicker(protocol, selfURL, options),
+		peerPicker: newPeerPicker(protocol, selfURL, options.hashOpts),
+		recorder:   options.recorder,
 	}
 
 	return c
+}
+
+// NewUniverseWithOpts is a deprecated constructor for the Universe object that
+// defines a non-default hash function and number of replicas.  Please use
+// `NewUniverse` with the `WithHashOpts` option instead.
+func NewUniverseWithOpts(protocol FetchProtocol, selfURL string, options *HashOptions) *Universe {
+	return NewUniverse(protocol, selfURL, WithHashOpts(options))
 }
 
 // NewGalaxy creates a coordinated galaxy-aware BackendGetter from a
@@ -150,6 +181,7 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 	g.candidateCache.lru.OnEvicted = func(key lru.Key, value interface{}) {
 		g.candidateCache.nevict++
 	}
+	g.parent = universe
 
 	universe.galaxies[name] = g
 	return g
@@ -228,6 +260,9 @@ type Galaxy struct {
 
 	// Stats are statistics on the galaxy.
 	Stats GalaxyStats
+
+	// pointer to the parent universe that created this galaxy
+	parent *Universe
 }
 
 // GalaxyOption is an interface for implementing functional galaxy options
@@ -349,16 +384,16 @@ func (g *Galaxy) recordRequest(ctx context.Context, h hitLevel, localAuthoritati
 	switch h {
 	case hitMaincache:
 		g.Stats.MaincacheHits.Add(1)
-		stats.RecordWithTags(ctx, []tag.Mutator{tag.Upsert(CacheLevelKey, h.String())}, MCacheHits.M(1))
+		g.recordStats(ctx, []tag.Mutator{tag.Upsert(CacheLevelKey, h.String())}, MCacheHits.M(1))
 	case hitHotcache:
 		g.Stats.HotcacheHits.Add(1)
-		stats.RecordWithTags(ctx, []tag.Mutator{tag.Upsert(CacheLevelKey, h.String())}, MCacheHits.M(1))
+		g.recordStats(ctx, []tag.Mutator{tag.Upsert(CacheLevelKey, h.String())}, MCacheHits.M(1))
 	case hitPeer:
 		g.Stats.PeerLoads.Add(1)
-		stats.Record(ctx, MPeerLoads.M(1))
+		g.recordStats(ctx, nil, MPeerLoads.M(1))
 	case hitBackend:
 		g.Stats.BackendLoads.Add(1)
-		stats.Record(ctx, MBackendLoads.M(1))
+		g.recordStats(ctx, nil, MBackendLoads.M(1))
 		if !localAuthoritative {
 			span.Annotate(nil, "failed to fetch from peer, not authoritative for key")
 		}
@@ -383,24 +418,24 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 	ctx, span := trace.StartSpan(ctx, "galaxycache.(*Galaxy).Get on "+g.name)
 	startTime := time.Now()
 	defer func() {
-		stats.Record(ctx, MRoundtripLatencyMilliseconds.M(sinceInMilliseconds(startTime)))
+		g.recordStats(ctx, nil, MRoundtripLatencyMilliseconds.M(sinceInMilliseconds(startTime)))
 		span.End()
 	}()
 
 	g.Stats.Gets.Add(1)
-	stats.Record(ctx, MGets.M(1))
+	g.recordStats(ctx, nil, MGets.M(1))
 	if dest == nil {
 		span.SetStatus(trace.Status{Code: trace.StatusCodeInvalidArgument, Message: "no Codec was provided"})
 		return errors.New("galaxycache: no Codec was provided")
 	}
 	value, hlvl := g.lookupCache(key)
-	stats.Record(ctx, MKeyLength.M(int64(len(key))))
+	g.recordStats(ctx, nil, MKeyLength.M(int64(len(key))))
 
 	if hlvl.isHit() {
 		span.Annotatef([]trace.Attribute{trace.BoolAttribute("cache_hit", true)}, "Cache hit in %s", hlvl)
 		value.stats.touch()
 		g.recordRequest(ctx, hlvl, false)
-		stats.Record(ctx, MValueLength.M(int64(len(value.data))))
+		g.recordStats(ctx, nil, MValueLength.M(int64(len(value.data))))
 		return dest.UnmarshalBinary(value.data)
 	}
 
@@ -413,11 +448,11 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 	value, destPopulated, err := g.load(ctx, key, dest)
 	if err != nil {
 		span.SetStatus(trace.Status{Code: trace.StatusCodeUnknown, Message: "Failed to load key: " + err.Error()})
-		stats.Record(ctx, MLoadErrors.M(1))
+		g.recordStats(ctx, nil, MLoadErrors.M(1))
 		return err
 	}
 	value.stats.touch()
-	stats.Record(ctx, MValueLength.M(int64(len(value.data))))
+	g.recordStats(ctx, nil, MValueLength.M(int64(len(value.data))))
 	if destPopulated {
 		return nil
 	}
@@ -435,7 +470,7 @@ type valWithLevel struct {
 // load loads key either by invoking the getter locally or by sending it to another machine.
 func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value *valWithStat, destPopulated bool, err error) {
 	g.Stats.Loads.Add(1)
-	stats.Record(ctx, MLoads.M(1))
+	g.recordStats(ctx, nil, MLoads.M(1))
 
 	viewi, err := g.loadGroup.Do(key, func() (interface{}, error) {
 		// Check the cache again because singleflight can only dedup calls
@@ -465,12 +500,12 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value *valWi
 			} else {
 				g.Stats.CoalescedMaincacheHits.Add(1)
 			}
-			stats.RecordWithTags(ctx, []tag.Mutator{tag.Insert(CacheLevelKey, hlvl.String())}, MCoalescedCacheHits.M(1))
+			g.recordStats(ctx, []tag.Mutator{tag.Insert(CacheLevelKey, hlvl.String())}, MCoalescedCacheHits.M(1))
 			return &valWithLevel{value, hlvl, false, nil, nil}, nil
 
 		}
 		g.Stats.CoalescedLoads.Add(1)
-		stats.Record(ctx, MCoalescedLoads.M(1))
+		g.recordStats(ctx, nil, MCoalescedLoads.M(1))
 
 		authoritative := true
 		var peerErr error
@@ -479,12 +514,12 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value *valWi
 			authoritative = false
 			if peerErr == nil {
 				g.Stats.CoalescedPeerLoads.Add(1)
-				stats.Record(ctx, MCoalescedPeerLoads.M(1))
+				g.recordStats(ctx, nil, MCoalescedPeerLoads.M(1))
 				return &valWithLevel{value, hitPeer, false, nil, nil}, nil
 			}
 
 			g.Stats.PeerLoadErrors.Add(1)
-			stats.Record(ctx, MPeerLoadErrors.M(1))
+			g.recordStats(ctx, nil, MPeerLoadErrors.M(1))
 			// TODO(bradfitz): log the peer's error? keep
 			// log of the past few for /galaxycache?  It's
 			// probably boring (normal task movement), so not
@@ -493,12 +528,12 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value *valWi
 		data, err := g.getLocally(ctx, key, dest)
 		if err != nil {
 			g.Stats.BackendLoadErrors.Add(1)
-			stats.Record(ctx, MBackendLoadErrors.M(1))
+			g.recordStats(ctx, nil, MBackendLoadErrors.M(1))
 			return nil, err
 		}
 
 		g.Stats.CoalescedBackendLoads.Add(1)
-		stats.Record(ctx, MCoalescedBackendLoads.M(1))
+		g.recordStats(ctx, nil, MCoalescedBackendLoads.M(1))
 		destPopulated = true // only one caller of load gets this return value
 		value = newValWithStat(data, nil)
 		g.populateCache(ctx, key, value, &g.mainCache)
@@ -568,7 +603,7 @@ func (g *Galaxy) populateCache(ctx context.Context, key string, value *valWithSt
 	cache.add(key, value)
 	// Record the size of this cache after we've finished evicting any necessary values.
 	defer func() {
-		stats.RecordWithTags(ctx, []tag.Mutator{tag.Upsert(CacheTypeKey, cache.ctype.String())},
+		g.recordStats(ctx, []tag.Mutator{tag.Upsert(CacheTypeKey, cache.ctype.String())},
 			MCacheSize.M(cache.bytes()), MCacheEntries.M(cache.items()))
 	}()
 
@@ -589,6 +624,15 @@ func (g *Galaxy) populateCache(ctx context.Context, key string, value *valWithSt
 		}
 		victim.removeOldest()
 	}
+}
+
+func (g *Galaxy) recordStats(ctx context.Context, mutators []tag.Mutator, measurements ...stats.Measurement) {
+	stats.RecordWithOptions(
+		ctx,
+		stats.WithMeasurements(measurements...),
+		stats.WithTags(mutators...),
+		stats.WithRecorder(g.parent.recorder),
+	)
 }
 
 // CacheType represents a type of cache.
