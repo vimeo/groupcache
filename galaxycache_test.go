@@ -32,6 +32,8 @@ import (
 	"unsafe"
 
 	"github.com/vimeo/galaxycache/promoter"
+	"go.opencensus.io/stats/view"
+	"go.opencensus.io/tag"
 )
 
 const (
@@ -578,4 +580,36 @@ func TestPromotion(t *testing.T) {
 		})
 	}
 
+}
+
+func TestRecorder(t *testing.T) {
+	meter := view.NewMeter()
+	meter.Start()
+	defer meter.Stop()
+	testView := &view.View{
+		Measure:     MGets,
+		TagKeys:     []tag.Key{GalaxyKey},
+		Aggregation: view.Count(),
+	}
+	meter.Register(testView)
+
+	getter := func(_ context.Context, key string, dest Codec) error {
+		return dest.UnmarshalBinary([]byte("got:" + key))
+	}
+	u := NewUniverse(&TestProtocol{}, "test-universe", WithRecorder(meter))
+	g := u.NewGalaxy("test", 1024, GetterFunc(getter))
+	var s StringCodec
+	err := g.Get(context.Background(), "foo", &s)
+	if err != nil {
+		t.Fatalf("error getting foo: %s", err)
+	}
+
+	rows, retErr := meter.RetrieveData(testView.Name)
+	if retErr != nil {
+		t.Fatalf("error getting data from view: %s", retErr)
+	}
+
+	if len(rows) != 1 {
+		t.Errorf("expected 1 row, got %d", len(rows))
+	}
 }

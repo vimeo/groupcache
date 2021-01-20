@@ -42,11 +42,13 @@ type HTTPFetchProtocol struct {
 	basePath  string
 }
 
-// HTTPOptions specifies a base path for serving and fetching.
-// *ONLY SPECIFY IF NOT USING THE DEFAULT "/_galaxycache/" BASE PATH*.
+// HTTPOptions can specify the transport, base path, and stats.Recorder for
+// serving and fetching. *ONLY SPECIFY IF NOT USING THE DEFAULT "/_galaxycache/"
+// BASE PATH*.
 type HTTPOptions struct {
 	Transport http.RoundTripper
 	BasePath  string
+	Recorder  stats.Recorder
 }
 
 // NewHTTPFetchProtocol creates an HTTP fetch protocol to be passed
@@ -90,6 +92,7 @@ func (hp *HTTPFetchProtocol) NewFetcher(url string) (gc.RemoteFetcher, error) {
 type HTTPHandler struct {
 	universe *gc.Universe
 	basePath string
+	recorder stats.Recorder
 }
 
 // RegisterHTTPHandler sets up an HTTPHandler with a user specified path
@@ -103,10 +106,16 @@ type HTTPHandler struct {
 // if specifying a serveMux.
 func RegisterHTTPHandler(universe *gc.Universe, opts *HTTPOptions, serveMux *http.ServeMux) {
 	basePath := defaultBasePath
+	var recorder stats.Recorder
 	if opts != nil {
 		basePath = opts.BasePath
+		recorder = opts.Recorder
 	}
-	newHTTPHandler := &HTTPHandler{basePath: basePath, universe: universe}
+	newHTTPHandler := &HTTPHandler{
+		basePath: basePath,
+		universe: universe,
+		recorder: recorder,
+	}
 	if serveMux == nil {
 		http.Handle(basePath, &ochttp.Handler{
 			Handler: ochttp.WithRouteTag(newHTTPHandler, basePath),
@@ -160,7 +169,11 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// TODO: remove galaxy.Stats from here
 	galaxy.Stats.ServerRequests.Add(1)
-	stats.Record(ctx, gc.MServerRequests.M(1))
+	stats.RecordWithOptions(
+		ctx,
+		stats.WithMeasurements(gc.MServerRequests.M(1)),
+		stats.WithRecorder(h.recorder),
+	)
 	var value gc.ByteCodec
 	err := galaxy.Get(ctx, key, &value)
 	if err != nil {
