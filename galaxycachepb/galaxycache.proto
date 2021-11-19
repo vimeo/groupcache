@@ -17,6 +17,8 @@ limitations under the License.
 syntax = "proto3";
 
 package galaxycachepb;
+option go_package = "./galaxycachepb";
+
 
 message GetRequest {
   string galaxy = 1;
@@ -26,6 +28,7 @@ message GetRequest {
 message GetResponse {
   bytes value = 1;
   double minute_qps = 2;
+  int64 expire = 3;
 }
 
 service GalaxyCache {
