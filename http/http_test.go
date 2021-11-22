@@ -25,6 +25,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	gc "github.com/vimeo/galaxycache"
 
@@ -86,11 +87,21 @@ func TestHTTPHandler(t *testing.T) {
 				if err := g.Get(ctx, key, &value); err != nil {
 					t.Fatal(err)
 				}
-				if suffix := ":" + key; !strings.HasSuffix(string(value), suffix) {
-					t.Errorf("Get(%q) = %q, want value ending in %q", key, value, suffix)
+				ret, expTm, err := value.MarshalBinary()
+				if err != nil {
+					t.Fatal(err)
 				}
-				t.Logf("Get key=%q, value=%q (peer:key)", key, value)
+				if expTm.Equal(time.Time{}) {
+					t.Fatal("expiry time must be set")
+				}
+				if suffix := ":" + key; !strings.HasSuffix(string(ret), suffix) {
+					t.Errorf("Get(%q) = %q, want value ending in %q", key, ret, suffix)
+				}
+				t.Logf("Get key=%q, value=%q (peer:key)", key, ret)
 			}
+
+			currentExp := time.Now().Add(2 * time.Second)
+			time.Sleep(5 * time.Second)
 			// Try it again, this time with a slash in the middle to ensure we're
 			// handling those characters properly
 			for _, key := range testKeys(nGets) {
@@ -99,10 +110,19 @@ func TestHTTPHandler(t *testing.T) {
 				if err := g.Get(ctx, testKey, &value); err != nil {
 					t.Fatal(err)
 				}
-				if suffix := ":" + testKey; !strings.HasSuffix(string(value), suffix) {
-					t.Errorf("Get(%q) = %q, want value ending in %q", key, value, suffix)
+				ret, expTm, err := value.MarshalBinary()
+				if err != nil {
+					t.Fatal(err)
 				}
-				t.Logf("Get key=%q, value=%q (peer:key)", testKey, value)
+
+				// Ensure that the keys were regenerated.
+				if expTm.Before(currentExp) {
+					t.Fatalf("expected key to expire after the current time i.e. it should be regenerated (%s, %s)", expTm, currentExp)
+				}
+				if suffix := ":" + testKey; !strings.HasSuffix(string(ret), suffix) {
+					t.Errorf("Get(%q) = %q, want value ending in %q", key, ret, suffix)
+				}
+				t.Logf("Get key=%q, value=%q (peer:key)", testKey, ret)
 			}
 
 		})
@@ -119,7 +139,7 @@ func makeHTTPServerUniverse(ctx context.Context, t testing.TB, galaxyName string
 		t.Errorf("Error setting peers: %s", err)
 	}
 	getter := gc.GetterFunc(func(ctx context.Context, key string, dest gc.Codec) error {
-		dest.UnmarshalBinary([]byte(":" + key))
+		dest.UnmarshalBinary([]byte(":"+key), time.Now().Add(2*time.Second))
 		return nil
 	})
 	universe.NewGalaxy(galaxyName, 1<<20, getter)

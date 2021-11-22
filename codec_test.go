@@ -19,6 +19,7 @@ package galaxycache
 import (
 	"bytes"
 	"testing"
+	"time"
 )
 
 const testBytes = "some bytes"
@@ -51,11 +52,14 @@ func TestCodec(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.testName, func(t *testing.T) {
 			inBytes := []byte(testBytes)
-			tc.codec.UnmarshalBinary(inBytes)
+			tc.codec.UnmarshalBinary(inBytes, time.Time{})
 			inBytes[0] = 'a' // change the original byte slice to ensure copy was made
-			marshaledBytes, err := tc.codec.MarshalBinary()
+			marshaledBytes, expTm, err := tc.codec.MarshalBinary()
 			if err != nil {
 				t.Errorf("Error marshaling from byteCodec: %s", err)
+			}
+			if !expTm.Equal(time.Time{}) {
+				t.Errorf("Expected empty expiration time")
 			}
 			if string(marshaledBytes) != testBytes {
 				t.Errorf("Unmarshal/Marshal resulted in %q; want %q", marshaledBytes, testBytes)
@@ -63,12 +67,15 @@ func TestCodec(t *testing.T) {
 
 			if tc.checkCopy {
 				marshaledBytes[0] = 'a' // change marshaled bytes to ensure full copy on marshal
-				secondMarshaledBytes, errM := tc.codec.MarshalBinary()
+				secondMarshaledBytes, expTm, errM := tc.codec.MarshalBinary()
 				if errM != nil {
 					t.Errorf("Error marshaling from byteCodec: %s", errM)
 				}
 				if bytes.Equal(marshaledBytes, secondMarshaledBytes) {
 					t.Errorf("Marshaling did not copy the bytes")
+				}
+				if !expTm.Equal(time.Time{}) {
+					t.Errorf("Expected empty expiration time")
 				}
 			}
 		})

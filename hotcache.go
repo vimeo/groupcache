@@ -57,14 +57,15 @@ type keyStats struct {
 	dQPS dampedQPS
 }
 
-func newValWithStat(data []byte, kStats *keyStats) *valWithStat {
+func newValWithStat(data []byte, kStats *keyStats, expire time.Time) *valWithStat {
 	if kStats == nil {
 		kStats = &keyStats{dampedQPS{period: time.Second}}
 	}
 
 	return &valWithStat{
-		data:  data,
-		stats: kStats,
+		data:   data,
+		stats:  kStats,
+		expire: expire,
 	}
 }
 
@@ -126,19 +127,19 @@ func (d *dampedQPS) val(now time.Time) float64 {
 	return d.curDQPS
 }
 
-func (g *Galaxy) addNewToCandidateCache(key string) *keyStats {
+func (g *Galaxy) addNewToCandidateCache(key string, expire time.Time) *keyStats {
 	kStats := &keyStats{
 		dQPS: dampedQPS{
 			period: time.Second,
 		},
 	}
 
-	g.candidateCache.addToCandidateCache(key, kStats)
+	g.candidateCache.addToCandidateCache(key, kStats, expire)
 	return kStats
 }
 
-func (c *cache) addToCandidateCache(key string, kStats *keyStats) {
+func (c *cache) addToCandidateCache(key string, kStats *keyStats, expire time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.lru.Add(key, kStats)
+	c.lru.Add(key, kStats, expire)
 }

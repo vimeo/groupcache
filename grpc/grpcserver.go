@@ -60,5 +60,10 @@ func (gp *serviceImpl) GetFromPeer(ctx context.Context, req *pb.GetRequest) (*pb
 		return nil, status.Errorf(status.Code(err), "Failed to retrieve [%s]: %v", req, err)
 	}
 
-	return &pb.GetResponse{Value: value}, nil
+	ret, expTm, err := value.MarshalBinary()
+	if err != nil {
+		return nil, status.Errorf(status.Code(err), "Failed to marshal [%s]: %v", req, err)
+	}
+
+	return &pb.GetResponse{Value: ret, Expire: expTm.UnixMilli()}, nil
 }

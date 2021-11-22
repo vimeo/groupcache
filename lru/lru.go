@@ -19,6 +19,7 @@ package lru // import "github.com/vimeo/galaxycache/lru"
 
 import (
 	"container/list"
+	"time"
 )
 
 // Cache is an LRU cache. It is not safe for concurrent access.
@@ -39,8 +40,9 @@ type Cache struct {
 type Key interface{}
 
 type entry struct {
-	key   Key
-	value interface{}
+	key    Key
+	value  interface{}
+	expire time.Time
 }
 
 // New creates a new Cache.
@@ -55,7 +57,7 @@ func New(maxEntries int) *Cache {
 }
 
 // Add adds a value to the cache.
-func (c *Cache) Add(key Key, value interface{}) {
+func (c *Cache) Add(key Key, value interface{}, expire time.Time) {
 	if c.cache == nil {
 		c.cache = make(map[interface{}]*list.Element)
 		c.ll = list.New()
@@ -65,7 +67,7 @@ func (c *Cache) Add(key Key, value interface{}) {
 		ele.Value.(*entry).value = value
 		return
 	}
-	ele := c.ll.PushFront(&entry{key, value})
+	ele := c.ll.PushFront(&entry{key, value, expire})
 	c.cache[key] = ele
 	if c.MaxEntries != 0 && c.ll.Len() > c.MaxEntries {
 		c.RemoveOldest()
@@ -78,8 +80,15 @@ func (c *Cache) Get(key Key) (value interface{}, ok bool) {
 		return
 	}
 	if ele, hit := c.cache[key]; hit {
+		entry := ele.Value.(*entry)
+		// If the entry has expired, remove it from the cache
+		if !entry.expire.IsZero() && entry.expire.Before(time.Now()) {
+			c.removeElement(ele)
+			return nil, false
+		}
+
 		c.ll.MoveToFront(ele)
-		return ele.Value.(*entry).value, true
+		return entry.value, true
 	}
 	return
 }
