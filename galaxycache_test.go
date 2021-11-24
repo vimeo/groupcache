@@ -54,7 +54,7 @@ func setupStringGalaxyTest(cacheFills *AtomicInt) (*Galaxy, context.Context, cha
 		}
 		cacheFills.Add(1)
 		str := "ECHO:" + key
-		return dest.UnmarshalBinary([]byte(str))
+		return dest.UnmarshalBinary([]byte(str), time.Now().Add(5*time.Minute))
 	}))
 	return stringGalaxy, ctx, stringc
 }
@@ -75,7 +75,13 @@ func TestGetDupSuppress(t *testing.T) {
 				resc <- "ERROR:" + err.Error()
 				return
 			}
-			resc <- string(s)
+
+			ret, _, err := s.MarshalBinary()
+			if err != nil {
+				resc <- "ERROR MARSHAL: " + err.Error()
+				return
+			}
+			resc <- string(ret)
 		}()
 	}
 
@@ -150,7 +156,12 @@ func TestCacheEviction(t *testing.T) {
 		var res StringCodec
 		key := fmt.Sprintf("dummy-key-%d", bytesFlooded)
 		stringGalaxy.Get(ctx, key, &res)
-		bytesFlooded += int64(len(key) + len(res))
+
+		ret, _, err := res.MarshalBinary()
+		if err != nil {
+			t.Fatalf("marshaling binary: %v", err.Error())
+		}
+		bytesFlooded += int64(len(key) + len(ret))
 	}
 	evicts := stringGalaxy.mainCache.nevict - evict0
 	if evicts <= 0 {
@@ -179,12 +190,12 @@ func (fetcher *TestFetcher) Close() error {
 
 type testFetchers []RemoteFetcher
 
-func (fetcher *TestFetcher) Fetch(ctx context.Context, galaxy string, key string) ([]byte, error) {
+func (fetcher *TestFetcher) Fetch(ctx context.Context, galaxy string, key string) ([]byte, time.Time, error) {
 	if fetcher.fail {
-		return nil, errors.New("simulated error from peer")
+		return nil, time.Time{}, errors.New("simulated error from peer")
 	}
 	fetcher.hits++
-	return []byte("got:" + key), nil
+	return []byte("got:" + key), time.Time{}, nil
 }
 
 func (proto *TestProtocol) NewFetcher(url string) (RemoteFetcher, error) {
@@ -271,7 +282,7 @@ func TestPeers(t *testing.T) {
 			getter := func(_ context.Context, key string, dest Codec) error {
 				// these are local hits
 				testproto.TestFetchers["fetcher0"].hits++
-				return dest.UnmarshalBinary([]byte("got:" + key))
+				return dest.UnmarshalBinary([]byte("got:"+key), time.Now().Add(5*time.Minute))
 			}
 
 			testGalaxy := universe.NewGalaxy("TestPeers-galaxy", tc.cacheSize, GetterFunc(getter), WithPromoter(&promoter.ProbabilisticPromoter{ProbDenominator: 10}))
@@ -293,8 +304,14 @@ func TestPeers(t *testing.T) {
 					t.Errorf("%s: error on key %q: %v", tc.testName, key, err)
 					continue
 				}
-				if string(got) != want {
-					t.Errorf("%s: for key %q, got %q; want %q", tc.testName, key, got, want)
+
+				ret, _, err := got.MarshalBinary()
+				if err != nil {
+					t.Errorf("%s: error marshaling on key %q: %v", tc.testName, key, err)
+					continue
+				}
+				if string(ret) != want {
+					t.Errorf("%s: for key %q, got %q; want %q", tc.testName, key, ret, want)
 				}
 			}
 			for name, fetcher := range testproto.TestFetchers {
@@ -335,7 +352,7 @@ func TestNoDedup(t *testing.T) {
 	const testkey = "testkey"
 	const testval = "testval"
 	g := universe.NewGalaxy("testgalaxy", 1024, GetterFunc(func(_ context.Context, key string, dest Codec) error {
-		return dest.UnmarshalBinary([]byte(testval))
+		return dest.UnmarshalBinary([]byte(testval), time.Now().Add(5*time.Minute))
 	}))
 
 	orderedGroup := &orderedFlightGroup{
@@ -359,7 +376,13 @@ func TestNoDedup(t *testing.T) {
 				resc <- "ERROR:" + err.Error()
 				return
 			}
-			resc <- string(s)
+
+			ret, _, err := s.MarshalBinary()
+			if err != nil {
+				resc <- "ERROR MARSHAL:" + err.Error()
+				return
+			}
+			resc <- string(ret)
 		}()
 	}
 
@@ -386,7 +409,7 @@ func TestNoDedup(t *testing.T) {
 	// upon entry, we would increment nbytes twice but the entry would
 	// only be in the cache once.
 	testKStats := keyStats{dQPS: dampedQPS{period: time.Second}}
-	testvws := newValWithStat([]byte(testval), &testKStats)
+	testvws := newValWithStat([]byte(testval), &testKStats, time.Now().Add(1*time.Second))
 	wantBytes := int64(len(testkey)) + testvws.size()
 	if g.mainCache.nbytes != wantBytes {
 		t.Errorf("cache has %d bytes, want %d", g.mainCache.nbytes, wantBytes)
@@ -454,14 +477,14 @@ func TestHotcache(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			u := NewUniverse(&TestProtocol{}, "test-universe")
 			g := u.NewGalaxy("test-galaxy", 1<<20, GetterFunc(func(_ context.Context, key string, dest Codec) error {
-				return dest.UnmarshalBinary([]byte("hello"))
+				return dest.UnmarshalBinary([]byte("hello"), time.Now().Add(5*time.Minute))
 			}))
 			kStats := &keyStats{
 				dQPS: dampedQPS{
 					period: time.Second,
 				},
 			}
-			value := newValWithStat([]byte("hello"), kStats)
+			value := newValWithStat([]byte("hello"), kStats, time.Now().Add(1*time.Second))
 			g.hotCache.add(keyToAdd, value)
 			now := time.Now()
 			// blast the key in the hotcache with a bunch of hypothetical gets every few seconds
@@ -476,7 +499,7 @@ func TestHotcache(t *testing.T) {
 			if math.Abs(val-tc.expectedBurstQPS) > val/100 { // ensure less than %1 error
 				t.Errorf("QPS after bursts: %f, Wanted: %f", val, tc.expectedBurstQPS)
 			}
-			value2 := newValWithStat([]byte("hello there"), nil)
+			value2 := newValWithStat([]byte("hello there"), nil, time.Now().Add(1*time.Second))
 
 			g.hotCache.add(keyToAdd+"2", value2) // ensure that hcStats are properly updated after adding
 			g.maybeUpdateHotCacheStats()
@@ -568,7 +591,7 @@ func TestPromotion(t *testing.T) {
 			fetcher := &TestFetcher{}
 			testProto := &TestProtocol{}
 			getter := func(_ context.Context, key string, dest Codec) error {
-				return dest.UnmarshalBinary([]byte("got:" + key))
+				return dest.UnmarshalBinary([]byte("got:"+key), time.Now().Add(5*time.Minute))
 			}
 			universe := NewUniverse(testProto, "promotion-test")
 			galaxy := universe.NewGalaxy("test-galaxy", tc.cacheSize, GetterFunc(getter), WithPromoter(tc.promoter))
@@ -594,7 +617,7 @@ func TestRecorder(t *testing.T) {
 	meter.Register(testView)
 
 	getter := func(_ context.Context, key string, dest Codec) error {
-		return dest.UnmarshalBinary([]byte("got:" + key))
+		return dest.UnmarshalBinary([]byte("got:"+key), time.Now().Add(5*time.Minute))
 	}
 	u := NewUniverse(&TestProtocol{}, "test-universe", WithRecorder(meter))
 	g := u.NewGalaxy("test", 1024, GetterFunc(getter))

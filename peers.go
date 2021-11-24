@@ -28,6 +28,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/vimeo/galaxycache/consistenthash"
 )
@@ -38,7 +39,8 @@ const defaultReplicas = 50
 // other peers; the PeerPicker contains a map of these fetchers corresponding
 // to each other peer address
 type RemoteFetcher interface {
-	Fetch(context context.Context, galaxy string, key string) ([]byte, error)
+	// The value and when it should expire.
+	Fetch(context context.Context, galaxy string, key string) ([]byte, time.Time, error)
 	// Close closes a client-side connection (may be a nop)
 	Close() error
 }
@@ -166,8 +168,8 @@ func (n *NullFetchProtocol) NewFetcher(url string) (RemoteFetcher, error) {
 
 type nullFetchFetcher struct{}
 
-func (n *nullFetchFetcher) Fetch(context context.Context, galaxy string, key string) ([]byte, error) {
-	return nil, errors.New("empty fetcher")
+func (n *nullFetchFetcher) Fetch(context context.Context, galaxy string, key string) ([]byte, time.Time, error) {
+	return nil, time.Time{}, errors.New("empty fetcher")
 }
 
 // Close closes a client-side connection (may be a nop)

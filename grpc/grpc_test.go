@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+	"time"
 
 	gc "github.com/vimeo/galaxycache"
 
@@ -79,10 +80,15 @@ func TestGRPCPeerServer(t *testing.T) {
 		if err := g.Get(ctx, key, &value); err != nil {
 			t.Fatal(err)
 		}
-		if string(value) != ":"+key {
-			t.Errorf("Unexpected value: Get(%q) = %q, expected %q", key, value, ":"+key)
+
+		ret, _, err := value.MarshalBinary()
+		if err != nil {
+			t.Fatal(err)
 		}
-		t.Logf("Get key=%q, value=%q (peer:key)", key, value)
+		if string(ret) != ":"+key {
+			t.Errorf("Unexpected value: Get(%q) = %q, expected %q", key, ret, ":"+key)
+		}
+		t.Logf("Get key=%q, value=%q (peer:key)", key, ret)
 	}
 	cancel()
 	wg.Wait()
@@ -104,7 +110,7 @@ func runTestPeerGRPCServer(ctx context.Context, t testing.TB, addresses []string
 	}
 
 	getter := gc.GetterFunc(func(ctx context.Context, key string, dest gc.Codec) error {
-		dest.UnmarshalBinary([]byte(":" + key))
+		dest.UnmarshalBinary([]byte(":"+key), time.Now().Add(5*time.Minute))
 		return nil
 	})
 	universe.NewGalaxy("peerFetchTest", 1<<20, getter)

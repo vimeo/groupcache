@@ -18,6 +18,7 @@ package grpc
 
 import (
 	"context"
+	"time"
 
 	gc "github.com/vimeo/galaxycache"
 	pb "github.com/vimeo/galaxycache/galaxycachepb"
@@ -70,7 +71,7 @@ func (gp *GRPCFetchProtocol) NewFetcher(address string) (gc.RemoteFetcher, error
 
 // Fetch here implements the RemoteFetcher interface for
 // sending Gets to peers over an RPC connection
-func (g *grpcFetcher) Fetch(ctx context.Context, galaxy string, key string) ([]byte, error) {
+func (g *grpcFetcher) Fetch(ctx context.Context, galaxy string, key string) ([]byte, time.Time, error) {
 	span := trace.FromContext(ctx)
 	span.Annotatef(nil, "fetching from %s; connection state %s", g.address, g.conn.GetState())
 	resp, err := g.client.GetFromPeer(ctx, &pb.GetRequest{
@@ -78,10 +79,10 @@ func (g *grpcFetcher) Fetch(ctx context.Context, galaxy string, key string) ([]b
 		Key:    key,
 	})
 	if err != nil {
-		return nil, status.Errorf(status.Code(err), "Failed to fetch from peer over RPC [%q, %q]: %s", galaxy, g.address, err)
+		return nil, time.Time{}, status.Errorf(status.Code(err), "Failed to fetch from peer over RPC [%q, %q]: %s", galaxy, g.address, err)
 	}
 
-	return resp.Value, nil
+	return resp.Value, time.UnixMilli(resp.Expire), nil
 }
 
 // Close here implements the RemoteFetcher interface for

@@ -436,7 +436,7 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 		value.stats.touch()
 		g.recordRequest(ctx, hlvl, false)
 		g.recordStats(ctx, nil, MValueLength.M(int64(len(value.data))))
-		return dest.UnmarshalBinary(value.data)
+		return dest.UnmarshalBinary(value.data, value.expire)
 	}
 
 	span.Annotatef([]trace.Attribute{trace.BoolAttribute("cache_hit", false)}, "Cache miss")
@@ -456,7 +456,7 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 	if destPopulated {
 		return nil
 	}
-	return dest.UnmarshalBinary(value.data)
+	return dest.UnmarshalBinary(value.data, value.expire)
 }
 
 type valWithLevel struct {
@@ -525,7 +525,7 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value *valWi
 			// probably boring (normal task movement), so not
 			// worth logging I imagine.
 		}
-		data, err := g.getLocally(ctx, key, dest)
+		data, expTm, err := g.getLocally(ctx, key, dest)
 		if err != nil {
 			g.Stats.BackendLoadErrors.Add(1)
 			g.recordStats(ctx, nil, MBackendLoadErrors.M(1))
@@ -535,7 +535,7 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value *valWi
 		g.Stats.CoalescedBackendLoads.Add(1)
 		g.recordStats(ctx, nil, MCoalescedBackendLoads.M(1))
 		destPopulated = true // only one caller of load gets this return value
-		value = newValWithStat(data, nil)
+		value = newValWithStat(data, nil, expTm)
 		g.populateCache(ctx, key, value, &g.mainCache)
 		return &valWithLevel{value, hitBackend, authoritative, peerErr, err}, nil
 	})
@@ -548,22 +548,22 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value *valWi
 	return
 }
 
-func (g *Galaxy) getLocally(ctx context.Context, key string, dest Codec) ([]byte, error) {
+func (g *Galaxy) getLocally(ctx context.Context, key string, dest Codec) ([]byte, time.Time, error) {
 	err := g.getter.Get(ctx, key, dest)
 	if err != nil {
-		return nil, err
+		return nil, time.Time{}, err
 	}
 	return dest.MarshalBinary()
 }
 
 func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string) (*valWithStat, error) {
-	data, err := peer.Fetch(ctx, g.name, key)
+	data, expire, err := peer.Fetch(ctx, g.name, key)
 	if err != nil {
 		return nil, err
 	}
 	vi, ok := g.candidateCache.get(key)
 	if !ok {
-		vi = g.addNewToCandidateCache(key)
+		vi = g.addNewToCandidateCache(key, expire)
 	}
 
 	g.maybeUpdateHotCacheStats() // will update if at least a second has passed since the last update
@@ -573,7 +573,7 @@ func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string
 		KeyQPS:  kStats.val(),
 		HCStats: g.hcStatsWithTime.hcs,
 	}
-	value := newValWithStat(data, kStats)
+	value := newValWithStat(data, kStats, expire)
 	if g.opts.promoter.ShouldPromote(key, value.data, stats) {
 		g.populateCache(ctx, key, value, &g.hotCache)
 	}
@@ -692,8 +692,9 @@ func (c *cache) stats() CacheStats {
 }
 
 type valWithStat struct {
-	data  []byte
-	stats *keyStats
+	data   []byte
+	stats  *keyStats
+	expire time.Time
 }
 
 // sizeOfValWithStats returns the total size of the value in the hot/main
@@ -704,13 +705,13 @@ func (v *valWithStat) size() int64 {
 	return int64(unsafe.Sizeof(*v.stats)) + int64(len(v.data)) + int64(unsafe.Sizeof(v)) + int64(unsafe.Sizeof(*v))
 }
 
-func (c *cache) setLRUOnEvicted(f func(key string, kStats *keyStats)) {
+func (c *cache) setLRUOnEvicted(f func(key string, kStats *keyStats, ttl time.Time)) {
 	c.lru.OnEvicted = func(key lru.Key, value interface{}) {
 		val := value.(*valWithStat)
 		c.nbytes -= int64(len(key.(string))) + val.size()
 		c.nevict++
 		if f != nil {
-			f(key.(string), val.stats)
+			f(key.(string), val.stats, val.expire)
 		}
 	}
 }
@@ -718,7 +719,7 @@ func (c *cache) setLRUOnEvicted(f func(key string, kStats *keyStats)) {
 func (c *cache) add(key string, value *valWithStat) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.lru.Add(key, value)
+	c.lru.Add(key, value, value.expire)
 	c.nbytes += int64(len(key)) + value.size()
 }
 
