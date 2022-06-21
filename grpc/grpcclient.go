@@ -71,12 +71,12 @@ func (gp *GRPCFetchProtocol) NewFetcher(address string) (gc.RemoteFetcher, error
 
 // Fetch here implements the RemoteFetcher interface for
 // sending Gets to peers over an RPC connection
-func (g *grpcFetcher) Fetch(ctx context.Context, galaxy string, key string) ([]byte, time.Time, error) {
+func (g *grpcFetcher) Fetch(ctx context.Context, galaxy string, keys []string) ([]byte, time.Time, error) {
 	span := trace.FromContext(ctx)
 	span.Annotatef(nil, "fetching from %s; connection state %s", g.address, g.conn.GetState())
 	resp, err := g.client.GetFromPeer(ctx, &pb.GetRequest{
 		Galaxy: galaxy,
-		Key:    key,
+		Keys:   keys,
 	})
 	if err != nil {
 		return nil, time.Time{}, status.Errorf(status.Code(err), "Failed to fetch from peer over RPC [%q, %q]: %s", galaxy, g.address, err)

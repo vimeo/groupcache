@@ -40,7 +40,7 @@ const defaultReplicas = 50
 // to each other peer address
 type RemoteFetcher interface {
 	// The value and when it should expire.
-	Fetch(context context.Context, galaxy string, key string) ([]byte, time.Time, error)
+	Fetch(context context.Context, galaxy string, keys []string) ([]byte, time.Time, error)
 	// Close closes a client-side connection (may be a nop)
 	Close() error
 }
@@ -168,7 +168,7 @@ func (n *NullFetchProtocol) NewFetcher(url string) (RemoteFetcher, error) {
 
 type nullFetchFetcher struct{}
 
-func (n *nullFetchFetcher) Fetch(context context.Context, galaxy string, key string) ([]byte, time.Time, error) {
+func (n *nullFetchFetcher) Fetch(context context.Context, galaxy string, keys []string) ([]byte, time.Time, error) {
 	return nil, time.Time{}, errors.New("empty fetcher")
 }
 
