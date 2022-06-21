@@ -190,12 +190,12 @@ func (fetcher *TestFetcher) Close() error {
 
 type testFetchers []RemoteFetcher
 
-func (fetcher *TestFetcher) Fetch(ctx context.Context, galaxy string, key string) ([]byte, time.Time, error) {
+func (fetcher *TestFetcher) Fetch(ctx context.Context, galaxy string, keys []string) ([]byte, time.Time, error) {
 	if fetcher.fail {
 		return nil, time.Time{}, errors.New("simulated error from peer")
 	}
 	fetcher.hits++
-	return []byte("got:" + key), time.Time{}, nil
+	return []byte("got:" + keys[0]), time.Time{}, nil
 }
 
 func (proto *TestProtocol) NewFetcher(url string) (RemoteFetcher, error) {

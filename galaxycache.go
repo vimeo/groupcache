@@ -557,7 +557,7 @@ func (g *Galaxy) getLocally(ctx context.Context, key string, dest Codec) ([]byte
 }
 
 func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string) (*valWithStat, error) {
-	data, expire, err := peer.Fetch(ctx, g.name, key)
+	data, expire, err := peer.Fetch(ctx, g.name, []string{key})
 	if err != nil {
 		return nil, err
 	}

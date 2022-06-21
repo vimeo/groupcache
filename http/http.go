@@ -19,8 +19,12 @@ package http
 import (
 	"context"
 	"fmt"
+	"io"
 	"io/ioutil"
+	"mime"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
 	"strconv"
 	"strings"
@@ -130,17 +134,7 @@ func RegisterHTTPHandler(universe *gc.Universe, opts *HTTPOptions, serveMux *htt
 	}
 }
 
-func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Parse request.
-	if !strings.HasPrefix(r.URL.Path, h.basePath) {
-		panic("HTTPHandler serving unexpected path: " + r.URL.Path)
-	}
-	strippedPath := r.URL.Path[len(h.basePath):]
-	needsUnescaping := false
-	if r.URL.RawPath != "" && r.URL.RawPath != r.URL.Path {
-		strippedPath = r.URL.RawPath[len(h.basePath):]
-		needsUnescaping = true
-	}
+func (h *HTTPHandler) singleKeyServe(w http.ResponseWriter, r *http.Request, strippedPath string, needsUnescaping bool) {
 	parts := strings.SplitN(strippedPath, "/", 2)
 	if len(parts) != 2 {
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -195,23 +189,99 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Write(b)
 }
 
+func (h *HTTPHandler) multipleKeyServe(w http.ResponseWriter, r *http.Request) {
+	galaxyName := r.Header["Galaxy"][0]
+	keys := r.Header["Key"]
+
+	// Fetch the value for this galaxy/key.
+	galaxy := h.universe.GetGalaxy(galaxyName)
+	if galaxy == nil {
+		http.Error(w, "no such galaxy: "+galaxyName, http.StatusNotFound)
+		return
+	}
+
+	mw := multipart.NewWriter(w)
+	w.Header().Add("Content-Type", mw.FormDataContentType())
+
+	for _, key := range keys {
+		ctx := r.Context()
+
+		// TODO: remove galaxy.Stats from here
+		galaxy.Stats.ServerRequests.Add(1)
+		stats.RecordWithOptions(
+			ctx,
+			stats.WithMeasurements(gc.MServerRequests.M(1)),
+			stats.WithRecorder(h.recorder),
+		)
+		var value gc.ByteCodec
+		err := galaxy.Get(ctx, key, &value)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		b, expTm, err := value.MarshalBinary()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		partw, err := mw.CreatePart(textproto.MIMEHeader{
+			ttlHeader:        []string{fmt.Sprintf("%d", expTm.UnixMilli())},
+			"Content-Length": []string{fmt.Sprintf("%d", len(b))},
+		})
+		if err != nil {
+			w.WriteHeader(500)
+			_, _ = w.Write([]byte(fmt.Sprintf("failed to create part: %s", err.Error())))
+			return
+		}
+		_, err = partw.Write(b)
+		if err != nil {
+			w.WriteHeader(500)
+			_, _ = w.Write([]byte(fmt.Sprintf("failed to write part: %s", err.Error())))
+			return
+		}
+	}
+	err := mw.Close()
+	if err != nil {
+		w.WriteHeader(500)
+		_, _ = w.Write([]byte(fmt.Sprintf("failed to close multi-part writer: %s", err.Error())))
+		return
+	}
+}
+
+func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !strings.HasPrefix(r.URL.Path, h.basePath) {
+		panic("HTTPHandler serving unexpected path: " + r.URL.Path)
+	}
+	strippedPath := r.URL.Path[len(h.basePath):]
+	needsUnescaping := false
+	if r.URL.RawPath != "" && r.URL.RawPath != r.URL.Path {
+		strippedPath = r.URL.RawPath[len(h.basePath):]
+		needsUnescaping = true
+	}
+	if strippedPath != "" {
+		h.singleKeyServe(w, r, strippedPath, needsUnescaping)
+		return
+	}
+	h.multipleKeyServe(w, r)
+
+}
+
 type httpFetcher struct {
 	transport http.RoundTripper
 	baseURL   string
 }
 
 // Fetch here implements the RemoteFetcher interface for sending a GET request over HTTP to a peer
-func (h *httpFetcher) Fetch(ctx context.Context, galaxy string, key string) ([]byte, time.Time, error) {
-	u := fmt.Sprintf(
-		"%v%v/%v",
-		h.baseURL,
-		url.PathEscape(galaxy),
-		url.PathEscape(key),
-	)
-	req, err := http.NewRequest("GET", u, nil)
+func (h *httpFetcher) Fetch(ctx context.Context, galaxy string, keys []string) ([]byte, time.Time, error) {
+	req, err := http.NewRequest("GET", h.baseURL, http.NoBody)
 	if err != nil {
 		return nil, time.Time{}, err
 	}
+	req.Header["Key"] = keys
+	req.Header["Galaxy"] = []string{galaxy}
+
 	res, err := h.transport.RoundTrip(req.WithContext(ctx))
 	if err != nil {
 		return nil, time.Time{}, err
@@ -220,16 +290,46 @@ func (h *httpFetcher) Fetch(ctx context.Context, galaxy string, key string) ([]b
 	if res.StatusCode != http.StatusOK {
 		return nil, time.Time{}, fmt.Errorf("server returned HTTP response status code: %v", res.Status)
 	}
-	data, err := ioutil.ReadAll(res.Body)
+
+	_, params, _ := mime.ParseMediaType(res.Header.Get("Content-Type"))
+
+	mr := multipart.NewReader(res.Body, params["boundary"])
+	part, err := mr.NextPart()
 	if err != nil {
-		return nil, time.Time{}, fmt.Errorf("reading response body: %v", err)
+		return nil, time.Time{}, err
+	}
+	lengthHeader := part.Header["Content-Length"]
+
+	var data []byte
+
+	if len(lengthHeader) > 0 {
+		lengthVal := lengthHeader[0]
+		length, err := strconv.ParseInt(string(lengthVal), 10, 64)
+		if err != nil {
+			return nil, time.Time{}, fmt.Errorf("got non-integer Content-Length header (%v): %v", lengthHeader, err)
+		}
+		dataBuffer := make([]byte, length)
+
+		_, err = part.Read(dataBuffer)
+		if err != nil && err != io.EOF {
+			return nil, time.Time{}, fmt.Errorf("reading part: %v", err)
+		}
+
+		data = dataBuffer
+	} else {
+		dataBuffer, err := ioutil.ReadAll(part)
+		if err != nil {
+			return nil, time.Time{}, fmt.Errorf("reading response body: %v", err)
+		}
+
+		data = dataBuffer
 	}
 
-	expireStr := res.Header[ttlHeader]
+	expireStr := part.Header.Get(ttlHeader)
 	if len(expireStr) == 0 {
 		return nil, time.Time{}, fmt.Errorf("failed reading TTL header %s", ttlHeader)
 	}
-	expire, err := strconv.ParseInt(expireStr[0], 10, 64)
+	expire, err := strconv.ParseInt(string(expireStr), 10, 64)
 	if err != nil {
 		return nil, time.Time{}, fmt.Errorf("parsing TTL header %s: %w", ttlHeader, err)
 	}

@@ -55,7 +55,15 @@ func (gp *serviceImpl) GetFromPeer(ctx context.Context, req *pb.GetRequest) (*pb
 	galaxy.Stats.ServerRequests.Add(1) // keep track of the num of req
 
 	var value unsafeByteCodec
-	err := galaxy.Get(ctx, req.Key, &value)
+
+	var keys []string
+	//lint:ignore SA1019 Remove usage of req.Key once it is removed from the gRPC API.
+	if len(req.Key) > 0 {
+		keys = []string{req.Key}
+	} else {
+		keys = req.Keys
+	}
+	err := galaxy.Get(ctx, keys[0], &value)
 	if err != nil {
 		return nil, status.Errorf(status.Code(err), "Failed to retrieve [%s]: %v", req, err)
 	}
