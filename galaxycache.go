@@ -400,6 +400,35 @@ func (g *Galaxy) recordRequest(ctx context.Context, h hitLevel, localAuthoritati
 	}
 }
 
+// GetMultiple is like Get but fetches multiple keys at once into the respective
+// destinations (codecs).
+func (g *Galaxy) GetMultiple(ctx context.Context, keys []string, destinations []Codec) error {
+	if len(keys) != len(destinations) {
+		return fmt.Errorf("number of keys vs. codecs doesn't match (%d vs. %d)", len(keys), len(destinations))
+	}
+	ctx, tagErr := tag.New(ctx, tag.Upsert(GalaxyKey, g.name))
+	if tagErr != nil {
+		return fmt.Errorf("Error tagging context: %s", tagErr)
+	}
+
+	ctx, span := trace.StartSpan(ctx, "galaxycache.(*Galaxy).GetMultiple on "+g.name)
+	startTime := time.Now()
+	defer func() {
+		g.recordStats(ctx, nil, MRoundtripLatencyMilliseconds.M(sinceInMilliseconds(startTime)))
+		span.End()
+	}()
+
+	g.Stats.Gets.Add(1)
+	g.recordStats(ctx, nil, MGets.M(1))
+
+	// TODO:
+	// Group each key by peer.
+	// Request all of those keys from that one peer concurrently.
+	// Try to load what is missing.
+
+	return nil
+}
+
 // Get as defined here is the primary "get" called on a galaxy to
 // find the value for the given key, using the following logic:
 // - First, try the local cache; if its a cache hit, we're done
@@ -557,10 +586,11 @@ func (g *Galaxy) getLocally(ctx context.Context, key string, dest Codec) ([]byte
 }
 
 func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string) (*valWithStat, error) {
-	data, expire, err := peer.Fetch(ctx, g.name, []string{key})
+	data, err := peer.Fetch(ctx, g.name, []string{key})
 	if err != nil {
 		return nil, err
 	}
+	expire := data[0].TTL
 	vi, ok := g.candidateCache.get(key)
 	if !ok {
 		vi = g.addNewToCandidateCache(key, expire)
@@ -573,7 +603,7 @@ func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string
 		KeyQPS:  kStats.val(),
 		HCStats: g.hcStatsWithTime.hcs,
 	}
-	value := newValWithStat(data, kStats, expire)
+	value := newValWithStat(data[0].Data, kStats, expire)
 	if g.opts.promoter.ShouldPromote(key, value.data, stats) {
 		g.populateCache(ctx, key, value, &g.hotCache)
 	}
@@ -627,7 +657,7 @@ func (g *Galaxy) populateCache(ctx context.Context, key string, value *valWithSt
 }
 
 func (g *Galaxy) recordStats(ctx context.Context, mutators []tag.Mutator, measurements ...stats.Measurement) {
-	stats.RecordWithOptions(
+	_ = stats.RecordWithOptions(
 		ctx,
 		stats.WithMeasurements(measurements...),
 		stats.WithTags(mutators...),

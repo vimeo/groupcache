@@ -23,21 +23,14 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	gc "github.com/vimeo/galaxycache"
 
 	"go.opencensus.io/plugin/ochttp"
-	"go.opencensus.io/stats/view"
 )
-
-type testStatsExporter struct {
-	mu   sync.Mutex
-	data []*view.Data
-	t    *testing.T
-}
 
 func TestHTTPHandler(t *testing.T) {
 
@@ -139,8 +132,7 @@ func makeHTTPServerUniverse(ctx context.Context, t testing.TB, galaxyName string
 		t.Errorf("Error setting peers: %s", err)
 	}
 	getter := gc.GetterFunc(func(ctx context.Context, key string, dest gc.Codec) error {
-		dest.UnmarshalBinary([]byte(":"+key), time.Now().Add(2*time.Second))
-		return nil
+		return dest.UnmarshalBinary([]byte(":"+key), time.Now().Add(2*time.Second))
 	})
 	universe.NewGalaxy(galaxyName, 1<<20, getter)
 	newServer := http.Server{Handler: wrappedHandler}
@@ -152,7 +144,7 @@ func makeHTTPServerUniverse(ctx context.Context, t testing.TB, galaxyName string
 	}()
 
 	<-ctx.Done()
-	newServer.Shutdown(ctx)
+	require.NoError(t, newServer.Shutdown(context.Background()))
 }
 
 func testKeys(n int) (keys []string) {

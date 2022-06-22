@@ -31,6 +31,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/stretchr/testify/require"
 	"github.com/vimeo/galaxycache/promoter"
 	"go.opencensus.io/stats/view"
 	"go.opencensus.io/tag"
@@ -155,7 +156,7 @@ func TestCacheEviction(t *testing.T) {
 	for bytesFlooded < cacheSize+1024 {
 		var res StringCodec
 		key := fmt.Sprintf("dummy-key-%d", bytesFlooded)
-		stringGalaxy.Get(ctx, key, &res)
+		require.NoError(t, stringGalaxy.Get(ctx, key, &res))
 
 		ret, _, err := res.MarshalBinary()
 		if err != nil {
@@ -188,14 +189,17 @@ func (fetcher *TestFetcher) Close() error {
 	return nil
 }
 
-type testFetchers []RemoteFetcher
-
-func (fetcher *TestFetcher) Fetch(ctx context.Context, galaxy string, keys []string) ([]byte, time.Time, error) {
+func (fetcher *TestFetcher) Fetch(ctx context.Context, galaxy string, keys []string) ([]ValueWithTTL, error) {
 	if fetcher.fail {
-		return nil, time.Time{}, errors.New("simulated error from peer")
+		return []ValueWithTTL{}, errors.New("simulated error from peer")
 	}
 	fetcher.hits++
-	return []byte("got:" + keys[0]), time.Time{}, nil
+	return []ValueWithTTL{
+		{
+			Data: []byte("got:" + keys[0]),
+			TTL:  time.Time{},
+		},
+	}, nil
 }
 
 func (proto *TestProtocol) NewFetcher(url string) (RemoteFetcher, error) {
@@ -277,7 +281,7 @@ func TestPeers(t *testing.T) {
 			universe := NewUniverseWithOpts(testproto, "fetcher0", hashOpts)
 			dummyCtx := context.TODO()
 
-			universe.Set("fetcher0", "fetcher1", "fetcher2", "fetcher3")
+			require.NoError(t, universe.Set("fetcher0", "fetcher1", "fetcher2", "fetcher3"))
 
 			getter := func(_ context.Context, key string, dest Codec) error {
 				// these are local hits
@@ -574,8 +578,9 @@ func TestPromotion(t *testing.T) {
 				if okHot {
 					t.Error("Found candidate in hotcache")
 				}
-				g.getFromPeer(ctx, tf, key)
-				val, okHot := g.hotCache.get(key)
+				_, err := g.getFromPeer(ctx, tf, key)
+				require.NoError(t, err)
+				val, _ := g.hotCache.get(key)
 				if string(val.(*valWithStat).data) != "got:"+testKey {
 					t.Error("Did not promote from candidacy")
 				}
@@ -595,7 +600,8 @@ func TestPromotion(t *testing.T) {
 			}
 			universe := NewUniverse(testProto, "promotion-test")
 			galaxy := universe.NewGalaxy("test-galaxy", tc.cacheSize, GetterFunc(getter), WithPromoter(tc.promoter))
-			galaxy.getFromPeer(ctx, fetcher, testKey)
+			_, err := galaxy.getFromPeer(ctx, fetcher, testKey)
+			require.NoError(t, err)
 			_, okCandidate := galaxy.candidateCache.get(testKey)
 			value, okHot := galaxy.hotCache.get(testKey)
 			tc.checkCache(ctx, t, testKey, value, okCandidate, okHot, fetcher, galaxy)
@@ -614,7 +620,7 @@ func TestRecorder(t *testing.T) {
 		TagKeys:     []tag.Key{GalaxyKey},
 		Aggregation: view.Count(),
 	}
-	meter.Register(testView)
+	require.NoError(t, meter.Register(testView))
 
 	getter := func(_ context.Context, key string, dest Codec) error {
 		return dest.UnmarshalBinary([]byte("got:"+key), time.Now().Add(5*time.Minute))
