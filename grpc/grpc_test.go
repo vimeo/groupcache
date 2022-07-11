@@ -110,8 +110,7 @@ func runTestPeerGRPCServer(ctx context.Context, t testing.TB, addresses []string
 	}
 
 	getter := gc.GetterFunc(func(ctx context.Context, key string, dest gc.Codec) error {
-		dest.UnmarshalBinary([]byte(":"+key), time.Now().Add(5*time.Minute))
-		return nil
+		return dest.UnmarshalBinary([]byte(":"+key), time.Now().Add(5*time.Minute))
 	})
 	universe.NewGalaxy("peerFetchTest", 1<<20, getter)
 	wg.Add(1)

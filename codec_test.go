@@ -20,6 +20,8 @@ import (
 	"bytes"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 const testBytes = "some bytes"
@@ -52,7 +54,7 @@ func TestCodec(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.testName, func(t *testing.T) {
 			inBytes := []byte(testBytes)
-			tc.codec.UnmarshalBinary(inBytes, time.Time{})
+			require.NoError(t, tc.codec.UnmarshalBinary(inBytes, time.Time{}))
 			inBytes[0] = 'a' // change the original byte slice to ensure copy was made
 			marshaledBytes, expTm, err := tc.codec.MarshalBinary()
 			if err != nil {

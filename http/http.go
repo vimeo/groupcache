@@ -30,6 +30,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vimeo/galaxycache"
 	gc "github.com/vimeo/galaxycache"
 
 	"go.opencensus.io/plugin/ochttp"
@@ -168,11 +169,15 @@ func (h *HTTPHandler) singleKeyServe(w http.ResponseWriter, r *http.Request, str
 
 	// TODO: remove galaxy.Stats from here
 	galaxy.Stats.ServerRequests.Add(1)
-	stats.RecordWithOptions(
+	if err := stats.RecordWithOptions(
 		ctx,
 		stats.WithMeasurements(gc.MServerRequests.M(1)),
 		stats.WithRecorder(h.recorder),
-	)
+	); err != nil {
+		http.Error(w, "failed to record stats", http.StatusInternalServerError)
+		return
+	}
+
 	var value gc.ByteCodec
 	err := galaxy.Get(ctx, key, &value)
 	if err != nil {
@@ -186,7 +191,11 @@ func (h *HTTPHandler) singleKeyServe(w http.ResponseWriter, r *http.Request, str
 		return
 	}
 	w.Header().Set(ttlHeader, fmt.Sprintf("%d", expTm.UnixMilli()))
-	w.Write(b)
+	_, err = w.Write(b)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 func (h *HTTPHandler) multipleKeyServe(w http.ResponseWriter, r *http.Request) {
@@ -208,11 +217,14 @@ func (h *HTTPHandler) multipleKeyServe(w http.ResponseWriter, r *http.Request) {
 
 		// TODO: remove galaxy.Stats from here
 		galaxy.Stats.ServerRequests.Add(1)
-		stats.RecordWithOptions(
+		if err := stats.RecordWithOptions(
 			ctx,
 			stats.WithMeasurements(gc.MServerRequests.M(1)),
 			stats.WithRecorder(h.recorder),
-		)
+		); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		var value gc.ByteCodec
 		err := galaxy.Get(ctx, key, &value)
 		if err != nil {
@@ -274,29 +286,30 @@ type httpFetcher struct {
 }
 
 // Fetch here implements the RemoteFetcher interface for sending a GET request over HTTP to a peer
-func (h *httpFetcher) Fetch(ctx context.Context, galaxy string, keys []string) ([]byte, time.Time, error) {
+func (h *httpFetcher) Fetch(ctx context.Context, galaxy string, keys []string) ([]galaxycache.ValueWithTTL, error) {
 	req, err := http.NewRequest("GET", h.baseURL, http.NoBody)
 	if err != nil {
-		return nil, time.Time{}, err
+		return []galaxycache.ValueWithTTL{}, err
 	}
 	req.Header["Key"] = keys
 	req.Header["Galaxy"] = []string{galaxy}
 
 	res, err := h.transport.RoundTrip(req.WithContext(ctx))
 	if err != nil {
-		return nil, time.Time{}, err
+		return []galaxycache.ValueWithTTL{}, err
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return nil, time.Time{}, fmt.Errorf("server returned HTTP response status code: %v", res.Status)
+		return []galaxycache.ValueWithTTL{}, fmt.Errorf("server returned HTTP response status code: %v", res.Status)
 	}
 
 	_, params, _ := mime.ParseMediaType(res.Header.Get("Content-Type"))
 
 	mr := multipart.NewReader(res.Body, params["boundary"])
+	// TODO(GiedriusS): convert this into a loop.
 	part, err := mr.NextPart()
 	if err != nil {
-		return nil, time.Time{}, err
+		return []galaxycache.ValueWithTTL{}, err
 	}
 	lengthHeader := part.Header["Content-Length"]
 
@@ -306,20 +319,20 @@ func (h *httpFetcher) Fetch(ctx context.Context, galaxy string, keys []string) (
 		lengthVal := lengthHeader[0]
 		length, err := strconv.ParseInt(string(lengthVal), 10, 64)
 		if err != nil {
-			return nil, time.Time{}, fmt.Errorf("got non-integer Content-Length header (%v): %v", lengthHeader, err)
+			return []galaxycache.ValueWithTTL{}, fmt.Errorf("got non-integer Content-Length header (%v): %v", lengthHeader, err)
 		}
 		dataBuffer := make([]byte, length)
 
 		_, err = part.Read(dataBuffer)
 		if err != nil && err != io.EOF {
-			return nil, time.Time{}, fmt.Errorf("reading part: %v", err)
+			return []galaxycache.ValueWithTTL{}, fmt.Errorf("reading part: %v", err)
 		}
 
 		data = dataBuffer
 	} else {
 		dataBuffer, err := ioutil.ReadAll(part)
 		if err != nil {
-			return nil, time.Time{}, fmt.Errorf("reading response body: %v", err)
+			return []galaxycache.ValueWithTTL{}, fmt.Errorf("reading response body: %v", err)
 		}
 
 		data = dataBuffer
@@ -327,13 +340,13 @@ func (h *httpFetcher) Fetch(ctx context.Context, galaxy string, keys []string) (
 
 	expireStr := part.Header.Get(ttlHeader)
 	if len(expireStr) == 0 {
-		return nil, time.Time{}, fmt.Errorf("failed reading TTL header %s", ttlHeader)
+		return []galaxycache.ValueWithTTL{}, fmt.Errorf("failed reading TTL header %s", ttlHeader)
 	}
 	expire, err := strconv.ParseInt(string(expireStr), 10, 64)
 	if err != nil {
-		return nil, time.Time{}, fmt.Errorf("parsing TTL header %s: %w", ttlHeader, err)
+		return []galaxycache.ValueWithTTL{}, fmt.Errorf("parsing TTL header %s: %w", ttlHeader, err)
 	}
-	return data, time.UnixMilli(expire), nil
+	return []galaxycache.ValueWithTTL{{Data: data, TTL: time.UnixMilli(expire)}}, nil
 }
 
 // Close here implements the RemoteFetcher interface for closing (does nothing for HTTP)
