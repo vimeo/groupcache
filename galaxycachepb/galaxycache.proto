@@ -17,15 +17,20 @@ limitations under the License.
 syntax = "proto3";
 
 package galaxycachepb;
+option go_package = "./galaxycachepb";
+
 
 message GetRequest {
   string galaxy = 1;
+  // Deprecated: please use the keys field. `key` has precendence over `keys`.
   string key = 2; // not actually required/guaranteed to be UTF-8
+  repeated string keys = 3;
 }
 
 message GetResponse {
   bytes value = 1;
   double minute_qps = 2;
+  int64 expire = 3;
 }
 
 service GalaxyCache {

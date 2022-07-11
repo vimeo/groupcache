@@ -18,7 +18,9 @@ package grpc
 
 import (
 	"context"
+	"time"
 
+	"github.com/vimeo/galaxycache"
 	gc "github.com/vimeo/galaxycache"
 	pb "github.com/vimeo/galaxycache/galaxycachepb"
 	"go.opencensus.io/plugin/ocgrpc"
@@ -70,18 +72,18 @@ func (gp *GRPCFetchProtocol) NewFetcher(address string) (gc.RemoteFetcher, error
 
 // Fetch here implements the RemoteFetcher interface for
 // sending Gets to peers over an RPC connection
-func (g *grpcFetcher) Fetch(ctx context.Context, galaxy string, key string) ([]byte, error) {
+func (g *grpcFetcher) Fetch(ctx context.Context, galaxy string, keys []string) ([]galaxycache.ValueWithTTL, error) {
 	span := trace.FromContext(ctx)
 	span.Annotatef(nil, "fetching from %s; connection state %s", g.address, g.conn.GetState())
 	resp, err := g.client.GetFromPeer(ctx, &pb.GetRequest{
 		Galaxy: galaxy,
-		Key:    key,
+		Keys:   keys,
 	})
 	if err != nil {
-		return nil, status.Errorf(status.Code(err), "Failed to fetch from peer over RPC [%q, %q]: %s", galaxy, g.address, err)
+		return []galaxycache.ValueWithTTL{}, status.Errorf(status.Code(err), "Failed to fetch from peer over RPC [%q, %q]: %s", galaxy, g.address, err)
 	}
 
-	return resp.Value, nil
+	return []galaxycache.ValueWithTTL{{Data: resp.Value, TTL: time.UnixMilli(resp.Expire)}}, nil
 }
 
 // Close here implements the RemoteFetcher interface for
