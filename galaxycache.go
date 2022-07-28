@@ -28,9 +28,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"sync"
-	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -763,23 +761,6 @@ func (c *cache) itemsLocked() int64 {
 		return 0
 	}
 	return int64(c.lru.Len())
-}
-
-// An AtomicInt is an int64 to be accessed atomically.
-type AtomicInt int64
-
-// Add atomically adds n to i.
-func (i *AtomicInt) Add(n int64) {
-	atomic.AddInt64((*int64)(i), n)
-}
-
-// Get atomically gets the value of i.
-func (i *AtomicInt) Get() int64 {
-	return atomic.LoadInt64((*int64)(i))
-}
-
-func (i *AtomicInt) String() string {
-	return strconv.FormatInt(i.Get(), 10)
 }
 
 // CacheStats are returned by stats accessors on Galaxy.
