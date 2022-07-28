@@ -177,8 +177,6 @@ func (fetcher *TestFetcher) Close() error {
 	return nil
 }
 
-type testFetchers []RemoteFetcher
-
 func (fetcher *TestFetcher) Fetch(ctx context.Context, galaxy string, key string) ([]byte, error) {
 	if fetcher.fail {
 		return nil, errors.New("simulated error from peer")
@@ -553,7 +551,10 @@ func TestPromotion(t *testing.T) {
 				}
 				g.getFromPeer(ctx, tf, key)
 				val, okHot := g.hotCache.get(key)
-				if string(val.(*valWithStat).data) != "got:"+testKey {
+				if !okHot {
+					t.Errorf("key %q missing from hot cache", key)
+				}
+				if string(val.data) != "got:"+testKey {
 					t.Error("Did not promote from candidacy")
 				}
 			},

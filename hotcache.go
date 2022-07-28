@@ -35,11 +35,11 @@ func (g *Galaxy) maybeUpdateHotCacheStats() {
 	}
 	mruEleQPS := 0.0
 	lruEleQPS := 0.0
-	mruEle := g.hotCache.lru.MostRecent()
-	lruEle := g.hotCache.lru.LeastRecent()
+	mruEle := g.hotCache.mostRecent()
+	lruEle := g.hotCache.leastRecent()
 	if mruEle != nil { // lru contains at least one element
-		mruEleQPS = mruEle.(*valWithStat).stats.val()
-		lruEleQPS = lruEle.(*valWithStat).stats.val()
+		mruEleQPS = mruEle.stats.val()
+		lruEleQPS = lruEle.stats.val()
 	}
 
 	newHCS := &promoter.HCStats{
@@ -57,12 +57,12 @@ type keyStats struct {
 	dQPS dampedQPS
 }
 
-func newValWithStat(data []byte, kStats *keyStats) *valWithStat {
+func newValWithStat(data []byte, kStats *keyStats) valWithStat {
 	if kStats == nil {
 		kStats = &keyStats{dampedQPS{period: time.Second}}
 	}
 
-	return &valWithStat{
+	return valWithStat{
 		data:  data,
 		stats: kStats,
 	}
@@ -135,10 +135,4 @@ func (g *Galaxy) addNewToCandidateCache(key string) *keyStats {
 
 	g.candidateCache.addToCandidateCache(key, kStats)
 	return kStats
-}
-
-func (c *cache) addToCandidateCache(key string, kStats *keyStats) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.lru.Add(key, kStats)
 }
