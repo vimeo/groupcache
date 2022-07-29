@@ -75,3 +75,15 @@ type DefaultPromoter struct{}
 func (p *DefaultPromoter) ShouldPromote(key string, data []byte, stats Stats) bool {
 	return stats.KeyQPS >= stats.HCStats.LeastRecentQPS
 }
+
+// PreviouslyKnownPromoter implements Promoter and promotes the given key if
+// the key has been seen before (was previously present in the candidate cache).
+type PreviouslyKnownPromoter struct{}
+
+// ShouldPromote for the PreviouslyKnownPromoter promotes if the Hits value is
+// non-zero, indicating that the key has been seen before.
+func (p *PreviouslyKnownPromoter) ShouldPromote(key string, data []byte, stats Stats) bool {
+	// stats.Hits is explicitly documented to be zero if this is the first
+	// hit for the key (that this Galaxy knows of)
+	return stats.Hits > 0
+}
