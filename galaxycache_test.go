@@ -32,6 +32,7 @@ import (
 	"unsafe"
 
 	"github.com/vimeo/galaxycache/promoter"
+	"github.com/vimeo/go-clocks/fake"
 	"go.opencensus.io/stats/view"
 	"go.opencensus.io/tag"
 )
@@ -383,8 +384,8 @@ func TestNoDedup(t *testing.T) {
 	// If the singleflight callback doesn't double-check the cache again
 	// upon entry, we would increment nbytes twice but the entry would
 	// only be in the cache once.
-	testKStats := keyStats{dQPS: dampedQPS{period: time.Second}}
-	testvws := newValWithStat([]byte(testval), &testKStats)
+	testKStats := keyStats{dQPS: windowedAvgQPS{}}
+	testvws := g.newValWithStat([]byte(testval), &testKStats)
 	wantBytes := int64(len(testkey)) + testvws.size()
 	if g.mainCache.nbytes != wantBytes {
 		t.Errorf("cache has %d bytes, want %d", g.mainCache.nbytes, wantBytes)
@@ -402,88 +403,103 @@ func TestGalaxyStatsAlignment(t *testing.T) {
 func TestHotcache(t *testing.T) {
 	keyToAdd := "hi"
 	hcTests := []struct {
-		name             string
-		numGets          int
-		numHeatBursts    int
-		burstInterval    time.Duration
-		timeToVal        time.Duration
-		expectedBurstQPS float64
-		expectedValQPS   float64
+		name               string
+		numGets            int
+		numHeatBursts      int
+		resetIdleAge       time.Duration
+		burstInterval      time.Duration
+		timeToVal          time.Duration
+		expectedBurstQPS   float64
+		expectedBurstCount int64
+		expectedValQPS     float64
+		expectedFinalCount int64
 	}{
 		{
-			name:             "10k_heat_burst_1_sec",
-			numGets:          10000,
-			numHeatBursts:    5,
-			burstInterval:    1 * time.Second,
-			timeToVal:        5 * time.Second,
-			expectedBurstQPS: 1559.0,
-			expectedValQPS:   1316.0,
+			name:               "10k_heat_burst_1_sec",
+			numGets:            10000,
+			numHeatBursts:      5,
+			resetIdleAge:       time.Minute,
+			burstInterval:      1 * time.Second,
+			timeToVal:          5 * time.Second,
+			expectedBurstQPS:   10000.0,
+			expectedBurstCount: 50000,
+			expectedValQPS:     5000.0,
+			expectedFinalCount: 50000,
 		},
 		{
-			name:             "10k_heat_burst_5_secs",
-			numGets:          10000,
-			numHeatBursts:    5,
-			burstInterval:    5 * time.Second,
-			timeToVal:        5 * time.Second,
-			expectedBurstQPS: 1067.0,
-			expectedValQPS:   900.5,
+			name:               "10k_heat_burst_5_secs",
+			numGets:            10000,
+			numHeatBursts:      5,
+			resetIdleAge:       time.Minute,
+			burstInterval:      5 * time.Second,
+			timeToVal:          25 * time.Second,
+			expectedBurstQPS:   2000.0,
+			expectedBurstCount: 50000,
+			expectedValQPS:     1000.0,
+			expectedFinalCount: 50000,
 		},
 		{
-			name:             "1k_heat_burst_1_secs",
-			numGets:          1000,
-			numHeatBursts:    5,
-			burstInterval:    1 * time.Second,
-			timeToVal:        5 * time.Second,
-			expectedBurstQPS: 155.9,
-			expectedValQPS:   131.6,
-		},
-		{
-			name:             "1k_heat_burst_5_secs",
-			numGets:          1000,
-			numHeatBursts:    5,
-			burstInterval:    5 * time.Second,
-			timeToVal:        5 * time.Second,
-			expectedBurstQPS: 106.7,
-			expectedValQPS:   90.05,
+			name:               "1k_heat_burst_4s_3s_reset_interval",
+			numGets:            1000,
+			numHeatBursts:      3,
+			resetIdleAge:       time.Second * 3,
+			burstInterval:      4 * time.Second,
+			timeToVal:          5 * time.Second,
+			expectedBurstQPS:   250.0, // only the last burst
+			expectedBurstCount: 1000,
+			expectedValQPS:     111.1,
+			expectedFinalCount: 1000,
 		},
 	}
 
 	for _, tc := range hcTests {
 		t.Run(tc.name, func(t *testing.T) {
 			u := NewUniverse(&TestProtocol{}, "test-universe")
+			nowTime := time.Now()
+			fc := fake.NewClock(nowTime)
 			g := u.NewGalaxy("test-galaxy", 1<<20, GetterFunc(func(_ context.Context, key string, dest Codec) error {
 				return dest.UnmarshalBinary([]byte("hello"))
-			}))
+			}), WithClock(fc), WithIdleStatsAgeResetWindow(tc.resetIdleAge))
+			relNow := nowTime.Sub(g.baseTime)
 			kStats := &keyStats{
-				dQPS: dampedQPS{
-					period: time.Second,
-				},
+				dQPS: windowedAvgQPS{trackEpoch: relNow},
 			}
-			value := newValWithStat([]byte("hello"), kStats)
+			value := g.newValWithStat([]byte("hello"), kStats)
 			g.hotCache.add(keyToAdd, value)
-			now := time.Now()
+
 			// blast the key in the hotcache with a bunch of hypothetical gets every few seconds
 			for k := 0; k < tc.numHeatBursts; k++ {
-				for k := 0; k < tc.numGets; k++ {
-					kStats.dQPS.touch(now)
+				for ik := 0; ik < tc.numGets; ik++ {
+					// force this key up to the top of the LRU
+					g.hotCache.get(keyToAdd)
+					kStats.dQPS.touch(g.resetIdleStatsAge, relNow)
 				}
-				t.Logf("QPS on %d gets in 1 second on burst #%d: %f\n", tc.numGets, k+1, kStats.dQPS.curDQPS)
-				now = now.Add(tc.burstInterval)
+				t.Logf("QPS on %d gets in 1 second on burst #%d: %d\n", tc.numGets, k+1, kStats.dQPS.count)
+				relNow += tc.burstInterval
+				fc.Advance(tc.burstInterval)
 			}
-			val := kStats.dQPS.val(now)
+			cnt, val := kStats.dQPS.val(relNow)
 			if math.Abs(val-tc.expectedBurstQPS) > val/100 { // ensure less than %1 error
 				t.Errorf("QPS after bursts: %f, Wanted: %f", val, tc.expectedBurstQPS)
 			}
-			value2 := newValWithStat([]byte("hello there"), nil)
+			if cnt != tc.expectedBurstCount {
+				t.Errorf("hit-count unexpected: %d; wanted %d", cnt, tc.expectedBurstCount)
+			}
+			value2 := g.newValWithStat([]byte("hello there"), nil)
 
 			g.hotCache.add(keyToAdd+"2", value2) // ensure that hcStats are properly updated after adding
 			g.maybeUpdateHotCacheStats()
 			t.Logf("Hottest QPS: %f, Coldest QPS: %f\n", g.hcStatsWithTime.hcs.MostRecentQPS, g.hcStatsWithTime.hcs.LeastRecentQPS)
 
-			now = now.Add(tc.timeToVal)
-			val = kStats.dQPS.val(now)
-			if math.Abs(val-tc.expectedValQPS) > val/100 {
-				t.Errorf("QPS after delayed Val() call: %f, Wanted: %f", val, tc.expectedBurstQPS)
+			relNow += tc.timeToVal
+			fc.Advance(tc.timeToVal)
+			cnt2, val2 := kStats.dQPS.val(relNow)
+			if math.Abs(val2-tc.expectedValQPS) > val2/100 {
+				t.Errorf("QPS after delayed Val() call; %s elapsed since val birth: %f, Wanted: %f",
+					relNow-kStats.dQPS.trackEpoch, val2, tc.expectedBurstQPS)
+			}
+			if cnt2 != tc.expectedFinalCount {
+				t.Errorf("hit-count unexpected: %d; wanted %d", cnt2, tc.expectedFinalCount)
 			}
 		})
 	}
@@ -501,23 +517,33 @@ func (p *promoteFromCandidate) ShouldPromote(key string, data []byte, stats prom
 	return false
 }
 
+type trackingNeverPromoter struct {
+	stats []promoter.Stats
+}
+
+func (t *trackingNeverPromoter) ShouldPromote(key string, data []byte, stats promoter.Stats) bool {
+	t.stats = append(t.stats, stats)
+	return false
+}
+
 // Ensures cache entries move properly through the stages of candidacy
 // to full hotcache member. Simulates a galaxy where elements are always promoted,
 // never promoted, etc
 func TestPromotion(t *testing.T) {
-	ctx := context.Background()
-	testKey := "to-get"
+	outerCtx := context.Background()
+	const testKey = "to-get"
 	testCases := []struct {
-		testName   string
-		promoter   promoter.Interface
-		cacheSize  int64
-		checkCache func(ctx context.Context, t testing.TB, key string, val interface{}, okCand bool, okHot bool, tf *TestFetcher, g *Galaxy)
+		testName    string
+		promoter    promoter.Interface
+		cacheSize   int64
+		firstCheck  func(ctx context.Context, t testing.TB, key string, val valWithStat, okCand bool, okHot bool, tf *TestFetcher, g *Galaxy)
+		secondCheck func(ctx context.Context, t testing.TB, key string, val valWithStat, okCand bool, okHot bool, tf *TestFetcher, g *Galaxy)
 	}{
 		{
 			testName:  "never_promote",
 			promoter:  promoter.Func(func(key string, data []byte, stats promoter.Stats) bool { return false }),
 			cacheSize: 1 << 20,
-			checkCache: func(_ context.Context, t testing.TB, _ string, _ interface{}, okCand bool, okHot bool, _ *TestFetcher, _ *Galaxy) {
+			firstCheck: func(_ context.Context, t testing.TB, _ string, _ valWithStat, okCand bool, okHot bool, _ *TestFetcher, _ *Galaxy) {
 				if !okCand {
 					t.Error("Candidate not found in candidate cache")
 				}
@@ -530,10 +556,10 @@ func TestPromotion(t *testing.T) {
 			testName:  "always_promote",
 			promoter:  promoter.Func(func(key string, data []byte, stats promoter.Stats) bool { return true }),
 			cacheSize: 1 << 20,
-			checkCache: func(_ context.Context, t testing.TB, _ string, val interface{}, _ bool, okHot bool, _ *TestFetcher, _ *Galaxy) {
+			firstCheck: func(_ context.Context, t testing.TB, _ string, val valWithStat, _ bool, okHot bool, _ *TestFetcher, _ *Galaxy) {
 				if !okHot {
 					t.Error("Key not found in hotcache")
-				} else if val == nil {
+				} else if val.data == nil {
 					t.Error("Found element in hotcache, but no associated data")
 				}
 			},
@@ -542,7 +568,7 @@ func TestPromotion(t *testing.T) {
 			testName:  "candidate_promotion",
 			promoter:  &promoteFromCandidate{},
 			cacheSize: 1 << 20,
-			checkCache: func(ctx context.Context, t testing.TB, key string, _ interface{}, okCand bool, okHot bool, tf *TestFetcher, g *Galaxy) {
+			firstCheck: func(ctx context.Context, t testing.TB, key string, _ valWithStat, okCand bool, okHot bool, tf *TestFetcher, g *Galaxy) {
 				if !okCand {
 					t.Error("Candidate not found in candidate cache")
 				}
@@ -559,24 +585,88 @@ func TestPromotion(t *testing.T) {
 				}
 			},
 		},
+		{
+			testName:  "never_promote_but_track",
+			promoter:  &trackingNeverPromoter{},
+			cacheSize: 1 << 20,
+			firstCheck: func(_ context.Context, t testing.TB, _ string, _ valWithStat, okCand bool, okHot bool, _ *TestFetcher, g *Galaxy) {
+				if okHot {
+					t.Errorf("value unexpectedly in hot-cache")
+				}
+				if !okCand {
+					t.Errorf("value unexpectedly missing from candidate-cache")
+				}
+				pro := g.opts.promoter.(*trackingNeverPromoter)
+				if pro.stats == nil {
+					t.Errorf("no stats recorded; promoter not called")
+					return
+				} else if len(pro.stats) != 1 {
+					t.Errorf("incorrect call-count for promoter: %d; expected %d", len(pro.stats), 1)
+					return
+				}
+				if pro.stats[0].Hits != 0 {
+					t.Errorf("first hit had non-zero hits: %d", pro.stats[0].Hits)
+				}
+				if pro.stats[0].KeyQPS != 0 {
+					t.Errorf("first hit had non-zero QPS: %f", pro.stats[0].KeyQPS)
+				}
+			},
+			secondCheck: func(_ context.Context, t testing.TB, _ string, _ valWithStat, okCand bool, okHot bool, _ *TestFetcher, g *Galaxy) {
+				if okHot {
+					t.Errorf("value unexpectedly in hot-cache")
+				}
+				if !okCand {
+					t.Errorf("value unexpectedly missing from candidate-cache")
+				}
+				pro := g.opts.promoter.(*trackingNeverPromoter)
+				if pro.stats == nil {
+					t.Errorf("no stats recorded; promoter not called")
+					return
+				} else if len(pro.stats) != 2 {
+					t.Errorf("incorrect call-count for promoter: %d; expected %d", len(pro.stats), 2)
+					return
+				}
+				if pro.stats[1].Hits != 1 {
+					t.Errorf("second hit had unexpected hits: got %d; want %d", pro.stats[1].Hits, 1)
+				}
+				// one hit with near-zero-time passed == time will be bounded by the minimum time, which
+				// is 100ms.
+				if pro.stats[1].KeyQPS != 10.0 {
+					t.Errorf("second hit had unexpected QPS: got %f; want %f", pro.stats[1].KeyQPS, 10.0)
+				}
+			},
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.testName, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(ctx)
+			ctx, cancel := context.WithCancel(outerCtx)
 			defer cancel()
 
 			fetcher := &TestFetcher{}
-			testProto := &TestProtocol{}
+			testProto := &TestProtocol{TestFetchers: map[string]*TestFetcher{"foobar": fetcher}}
 			getter := func(_ context.Context, key string, dest Codec) error {
 				return dest.UnmarshalBinary([]byte("got:" + key))
 			}
 			universe := NewUniverse(testProto, "promotion-test")
+			universe.Set("foobar")
 			galaxy := universe.NewGalaxy("test-galaxy", tc.cacheSize, GetterFunc(getter), WithPromoter(tc.promoter))
-			galaxy.getFromPeer(ctx, fetcher, testKey)
-			_, okCandidate := galaxy.candidateCache.get(testKey)
-			value, okHot := galaxy.hotCache.get(testKey)
-			tc.checkCache(ctx, t, testKey, value, okCandidate, okHot, fetcher, galaxy)
+			sc := StringCodec("")
+			{
+				galaxy.Get(ctx, testKey, &sc)
+				_, okCandidate := galaxy.candidateCache.get(testKey)
+				value, okHot := galaxy.hotCache.get(testKey)
+				tc.firstCheck(ctx, t, testKey, value, okCandidate, okHot, fetcher, galaxy)
+			}
+			if tc.secondCheck == nil {
+				return
+			}
+			{
+				galaxy.Get(ctx, testKey, &sc)
+				_, okCandidate := galaxy.candidateCache.get(testKey)
+				value, okHot := galaxy.hotCache.get(testKey)
+				tc.secondCheck(ctx, t, testKey, value, okCandidate, okHot, fetcher, galaxy)
+			}
 
 		})
 	}

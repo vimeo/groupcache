@@ -4,6 +4,7 @@ go 1.18
 
 require (
 	github.com/golang/protobuf v1.4.3
+	github.com/vimeo/go-clocks v1.1.2
 	go.opencensus.io v0.22.5
 	google.golang.org/grpc v1.35.0
 )

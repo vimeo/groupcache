@@ -17,7 +17,6 @@ limitations under the License.
 package galaxycache
 
 import (
-	"math"
 	"sync"
 	"time"
 
@@ -29,17 +28,18 @@ import (
 func (g *Galaxy) maybeUpdateHotCacheStats() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	now := time.Now()
+	now := g.clock.Now()
 	if now.Sub(g.hcStatsWithTime.t) < time.Second {
 		return
 	}
+	nowRel := now.Sub(g.baseTime)
 	mruEleQPS := 0.0
 	lruEleQPS := 0.0
 	mruEle := g.hotCache.mostRecent()
 	lruEle := g.hotCache.leastRecent()
 	if mruEle != nil { // lru contains at least one element
-		mruEleQPS = mruEle.stats.val()
-		lruEleQPS = lruEle.stats.val()
+		_, mruEleQPS = mruEle.stats.val(nowRel)
+		_, lruEleQPS = lruEle.stats.val(nowRel)
 	}
 
 	newHCS := &promoter.HCStats{
@@ -54,12 +54,18 @@ func (g *Galaxy) maybeUpdateHotCacheStats() {
 
 // keyStats keeps track of the hotness of a key
 type keyStats struct {
-	dQPS dampedQPS
+	dQPS windowedAvgQPS
 }
 
-func newValWithStat(data []byte, kStats *keyStats) valWithStat {
+func (g *Galaxy) newValWithStat(data []byte, kStats *keyStats) valWithStat {
 	if kStats == nil {
-		kStats = &keyStats{dampedQPS{period: time.Second}}
+		kStats = &keyStats{
+			dQPS: windowedAvgQPS{
+				trackEpoch: g.now(),
+				lastRef:    g.now(),
+				count:      0,
+			},
+		}
 	}
 
 	return valWithStat{
@@ -68,69 +74,69 @@ func newValWithStat(data []byte, kStats *keyStats) valWithStat {
 	}
 }
 
-func (k *keyStats) val() float64 {
-	return k.dQPS.val(time.Now())
+func (k *keyStats) val(now time.Duration) (int64, float64) {
+	return k.dQPS.val(now)
 }
 
-func (k *keyStats) touch() {
-	k.dQPS.touch(time.Now())
+func (k *keyStats) touch(resetIdleAge, now time.Duration) {
+	k.dQPS.touch(resetIdleAge, now)
 }
 
-// dampedQPS is an average that recombines the current state with the previous.
-type dampedQPS struct {
-	mu      sync.Mutex
-	period  time.Duration
-	t       time.Time
-	curDQPS float64
-	count   float64
+type windowedAvgQPS struct {
+	// time used for the denominator of the calculation
+	// measured relative to the galaxy baseTime
+	trackEpoch time.Duration
+
+	// last time the count was updated
+	lastRef time.Duration
+
+	count int64
+
+	// protects all above
+	mu sync.Mutex
 }
 
-// must be between 0 and 1, the fraction of the new value that comes from
-// current rather than previous.
-// if `samples` is the number of samples into the damped weighted average you
-// want to maximize the fraction of the contribution after; x is the damping
-// constant complement (this way we don't have to multiply out (1-x) ^ samples)
-// f(x) = (1 - x) * x ^ samples = x ^samples - x ^(samples + 1)
-// f'(x) = samples * x ^ (samples - 1) - (samples + 1) * x ^ samples
-// this yields a critical point at x = (samples - 1) / samples
-const dampingConstant = (1.0 / 30.0) // 30 seconds (30 samples at a 1s interval)
-const dampingConstantComplement = 1.0 - dampingConstant
+func (a *windowedAvgQPS) touch(resetIdleAge, now time.Duration) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 
-func (d *dampedQPS) touch(now time.Time) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.maybeFlush(now)
-	d.count++
-}
-
-// d.mu must be held when calling maybeFlush (otherwise racy)
-func (d *dampedQPS) maybeFlush(now time.Time) {
-	if d.t.IsZero() {
-		d.t = now
+	// if the last touch was longer ago than resetIdleAge, pretend this is
+	// a new entry.
+	// This protects against the case where an entry manages to hang in the
+	// cache while idle but only gets hit hard periodically.
+	if now-a.lastRef > resetIdleAge {
+		a.trackEpoch = now
+		a.lastRef = now
+		a.count = 1
 		return
 	}
-	if now.Sub(d.t) < d.period {
-		return
+
+	if a.lastRef < now {
+		// another goroutine may have grabbed a later "now" value
+		// before acquiring this lock before this one.
+		// Try not to let the timestamp go backwards due to races.
+		a.lastRef = now
 	}
-	curDQPS, cur := d.curDQPS, d.count
-	exponent := math.Floor(float64(now.Sub(d.t))/float64(d.period)) - 1
-	d.curDQPS = ((dampingConstant * cur) + (dampingConstantComplement * curDQPS)) * math.Pow(dampingConstantComplement, exponent)
-	d.count = 0
-	d.t = now
+	a.count++
 }
 
-func (d *dampedQPS) val(now time.Time) float64 {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.maybeFlush(now)
-	return d.curDQPS
+func (a *windowedAvgQPS) val(now time.Duration) (int64, float64) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	age := now - a.trackEpoch
+
+	// Set a small minimum interval so one request that was super-recent
+	// doesn't give a huge rate.
+	const minInterval = 100 * time.Millisecond
+	if age < minInterval {
+		age = minInterval
+	}
+	return a.count, float64(a.count) / age.Seconds()
 }
 
 func (g *Galaxy) addNewToCandidateCache(key string) *keyStats {
 	kStats := &keyStats{
-		dQPS: dampedQPS{
-			period: time.Second,
-		},
+		dQPS: windowedAvgQPS{trackEpoch: g.now()},
 	}
 
 	g.candidateCache.addToCandidateCache(key, kStats)

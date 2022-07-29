@@ -35,6 +35,8 @@ import (
 	"github.com/vimeo/galaxycache/promoter"
 	"github.com/vimeo/galaxycache/singleflight"
 
+	"github.com/vimeo/go-clocks"
+
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
 	"go.opencensus.io/trace"
@@ -142,21 +144,26 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 	}
 
 	gOpts := galaxyOpts{
-		promoter:      &promoter.DefaultPromoter{},
-		hcRatio:       8, // default hotcache size is 1/8th of cacheBytes
-		maxCandidates: 100,
+		promoter:          &promoter.DefaultPromoter{},
+		hcRatio:           8, // default hotcache size is 1/8th of cacheBytes
+		maxCandidates:     100,
+		clock:             clocks.DefaultClock(),
+		resetIdleStatsAge: time.Minute,
 	}
 	for _, opt := range opts {
 		opt.apply(&gOpts)
 	}
 	g := &Galaxy{
-		name:           name,
-		getter:         getter,
-		peerPicker:     universe.peerPicker,
-		cacheBytes:     cacheBytes,
-		mainCache:      newCache(MainCache),
-		hotCache:       newCache(HotCache),
-		candidateCache: newCandidateCache(gOpts.maxCandidates),
+		name:              name,
+		getter:            getter,
+		peerPicker:        universe.peerPicker,
+		cacheBytes:        cacheBytes,
+		mainCache:         newCache(MainCache),
+		hotCache:          newCache(HotCache),
+		candidateCache:    newCandidateCache(gOpts.maxCandidates),
+		baseTime:          gOpts.clock.Now(),
+		resetIdleStatsAge: gOpts.resetIdleStatsAge,
+		clock:             gOpts.clock,
 		hcStatsWithTime: HCStatsWithTime{
 			hcs: &promoter.HCStats{
 				HCCapacity: cacheBytes / gOpts.hcRatio,
@@ -241,6 +248,16 @@ type Galaxy struct {
 
 	opts galaxyOpts
 
+	baseTime time.Time
+
+	// Time that must elapse without any touches to a key before we clear
+	// its stats with the next touch.
+	// This protects intermittently hot keys from having very low qps
+	// calculations during a traffic burst.
+	resetIdleStatsAge time.Duration
+
+	clock clocks.Clock
+
 	_ int32 // force Stats to be 8-byte aligned on 32-bit platforms
 
 	// Stats are statistics on the galaxy.
@@ -248,6 +265,11 @@ type Galaxy struct {
 
 	// pointer to the parent universe that created this galaxy
 	parent *Universe
+}
+
+// now returns the current time relative to the baseTime
+func (g *Galaxy) now() time.Duration {
+	return g.clock.Now().Sub(g.baseTime)
 }
 
 // GalaxyOption is an interface for implementing functional galaxy options
@@ -258,9 +280,11 @@ type GalaxyOption interface {
 // galaxyOpts contains optional fields for the galaxy (each with a default
 // value if not set)
 type galaxyOpts struct {
-	promoter      promoter.Interface
-	hcRatio       int64
-	maxCandidates int
+	promoter          promoter.Interface
+	hcRatio           int64
+	maxCandidates     int
+	clock             clocks.Clock
+	resetIdleStatsAge time.Duration
 }
 
 type funcGalaxyOption func(*galaxyOpts)
@@ -295,6 +319,23 @@ func WithHotCacheRatio(r int64) GalaxyOption {
 func WithMaxCandidates(n int) GalaxyOption {
 	return newFuncGalaxyOption(func(g *galaxyOpts) {
 		g.maxCandidates = n
+	})
+}
+
+// WithClock lets one override the clock used internally for key-stats
+// accounting (among other things).
+func WithClock(clk clocks.Clock) GalaxyOption {
+	return newFuncGalaxyOption(func(g *galaxyOpts) {
+		g.clock = clk
+	})
+}
+
+// WithIdleStatsAgeResetWindow overrides the default interval after which a key
+// that's been idle for a while gets its stats reset (such that that hit is
+// recorded as if it were the first).
+func WithIdleStatsAgeResetWindow(age time.Duration) GalaxyOption {
+	return newFuncGalaxyOption(func(g *galaxyOpts) {
+		g.resetIdleStatsAge = age
 	})
 }
 
@@ -418,7 +459,7 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 
 	if hlvl.isHit() {
 		span.Annotatef([]trace.Attribute{trace.BoolAttribute("cache_hit", true)}, "Cache hit in %s", hlvl)
-		value.stats.touch()
+		value.stats.touch(g.resetIdleStatsAge, g.now())
 		g.recordRequest(ctx, hlvl, false)
 		g.recordStats(ctx, nil, MValueLength.M(int64(len(value.data))))
 		return dest.UnmarshalBinary(value.data)
@@ -436,7 +477,7 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 		g.recordStats(ctx, nil, MLoadErrors.M(1))
 		return err
 	}
-	value.stats.touch()
+	value.stats.touch(g.resetIdleStatsAge, g.now())
 	g.recordStats(ctx, nil, MValueLength.M(int64(len(value.data))))
 	if destPopulated {
 		return nil
@@ -520,7 +561,7 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value valWit
 		g.Stats.CoalescedBackendLoads.Add(1)
 		g.recordStats(ctx, nil, MCoalescedBackendLoads.M(1))
 		destPopulated = true // only one caller of load gets this return value
-		value = newValWithStat(data, nil)
+		value = g.newValWithStat(data, nil)
 		g.populateCache(ctx, key, value, &g.mainCache)
 		return &valWithLevel{value, hitBackend, authoritative, peerErr, err}, nil
 	})
@@ -549,15 +590,22 @@ func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string
 	kStats, ok := g.candidateCache.get(key)
 	if !ok {
 		kStats = g.addNewToCandidateCache(key)
+		// NB: we do not touch() kStats here because that's reserved
+		//     for code outside the singleflight block.
+		// This has the advantageous effect of guaranteeing that
+		// hitCount is 0 if it's a new key, thus making it easy for a
+		// promoter to distinguish a new key.
 	}
 
 	g.maybeUpdateHotCacheStats() // will update if at least a second has passed since the last update
 
+	hitCount, keyQPS := kStats.val(g.now())
 	stats := promoter.Stats{
-		KeyQPS:  kStats.val(),
+		KeyQPS:  keyQPS,
+		Hits:    hitCount,
 		HCStats: g.hcStatsWithTime.hcs,
 	}
-	value := newValWithStat(data, kStats)
+	value := g.newValWithStat(data, kStats)
 	if g.opts.promoter.ShouldPromote(key, value.data, stats) {
 		g.populateCache(ctx, key, value, &g.hotCache)
 	}

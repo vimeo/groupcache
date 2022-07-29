@@ -30,7 +30,12 @@ type HCStats struct {
 // Stats contains both the KeyQPS and a pointer to the galaxy-wide
 // HCStats
 type Stats struct {
-	KeyQPS  float64
+	// Request-rate for this key (possibly with some windowing applied)
+	KeyQPS float64
+	// Number of hits for this key (also possibly with some windowing applied)
+	// This will be zero if there is no record of this key (not seen before
+	// or tracking expired)
+	Hits    int64
 	HCStats *HCStats
 }
 
