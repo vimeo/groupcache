@@ -31,8 +31,11 @@ type Cache struct {
 	// executed when an entry is purged from the cache.
 	OnEvicted func(key Key, value interface{})
 
-	ll    *list.List
+	// cache comes first so the GC enqueues marking the map-contents first
+	// (which will mark the contents of the linked-list much more
+	// efficiently than traversing the linked-list directly)
 	cache map[interface{}]*list.Element
+	ll    *list.List
 }
 
 // A Key may be any value that is comparable. See http://golang.org/ref/spec#Comparison_operators
