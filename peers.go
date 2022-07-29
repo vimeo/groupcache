@@ -138,7 +138,7 @@ func (pp *PeerPicker) shutdown() error {
 		}
 	}
 	if len(errs) > 0 {
-		return fmt.Errorf("Failed to close: %v", errs)
+		return fmt.Errorf("failed to close: %v", errs)
 	}
 	return nil
 }

@@ -133,7 +133,7 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 		panic("nil Getter")
 	}
 	if nameErr := isNameValid(name); nameErr != nil {
-		panic(fmt.Errorf("Invalid galaxy name: %s", nameErr))
+		panic(fmt.Errorf("invalid galaxy name: %s", nameErr))
 	}
 
 	universe.mu.Lock()
@@ -438,7 +438,7 @@ func (g *Galaxy) recordRequest(ctx context.Context, h hitLevel, localAuthoritati
 func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 	ctx, tagErr := tag.New(ctx, tag.Upsert(GalaxyKey, g.name))
 	if tagErr != nil {
-		panic(fmt.Errorf("Error tagging context: %s", tagErr))
+		panic(fmt.Errorf("error tagging context: %s", tagErr))
 	}
 
 	ctx, span := trace.StartSpan(ctx, "galaxycache.(*Galaxy).Get on "+g.name)
