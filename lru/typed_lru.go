@@ -29,8 +29,11 @@ type TypedCache[K comparable, V any] struct {
 	// executed when an typedEntry is purged from the cache.
 	OnEvicted func(key K, value V)
 
-	ll    linkedList[typedEntry[K, V]]
+	// cache comes first so the GC enqueues marking the map-contents first
+	// (which will mark the contents of the linked-list much more
+	// efficiently than traversing the linked-list directly)
 	cache map[K]*llElem[typedEntry[K, V]]
+	ll    linkedList[typedEntry[K, V]]
 }
 
 type typedEntry[K comparable, V any] struct {
