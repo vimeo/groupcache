@@ -28,13 +28,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"sync"
-	"sync/atomic"
 	"time"
 	"unsafe"
 
-	"github.com/vimeo/galaxycache/lru"
 	"github.com/vimeo/galaxycache/promoter"
 	"github.com/vimeo/galaxycache/singleflight"
 
@@ -153,22 +150,13 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 		opt.apply(&gOpts)
 	}
 	g := &Galaxy{
-		name:       name,
-		getter:     getter,
-		peerPicker: universe.peerPicker,
-		cacheBytes: cacheBytes,
-		mainCache: cache{
-			ctype: MainCache,
-			lru:   lru.New(0),
-		},
-		hotCache: cache{
-			ctype: HotCache,
-			lru:   lru.New(0),
-		},
-		candidateCache: cache{
-			ctype: CandidateCache,
-			lru:   lru.New(gOpts.maxCandidates),
-		},
+		name:           name,
+		getter:         getter,
+		peerPicker:     universe.peerPicker,
+		cacheBytes:     cacheBytes,
+		mainCache:      newCache(MainCache),
+		hotCache:       newCache(HotCache),
+		candidateCache: newCandidateCache(gOpts.maxCandidates),
 		hcStatsWithTime: HCStatsWithTime{
 			hcs: &promoter.HCStats{
 				HCCapacity: cacheBytes / gOpts.hcRatio,
@@ -178,9 +166,6 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 	}
 	g.mainCache.setLRUOnEvicted(nil)
 	g.hotCache.setLRUOnEvicted(g.candidateCache.addToCandidateCache)
-	g.candidateCache.lru.OnEvicted = func(key lru.Key, value interface{}) {
-		g.candidateCache.nevict++
-	}
 	g.parent = universe
 
 	universe.galaxies[name] = g
@@ -245,7 +230,7 @@ type Galaxy struct {
 	// of key/value pairs that can be stored globally.
 	hotCache cache
 
-	candidateCache cache
+	candidateCache candidateCache
 
 	hcStatsWithTime HCStatsWithTime
 
@@ -460,7 +445,7 @@ func (g *Galaxy) Get(ctx context.Context, key string, dest Codec) error {
 }
 
 type valWithLevel struct {
-	val                *valWithStat
+	val                valWithStat
 	level              hitLevel
 	localAuthoritative bool
 	peerErr            error
@@ -468,7 +453,7 @@ type valWithLevel struct {
 }
 
 // load loads key either by invoking the getter locally or by sending it to another machine.
-func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value *valWithStat, destPopulated bool, err error) {
+func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value valWithStat, destPopulated bool, err error) {
 	g.Stats.Loads.Add(1)
 	g.recordStats(ctx, nil, MLoads.M(1))
 
@@ -556,19 +541,18 @@ func (g *Galaxy) getLocally(ctx context.Context, key string, dest Codec) ([]byte
 	return dest.MarshalBinary()
 }
 
-func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string) (*valWithStat, error) {
+func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string) (valWithStat, error) {
 	data, err := peer.Fetch(ctx, g.name, key)
 	if err != nil {
-		return nil, err
+		return valWithStat{}, err
 	}
-	vi, ok := g.candidateCache.get(key)
+	kStats, ok := g.candidateCache.get(key)
 	if !ok {
-		vi = g.addNewToCandidateCache(key)
+		kStats = g.addNewToCandidateCache(key)
 	}
 
 	g.maybeUpdateHotCacheStats() // will update if at least a second has passed since the last update
 
-	kStats := vi.(*keyStats)
 	stats := promoter.Stats{
 		KeyQPS:  kStats.val(),
 		HCStats: g.hcStatsWithTime.hcs,
@@ -580,23 +564,23 @@ func (g *Galaxy) getFromPeer(ctx context.Context, peer RemoteFetcher, key string
 	return value, nil
 }
 
-func (g *Galaxy) lookupCache(key string) (*valWithStat, hitLevel) {
+func (g *Galaxy) lookupCache(key string) (valWithStat, hitLevel) {
 	if g.cacheBytes <= 0 {
-		return nil, miss
+		return valWithStat{}, miss
 	}
 	vi, ok := g.mainCache.get(key)
 	if ok {
-		return vi.(*valWithStat), hitMaincache
+		return vi, hitMaincache
 	}
 	vi, ok = g.hotCache.get(key)
 	if !ok {
-		return nil, miss
+		return valWithStat{}, miss
 	}
 	g.Stats.HotcacheHits.Add(1)
-	return vi.(*valWithStat), hitHotcache
+	return vi, hitHotcache
 }
 
-func (g *Galaxy) populateCache(ctx context.Context, key string, value *valWithStat, cache *cache) {
+func (g *Galaxy) populateCache(ctx context.Context, key string, value valWithStat, cache *cache) {
 	if g.cacheBytes <= 0 {
 		return
 	}
@@ -661,22 +645,11 @@ func (g *Galaxy) CacheStats(which CacheType) CacheStats {
 	case HotCache:
 		return g.hotCache.stats()
 	case CandidateCache:
-		return g.candidateCache.stats()
+		// not worth tracking this for the CandidateCache
+		return CacheStats{}
 	default:
 		return CacheStats{}
 	}
-}
-
-// cache is a wrapper around an *lru.Cache that adds synchronization
-// and counts the size of all keys and values. Candidate cache only
-// utilizes the lru.Cache and mutex, not the included stats.
-type cache struct {
-	mu         sync.Mutex
-	nbytes     int64 // of all keys and values
-	lru        *lru.Cache
-	nhit, nget int64
-	nevict     int64 // number of evictions
-	ctype      CacheType
 }
 
 func (c *cache) stats() CacheStats {
@@ -699,42 +672,19 @@ type valWithStat struct {
 // sizeOfValWithStats returns the total size of the value in the hot/main
 // cache, including the data, key stats, and a pointer to the val itself
 func (v *valWithStat) size() int64 {
+	const statsSize = int64(unsafe.Sizeof(*v.stats))
+	const ptrSize = int64(unsafe.Sizeof(v))
+	const vwsSize = int64(unsafe.Sizeof(*v))
 	// using cap() instead of len() for data leads to inconsistency
 	// after unmarshaling/marshaling the data
-	return int64(unsafe.Sizeof(*v.stats)) + int64(len(v.data)) + int64(unsafe.Sizeof(v)) + int64(unsafe.Sizeof(*v))
+	return statsSize + ptrSize + vwsSize + int64(len(v.data))
 }
 
-func (c *cache) setLRUOnEvicted(f func(key string, kStats *keyStats)) {
-	c.lru.OnEvicted = func(key lru.Key, value interface{}) {
-		val := value.(*valWithStat)
-		c.nbytes -= int64(len(key.(string))) + val.size()
-		c.nevict++
-		if f != nil {
-			f(key.(string), val.stats)
-		}
-	}
-}
-
-func (c *cache) add(key string, value *valWithStat) {
+func (c *cache) add(key string, value valWithStat) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.lru.Add(key, value)
 	c.nbytes += int64(len(key)) + value.size()
-}
-
-func (c *cache) get(key string) (vi interface{}, ok bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.nget++
-	if c.lru == nil {
-		return
-	}
-	vi, ok = c.lru.Get(key)
-	if !ok {
-		return
-	}
-	c.nhit++
-	return vi, true
 }
 
 func (c *cache) removeOldest() {
@@ -763,23 +713,6 @@ func (c *cache) itemsLocked() int64 {
 		return 0
 	}
 	return int64(c.lru.Len())
-}
-
-// An AtomicInt is an int64 to be accessed atomically.
-type AtomicInt int64
-
-// Add atomically adds n to i.
-func (i *AtomicInt) Add(n int64) {
-	atomic.AddInt64((*int64)(i), n)
-}
-
-// Get atomically gets the value of i.
-func (i *AtomicInt) Get() int64 {
-	return atomic.LoadInt64((*int64)(i))
-}
-
-func (i *AtomicInt) String() string {
-	return strconv.FormatInt(i.Get(), 10)
 }
 
 // CacheStats are returned by stats accessors on Galaxy.
