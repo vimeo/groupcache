@@ -146,7 +146,7 @@ func (universe *Universe) NewGalaxy(name string, cacheBytes int64, getter Backen
 	gOpts := galaxyOpts{
 		promoter:          &promoter.DefaultPromoter{},
 		hcRatio:           8, // default hotcache size is 1/8th of cacheBytes
-		maxCandidates:     100,
+		maxCandidates:     1024,
 		clock:             clocks.DefaultClock(),
 		resetIdleStatsAge: time.Minute,
 	}
