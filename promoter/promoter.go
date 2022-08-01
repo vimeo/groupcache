@@ -30,7 +30,12 @@ type HCStats struct {
 // Stats contains both the KeyQPS and a pointer to the galaxy-wide
 // HCStats
 type Stats struct {
-	KeyQPS  float64
+	// Request-rate for this key (possibly with some windowing applied)
+	KeyQPS float64
+	// Number of hits for this key (also possibly with some windowing applied)
+	// This will be zero if there is no record of this key (not seen before
+	// or tracking expired)
+	Hits    int64
 	HCStats *HCStats
 }
 
@@ -69,4 +74,16 @@ type DefaultPromoter struct{}
 // the hotcache
 func (p *DefaultPromoter) ShouldPromote(key string, data []byte, stats Stats) bool {
 	return stats.KeyQPS >= stats.HCStats.LeastRecentQPS
+}
+
+// PreviouslyKnownPromoter implements Promoter and promotes the given key if
+// the key has been seen before (was previously present in the candidate cache).
+type PreviouslyKnownPromoter struct{}
+
+// ShouldPromote for the PreviouslyKnownPromoter promotes if the Hits value is
+// non-zero, indicating that the key has been seen before.
+func (p *PreviouslyKnownPromoter) ShouldPromote(key string, data []byte, stats Stats) bool {
+	// stats.Hits is explicitly documented to be zero if this is the first
+	// hit for the key (that this Galaxy knows of)
+	return stats.Hits > 0
 }
