@@ -704,3 +704,71 @@ func TestRecorder(t *testing.T) {
 		t.Errorf("expected 1 row, got %d", len(rows))
 	}
 }
+
+func BenchmarkGetsSerialOneKey(b *testing.B) {
+	b.ReportAllocs()
+
+	ctx := context.Background()
+
+	u := NewUniverse(&NullFetchProtocol{}, "test")
+
+	const testKey = "somekey"
+	const testVal = "testval"
+	g := u.NewGalaxy("testgalaxy", 1024, GetterFunc(func(_ context.Context, key string, dest Codec) error {
+		return dest.UnmarshalBinary([]byte(testVal))
+	}))
+
+	cd := ByteCodec{}
+	b.ResetTimer()
+
+	for z := 0; z < b.N; z++ {
+		g.Get(ctx, testKey, &cd)
+	}
+
+}
+
+func BenchmarkGetsSerialManyKeys(b *testing.B) {
+	b.ReportAllocs()
+
+	ctx := context.Background()
+
+	u := NewUniverse(&NullFetchProtocol{}, "test")
+
+	const testVal = "testval"
+	g := u.NewGalaxy("testgalaxy", 1024, GetterFunc(func(_ context.Context, key string, dest Codec) error {
+		return dest.UnmarshalBinary([]byte(testVal))
+	}))
+
+	cd := ByteCodec{}
+	b.ResetTimer()
+
+	for z := 0; z < b.N; z++ {
+		k := "zzzz" + strconv.Itoa(z&0xffff)
+
+		g.Get(ctx, k, &cd)
+	}
+}
+
+func BenchmarkGetsParallelManyKeys(b *testing.B) {
+	b.ReportAllocs()
+
+	ctx := context.Background()
+
+	u := NewUniverse(&NullFetchProtocol{}, "test")
+
+	const testVal = "testval"
+	g := u.NewGalaxy("testgalaxy", 1024, GetterFunc(func(_ context.Context, key string, dest Codec) error {
+		return dest.UnmarshalBinary([]byte(testVal))
+	}))
+
+	cd := ByteCodec{}
+	b.ResetTimer()
+
+	b.RunParallel(func(pb *testing.PB) {
+		for z := 0; pb.Next(); z++ {
+			k := "zzzz" + strconv.Itoa(z&0xffff)
+
+			g.Get(ctx, k, &cd)
+		}
+	})
+}

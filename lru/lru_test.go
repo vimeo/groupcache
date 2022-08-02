@@ -95,3 +95,22 @@ func TestEvict(t *testing.T) {
 		t.Fatalf("got %v in second evicted key; want %s", evictedKeys[1], "myKey1")
 	}
 }
+
+func BenchmarkGetAllHits(b *testing.B) {
+	b.ReportAllocs()
+	type complexStruct struct {
+		a, b, c, d, e, f int64
+		k, l, m, n, o, p float64
+	}
+	// Populate the cache
+	l := New(32)
+	for z := 0; z < 32; z++ {
+		l.Add(z, &complexStruct{a: int64(z)})
+	}
+
+	b.ResetTimer()
+	for z := 0; z < b.N; z++ {
+		// take the lower 5 bits as mod 32 so we always hit
+		l.Get(z & 31)
+	}
+}
