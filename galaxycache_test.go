@@ -774,6 +774,51 @@ func BenchmarkGetsParallelManyKeys(b *testing.B) {
 	})
 }
 
+func TestGetsParallelManyKeysWithGoroutines(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode")
+	}
+	t.Parallel()
+	const N = 1 << 19
+	// Traverse the powers of two
+	for mul := 1; mul < 8; mul <<= 1 {
+		t.Run(strconv.Itoa(mul), func(b *testing.T) {
+
+			ctx := context.Background()
+
+			u := NewUniverse(&NullFetchProtocol{}, "test")
+
+			const testVal = "testval"
+			g := u.NewGalaxy("testgalaxy", 1024, GetterFunc(func(_ context.Context, key string, dest Codec) error {
+				return dest.UnmarshalBinary([]byte(testVal))
+			}))
+
+			gmp := runtime.GOMAXPROCS(-1)
+
+			grs := gmp * mul
+
+			iters := N / grs
+
+			wg := sync.WaitGroup{}
+
+			for gr := 0; gr < grs; gr++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					cd := ByteCodec{}
+					for z := 0; z < iters; z++ {
+						k := "zzzz" + strconv.Itoa(z&0x1fff)
+
+						g.Get(ctx, k, &cd)
+					}
+				}()
+			}
+			wg.Wait()
+
+		})
+	}
+}
+
 func BenchmarkGetsParallelManyKeysWithGoroutines(b *testing.B) {
 	// Traverse the powers of two
 	for mul := 1; mul < 128; mul <<= 1 {
