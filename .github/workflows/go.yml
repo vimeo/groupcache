@@ -7,7 +7,7 @@ jobs:
     strategy:
       matrix:
         os: [macOS-latest, ubuntu-latest]
-        goversion: [1.17, 1.18, '1.19.0-rc.2']
+        goversion: [1.17, 1.18, '1.19']
     steps:
       - name: Set up Go ${{matrix.goversion}} on ${{matrix.os}}
         uses: actions/setup-go@v3
