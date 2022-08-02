@@ -77,6 +77,9 @@ func (l *linkedList[T]) MoveToFront(e *llElem[T]) {
 	if l.tail == e {
 		l.tail = e.prev
 	}
+	e.next = l.head
+	l.head = e
+	e.prev = nil
 }
 
 func (l *linkedList[T]) Remove(e *llElem[T]) {
