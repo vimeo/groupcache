@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -771,4 +772,47 @@ func BenchmarkGetsParallelManyKeys(b *testing.B) {
 			g.Get(ctx, k, &cd)
 		}
 	})
+}
+
+func BenchmarkGetsParallelManyKeysWithGoroutines(b *testing.B) {
+	// Traverse the powers of two
+	for mul := 1; mul < 128; mul <<= 1 {
+		b.Run(strconv.Itoa(mul), func(b *testing.B) {
+			b.ReportAllocs()
+
+			ctx := context.Background()
+
+			u := NewUniverse(&NullFetchProtocol{}, "test")
+
+			const testVal = "testval"
+			g := u.NewGalaxy("testgalaxy", 1024, GetterFunc(func(_ context.Context, key string, dest Codec) error {
+				return dest.UnmarshalBinary([]byte(testVal))
+			}))
+
+			gmp := runtime.GOMAXPROCS(-1)
+
+			grs := gmp * mul
+
+			iters := b.N / grs
+
+			wg := sync.WaitGroup{}
+
+			b.ResetTimer()
+
+			for gr := 0; gr < grs; gr++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					cd := ByteCodec{}
+					for z := 0; z < iters; z++ {
+						k := "zzzz" + strconv.Itoa(z&0xffff)
+
+						g.Get(ctx, k, &cd)
+					}
+				}()
+			}
+			wg.Wait()
+
+		})
+	}
 }
