@@ -53,7 +53,7 @@ func (c *candidateCache) get(key string) (*keyStats, bool) {
 type cache struct {
 	mu         sync.Mutex
 	lru        *lru.TypedCache[string, valWithStat]
-	nbytes     int64 // of all keys and values
+	nbytes     AtomicInt // of all keys and values
 	nhit, nget int64
 	nevict     int64 // number of evictions
 	ctype      CacheType
@@ -69,7 +69,7 @@ func newCache(kind CacheType) cache {
 func (c *cache) setLRUOnEvicted(f func(key string, kStats *keyStats)) {
 	c.lru.OnEvicted = func(key string, value valWithStat) {
 		val := value
-		c.nbytes -= int64(len(key)) + val.size()
+		c.nbytes.Add(-(int64(len(key)) + val.size()))
 		c.nevict++
 		if f != nil {
 			f(key, val.stats)

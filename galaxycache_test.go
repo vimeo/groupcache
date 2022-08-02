@@ -388,8 +388,8 @@ func TestNoDedup(t *testing.T) {
 	testKStats := keyStats{dQPS: windowedAvgQPS{}}
 	testvws := g.newValWithStat([]byte(testval), &testKStats)
 	wantBytes := int64(len(testkey)) + testvws.size()
-	if g.mainCache.nbytes != wantBytes {
-		t.Errorf("cache has %d bytes, want %d", g.mainCache.nbytes, wantBytes)
+	if g.mainCache.nbytes.Get() != wantBytes {
+		t.Errorf("cache has %d bytes, want %d", g.mainCache.nbytes.Get(), wantBytes)
 	}
 }
 
