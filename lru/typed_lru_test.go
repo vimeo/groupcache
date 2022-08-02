@@ -82,6 +82,14 @@ func TestTypedEvict(t *testing.T) {
 	if evictedKeys[1] != Key("myKey1") {
 		t.Fatalf("got %v in second evicted key; want %s", evictedKeys[1], "myKey1")
 	}
+	// move 9 and 10 to the head
+	lru.Get("myKey10")
+	lru.Get("myKey9")
+	// add another few keys to evict the the others
+	for i := 22; i < 32; i++ {
+		lru.Add(fmt.Sprintf("myKey%d", i), 1234)
+	}
+
 }
 
 func BenchmarkTypedGetAllHits(b *testing.B) {
