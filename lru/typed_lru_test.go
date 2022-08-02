@@ -82,4 +82,50 @@ func TestTypedEvict(t *testing.T) {
 	if evictedKeys[1] != Key("myKey1") {
 		t.Fatalf("got %v in second evicted key; want %s", evictedKeys[1], "myKey1")
 	}
+	// move 9 and 10 to the head
+	lru.Get("myKey10")
+	lru.Get("myKey9")
+	// add another few keys to evict the the others
+	for i := 22; i < 32; i++ {
+		lru.Add(fmt.Sprintf("myKey%d", i), 1234)
+	}
+
+}
+
+func BenchmarkTypedGetAllHits(b *testing.B) {
+	b.ReportAllocs()
+	type complexStruct struct {
+		a, b, c, d, e, f int64
+		k, l, m, n, o, p float64
+	}
+	// Populate the cache
+	l := TypedNew[int, complexStruct](32)
+	for z := 0; z < 32; z++ {
+		l.Add(z, complexStruct{a: int64(z)})
+	}
+
+	b.ResetTimer()
+	for z := 0; z < b.N; z++ {
+		// take the lower 5 bits as mod 32 so we always hit
+		l.Get(z & 31)
+	}
+}
+
+func BenchmarkTypedGetHalfHits(b *testing.B) {
+	b.ReportAllocs()
+	type complexStruct struct {
+		a, b, c, d, e, f int64
+		k, l, m, n, o, p float64
+	}
+	// Populate the cache
+	l := TypedNew[int, complexStruct](32)
+	for z := 0; z < 32; z++ {
+		l.Add(z, complexStruct{a: int64(z)})
+	}
+
+	b.ResetTimer()
+	for z := 0; z < b.N; z++ {
+		// take the lower 4 bits as mod 16 shifted left by 1 to
+		l.Get((z&15)<<1 | z&16>>4 | z&1<<4)
+	}
 }

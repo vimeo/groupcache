@@ -7,7 +7,7 @@ jobs:
     strategy:
       matrix:
         os: [macOS-latest, ubuntu-latest]
-        goversion: [1.17, 1.18, '1.19.0-rc.2']
+        goversion: [1.17, 1.18, '1.19']
     steps:
       - name: Set up Go ${{matrix.goversion}} on ${{matrix.os}}
         uses: actions/setup-go@v3
@@ -41,3 +41,12 @@ jobs:
         env:
           GO111MODULE: on
         run: go test -race -mod=readonly -count 2 ./...
+
+        # Run all the tests with the paranoid linked-list checks enabled
+      - name: Race Test Paranoid LinkedList
+        env:
+          GO111MODULE: on
+        run: |
+          sed -e 's/const paranoidLL = false/const paranoidLL = true/' < lru/typed_ll.go > lru/typed_ll.go.new
+          mv lru/typed_ll.go.new lru/typed_ll.go
+          go test -race -mod=readonly -count 2 ./...
