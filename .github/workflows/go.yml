@@ -19,6 +19,7 @@ jobs:
         uses: actions/checkout@v1
 
       - name: gofmt
+        if: ${{matrix.goversion == '1.19'}}
         run: |
           [[ -z  $(gofmt -l $(find . -name '*.go') ) ]]
 
