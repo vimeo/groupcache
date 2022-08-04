@@ -704,7 +704,7 @@ func (c *cache) stats() CacheStats {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return CacheStats{
-		Bytes:     c.nbytes,
+		Bytes:     c.nbytes.Get(),
 		Items:     c.itemsLocked(),
 		Gets:      c.nget,
 		Hits:      c.nhit,
@@ -732,7 +732,7 @@ func (c *cache) add(key string, value valWithStat) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.lru.Add(key, value)
-	c.nbytes += int64(len(key)) + value.size()
+	c.nbytes.Add(int64(len(key)) + value.size())
 }
 
 func (c *cache) removeOldest() {
@@ -745,9 +745,7 @@ func (c *cache) removeOldest() {
 }
 
 func (c *cache) bytes() int64 {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.nbytes
+	return c.nbytes.Get()
 }
 
 func (c *cache) items() int64 {
