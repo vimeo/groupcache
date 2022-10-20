@@ -62,7 +62,19 @@ func (m *Map) Add(keys ...string) {
 		m.keys[key] = struct{}{}
 		for i := 0; i < m.segsPerKey; i++ {
 			hash := m.hash([]byte(strconv.Itoa(i) + key))
-			m.keyHashes = append(m.keyHashes, hash)
+			// If there's a collision on a "replica" (segment-boundary), we only want
+			// the entry that sorts latest to get inserted (not the last one we saw).
+			//
+			// It doesn't matter how we reconcile collisions (the smallest would work
+			// just as well), we just need it to be insertion-order independent so all
+			// instances converge on the same hashmap.
+			if extKey, ok := m.hashMap[hash]; !ok {
+				// Only add another member for this hash-value if there shouldn't be
+				// one there already.
+				m.keyHashes = append(m.keyHashes, hash)
+			} else if extKey >= key {
+				continue
+			}
 			m.hashMap[hash] = key
 		}
 	}
