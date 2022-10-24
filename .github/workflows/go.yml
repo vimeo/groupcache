@@ -43,6 +43,13 @@ jobs:
           GO111MODULE: on
         run: go test -race -mod=readonly -count 2 ./...
 
+        # Run all consistenthash Fuzz tests for 30s with go 1.19
+      - name: Fuzz Consistent-Hash
+        if: ${{matrix.goversion == '1.19'}}
+        env:
+          GO111MODULE: on
+        run: go test -fuzz=. -fuzztime=30s ./consistenthash
+
         # Run all the tests with the paranoid linked-list checks enabled
       - name: Race Test Paranoid LinkedList
         env:
