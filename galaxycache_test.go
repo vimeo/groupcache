@@ -45,7 +45,7 @@ const (
 )
 
 func initSetup() (*Universe, context.Context, chan string) {
-	return NewUniverse(&TestProtocol{}, "test"), context.TODO(), make(chan string)
+	return NewUniverse(&TestProtocol{TestFetchers: map[string]*TestFetcher{}}, "test"), context.TODO(), make(chan string)
 }
 
 func setupStringGalaxyTest(cacheFills *AtomicInt) (*Galaxy, context.Context, chan string) {
@@ -222,13 +222,17 @@ func TestPeers(t *testing.T) {
 			numGets:      200,
 			expectedHits: map[string]int{"fetcher0": 50, "fetcher1": 50, "fetcher2": 50, "fetcher3": 50},
 			cacheSize:    1 << 20,
+			initFunc: func(g *Galaxy, fetchers map[string]*TestFetcher) {
+				fetchers["fetcher0"] = &TestFetcher{}
+			},
 		},
 		{
 			testName:     "cached_base",
 			numGets:      200,
 			expectedHits: map[string]int{"fetcher0": 0, "fetcher1": 48, "fetcher2": 47, "fetcher3": 48},
 			cacheSize:    1 << 20,
-			initFunc: func(g *Galaxy, _ map[string]*TestFetcher) {
+			initFunc: func(g *Galaxy, fetchers map[string]*TestFetcher) {
+				fetchers["fetcher0"] = &TestFetcher{}
 				for i := 0; i < 200; i++ {
 					key := fmt.Sprintf("%d", i)
 					var got StringCodec
@@ -246,6 +250,7 @@ func TestPeers(t *testing.T) {
 			expectedHits: map[string]int{"fetcher0": 100, "fetcher1": 50, "fetcher2": 0, "fetcher3": 50},
 			cacheSize:    1 << 20,
 			initFunc: func(g *Galaxy, fetchers map[string]*TestFetcher) {
+				fetchers["fetcher0"] = &TestFetcher{}
 				fetchers["fetcher2"].fail = true
 			},
 		},
@@ -266,7 +271,9 @@ func TestPeers(t *testing.T) {
 			universe := NewUniverseWithOpts(testproto, "fetcher0", hashOpts)
 			dummyCtx := context.TODO()
 
-			universe.Set("fetcher0", "fetcher1", "fetcher2", "fetcher3")
+			if setErr := universe.Set("fetcher0", "fetcher1", "fetcher2", "fetcher3"); setErr != nil {
+				t.Fatalf("failed to set peers on universe: %s", setErr)
+			}
 
 			getter := func(_ context.Context, key string, dest Codec) error {
 				// these are local hits
@@ -688,7 +695,7 @@ func TestRecorder(t *testing.T) {
 	getter := func(_ context.Context, key string, dest Codec) error {
 		return dest.UnmarshalBinary([]byte("got:" + key))
 	}
-	u := NewUniverse(&TestProtocol{}, "test-universe", WithRecorder(meter))
+	u := NewUniverse(&TestProtocol{TestFetchers: map[string]*TestFetcher{}}, "test-universe", WithRecorder(meter))
 	g := u.NewGalaxy("test", 1024, GetterFunc(getter))
 	var s StringCodec
 	err := g.Get(context.Background(), "foo", &s)

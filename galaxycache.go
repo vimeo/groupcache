@@ -96,7 +96,7 @@ type Universe struct {
 // NewUniverse is the main constructor for the Universe object. It is passed a
 // FetchProtocol (to specify fetching via GRPC or HTTP) and its own URL along
 // with options.
-func NewUniverse(protocol FetchProtocol, selfURL string, opts ...UniverseOpt) *Universe {
+func NewUniverse(protocol FetchProtocol, selfID string, opts ...UniverseOpt) *Universe {
 	options := &universeOpts{}
 	for _, opt := range opts {
 		opt(options)
@@ -104,7 +104,7 @@ func NewUniverse(protocol FetchProtocol, selfURL string, opts ...UniverseOpt) *U
 
 	c := &Universe{
 		galaxies:   make(map[string]*Galaxy),
-		peerPicker: newPeerPicker(protocol, selfURL, options.hashOpts),
+		peerPicker: newPeerPicker(protocol, selfID, options.hashOpts),
 		recorder:   options.recorder,
 	}
 
@@ -114,8 +114,8 @@ func NewUniverse(protocol FetchProtocol, selfURL string, opts ...UniverseOpt) *U
 // NewUniverseWithOpts is a deprecated constructor for the Universe object that
 // defines a non-default hash function and number of replicas.  Please use
 // `NewUniverse` with the `WithHashOpts` option instead.
-func NewUniverseWithOpts(protocol FetchProtocol, selfURL string, options *HashOptions) *Universe {
-	return NewUniverse(protocol, selfURL, WithHashOpts(options))
+func NewUniverseWithOpts(protocol FetchProtocol, selfID string, options *HashOptions) *Universe {
+	return NewUniverse(protocol, selfID, WithHashOpts(options))
 }
 
 // NewGalaxy creates a coordinated galaxy-aware BackendGetter from a
@@ -197,7 +197,7 @@ func (universe *Universe) GetGalaxy(name string) *Galaxy {
 // Each PeerURL value should be a valid base URL,
 // for example "example.net:8000".
 func (universe *Universe) Set(peerURLs ...string) error {
-	return universe.peerPicker.set(peerURLs...)
+	return universe.peerPicker.setURLs(peerURLs...)
 }
 
 // Shutdown closes all open fetcher connections
