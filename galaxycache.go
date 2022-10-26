@@ -107,6 +107,8 @@ func NewUniverse(protocol FetchProtocol, selfID string, opts ...UniverseOpt) *Un
 		peerPicker: newPeerPicker(protocol, selfID, options.hashOpts),
 		recorder:   options.recorder,
 	}
+	// Insert the Self-ID into the hash-ring
+	c.peerPicker.set(Peer{ID: selfID, URI: ""})
 
 	return c
 }
@@ -196,8 +198,38 @@ func (universe *Universe) GetGalaxy(name string) *Galaxy {
 // Set updates the Universe's list of peers (contained in the PeerPicker).
 // Each PeerURL value should be a valid base URL,
 // for example "example.net:8000".
+// This is a compatibility wrapper around SetPeers which sets the ID and URI
+// equal.
 func (universe *Universe) Set(peerURLs ...string) error {
 	return universe.peerPicker.setURLs(peerURLs...)
+}
+
+// SetPeers updates the Universe's list of peers (contained in the PeerPicker).
+// Each Peer's URI value should be a valid base URL, while the ID may be anything that's unique,
+// for example "example.net:8000".
+// If Set and SetPeers are mixed, the ID and URI fields must match.
+func (universe *Universe) SetPeers(peers ...Peer) error {
+	return universe.peerPicker.set(peers...)
+}
+
+// AddPeer updates the Universe's list of peers to include the passed peer (contained in the PeerPicker).
+// The Peer's URI value should be a valid base URL, while the ID may be anything that's unique,
+// for example "example.net:8000".
+// If Set and AddPeer are mixed, the ID and URI fields must match.
+func (universe *Universe) AddPeer(peer Peer) error {
+	return universe.peerPicker.add(peer)
+}
+
+// SetIncludeSelf toggles the inclusion of the "self ID" for the universe in the PeerPicker's hash-ring
+func (universe *Universe) SetIncludeSelf(incSelf bool) {
+	universe.peerPicker.setIncludeSelf(incSelf)
+}
+
+// RemovePeers updates the Universe's list of peers to remove the passed peers IDs (contained in the PeerPicker).
+// The arguments should match the ID field on SetPeers and AddPeers calls and the URLs passed to Set.
+// unrecognized IDs are ignored
+func (universe *Universe) RemovePeers(ids ...string) error {
+	return universe.peerPicker.remove(ids...)
 }
 
 // Shutdown closes all open fetcher connections

@@ -169,10 +169,13 @@ func TestCacheEviction(t *testing.T) {
 // Testing types to use in TestPeers
 type TestProtocol struct {
 	TestFetchers map[string]*TestFetcher
+	dialFails    map[string]struct{}
+	mu           sync.Mutex
 }
 type TestFetcher struct {
 	hits int
 	fail bool
+	uri  string
 }
 
 func (fetcher *TestFetcher) Close() error {
@@ -191,6 +194,14 @@ func (proto *TestProtocol) NewFetcher(url string) (RemoteFetcher, error) {
 	newTestFetcher := &TestFetcher{
 		hits: 0,
 		fail: false,
+		uri:  url,
+	}
+	proto.mu.Lock()
+	defer proto.mu.Unlock()
+	if proto.dialFails != nil {
+		if _, fail := proto.dialFails[url]; fail {
+			return nil, errors.New("failing due to predetermined error")
+		}
 	}
 	proto.TestFetchers[url] = newTestFetcher
 	return newTestFetcher, nil

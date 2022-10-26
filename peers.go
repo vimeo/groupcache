@@ -278,6 +278,69 @@ func (pp *PeerPicker) set(peers ...Peer) error {
 	}
 }
 
+func (pp *PeerPicker) checkPeerPresence(peer Peer) bool {
+	pp.mu.RLock()
+	defer pp.mu.RUnlock()
+	_, ok := pp.fetchers[peer.ID]
+	return ok
+}
+
+// returns whether the fetcher was inserted.
+// if false is returned, the caller should close the fetcher.
+func (pp *PeerPicker) insertPeer(peer Peer, fetcher RemoteFetcher) bool {
+	pp.mu.Lock()
+	defer pp.mu.Unlock()
+	_, ok := pp.fetchers[peer.ID]
+	if ok {
+		return false
+	}
+
+	pp.fetchers[peer.ID] = fetcher
+	// No need to initialize a new peer hashring, we're only adding peers.
+	pp.peerIDs.Add(peer.ID)
+	return true
+}
+
+func (pp *PeerPicker) add(peer Peer) error {
+	// Do a quick check to see if this peer is already there before we acquire the heavy write-lock
+	if pp.checkPeerPresence(peer) {
+		return nil
+	}
+
+	newFetcher, err := pp.fetchingProtocol.NewFetcher(peer.URI)
+	if err != nil {
+		return fmt.Errorf("fetcher init failed for %s (at %s): %w", peer.ID, peer.URI, err)
+	}
+
+	if !pp.insertPeer(peer, newFetcher) {
+		// Something else raced and already added this fetcher
+		// close it
+		newFetcher.Close()
+	}
+	return nil
+}
+
+func (pp *PeerPicker) removePeers(peerIDs ...string) []RemoteFetcher {
+	pp.mu.Lock()
+	defer pp.mu.Unlock()
+	return pp.removePeersLocked(peerIDs...)
+
+}
+
+func (pp *PeerPicker) removePeersLocked(peerIDs ...string) []RemoteFetcher {
+	out := make([]RemoteFetcher, 0, len(peerIDs))
+	for _, peerID := range peerIDs {
+		f, ok := pp.fetchers[peerID]
+		if ok {
+			out = append(out, f)
+		}
+		delete(pp.fetchers, peerID)
+	}
+
+	pp.regenerateHashringLocked()
+	return out
+}
+
 func (pp *PeerPicker) regenerateHashringLocked() {
 	selfAdj := 0
 	if pp.includeSelf {
@@ -303,6 +366,33 @@ func (pp *PeerPicker) setIncludeSelf(inc bool) {
 	defer pp.mu.Unlock()
 	pp.includeSelf = inc
 	pp.regenerateHashringLocked()
+}
+
+func (pp *PeerPicker) remove(ids ...string) error {
+	toClose := pp.removePeers(ids...)
+
+	// if there's 0 or 1 to close, just iterate.
+	// if there are more, we'll spin up goroutines and use an errgroup
+	if len(toClose) < 2 {
+		for _, f := range toClose {
+			if closeErr := f.Close(); closeErr != nil {
+				return closeErr
+			}
+		}
+		return nil
+	}
+	eg := errgroup.Group{}
+	for _, f := range toClose {
+		f := f
+		eg.Go(func() error {
+			if closeErr := f.Close(); closeErr != nil {
+				return fmt.Errorf("failed to close RemoteFetcher: %w", closeErr)
+			}
+			return nil
+		})
+	}
+
+	return eg.Wait()
 }
 
 func (pp *PeerPicker) shutdown() error {
