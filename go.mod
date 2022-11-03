@@ -6,6 +6,7 @@ require (
 	github.com/golang/protobuf v1.4.3
 	github.com/vimeo/go-clocks v1.1.2
 	go.opencensus.io v0.22.5
+	golang.org/x/sync v0.1.0
 	google.golang.org/grpc v1.35.0
 )
 
