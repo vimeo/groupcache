@@ -395,6 +395,13 @@ func (pp *PeerPicker) remove(ids ...string) error {
 	return eg.Wait()
 }
 
+func (pp *PeerPicker) listPeers() map[string]RemoteFetcher {
+	pp.mu.Lock()
+	defer pp.mu.Unlock()
+	fetchers := pp.fetchers
+	return fetchers
+}
+
 func (pp *PeerPicker) shutdown() error {
 	pp.setIncludeSelf(false)
 	// Clear out all the existing peers

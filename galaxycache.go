@@ -232,6 +232,11 @@ func (universe *Universe) RemovePeers(ids ...string) error {
 	return universe.peerPicker.remove(ids...)
 }
 
+// ListPeers returns Universe's remote fetchers map keyed by peer IDs
+func (universe *Universe) ListPeers() map[string]RemoteFetcher {
+	return universe.peerPicker.listPeers()
+}
+
 // Shutdown closes all open fetcher connections
 func (universe *Universe) Shutdown() error {
 	return universe.peerPicker.shutdown()
