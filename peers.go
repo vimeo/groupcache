@@ -396,9 +396,15 @@ func (pp *PeerPicker) remove(ids ...string) error {
 }
 
 func (pp *PeerPicker) listPeers() map[string]RemoteFetcher {
-	pp.mu.Lock()
-	defer pp.mu.Unlock()
-	fetchers := pp.fetchers
+	pp.mu.RLock()
+	defer pp.mu.RUnlock()
+
+	// deep copy of pp.fetchers map.
+	fetchers := make(map[string]RemoteFetcher)
+	for p, f := range pp.fetchers {
+		fetchers[p] = f
+	}
+
 	return fetchers
 }
 

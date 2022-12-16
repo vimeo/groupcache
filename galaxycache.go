@@ -232,7 +232,8 @@ func (universe *Universe) RemovePeers(ids ...string) error {
 	return universe.peerPicker.remove(ids...)
 }
 
-// ListPeers returns Universe's remote fetchers map keyed by peer IDs
+// ListPeers returns a map of remote fetchers keyed by Peer ID,
+// useful for testing incremental changes to galaxycache peers.
 func (universe *Universe) ListPeers() map[string]RemoteFetcher {
 	return universe.peerPicker.listPeers()
 }
