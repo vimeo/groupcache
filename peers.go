@@ -399,8 +399,8 @@ func (pp *PeerPicker) listPeers() map[string]RemoteFetcher {
 	pp.mu.RLock()
 	defer pp.mu.RUnlock()
 
-	// deep copy of pp.fetchers map.
-	fetchers := make(map[string]RemoteFetcher)
+	// deep copy of fetchers map with size equal to length of pp.fetchers.
+	fetchers := make(map[string]RemoteFetcher, len(pp.fetchers))
 	for p, f := range pp.fetchers {
 		fetchers[p] = f
 	}

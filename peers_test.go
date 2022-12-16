@@ -244,7 +244,7 @@ func TestPeersIncremental(t *testing.T) {
 					fetcherURIs[f.(*TestFetcher).uri] = struct{}{}
 				}
 
-				allFetchers := u.peerPicker.listPeers()
+				allFetchers := u.ListPeers()
 				allPeerIDs := make(map[string]struct{}, len(allFetchers))
 				allFetcherURIs := make(map[string]struct{}, len(allFetchers))
 				for peerID, fetcher := range allFetchers {
