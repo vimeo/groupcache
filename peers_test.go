@@ -244,6 +244,14 @@ func TestPeersIncremental(t *testing.T) {
 					fetcherURIs[f.(*TestFetcher).uri] = struct{}{}
 				}
 
+				allFetchers := u.ListPeers()
+				allPeerIDs := make(map[string]struct{}, len(allFetchers))
+				allFetcherURIs := make(map[string]struct{}, len(allFetchers))
+				for peerID, fetcher := range allFetchers {
+					allPeerIDs[peerID] = struct{}{}
+					allFetcherURIs[fetcher.(*TestFetcher).uri] = struct{}{}
+				}
+
 				for _, expPeer := range step.expectedPeers {
 					if _, ok := allPeers[expPeer.ID]; !ok {
 						t.Errorf("missing peer %q from hashring at step %d", expPeer.ID, si)
@@ -258,6 +266,17 @@ func TestPeersIncremental(t *testing.T) {
 							expPeer.ID, expPeer.URI, si)
 					}
 					delete(fetcherURIs, expPeer.URI)
+					// Checks for peer IDs and fetchers from listPeers method.
+					if _, ok := allPeerIDs[expPeer.ID]; !ok {
+						t.Errorf("missing peer %q from copy of fetchers map keys at step %d",
+							expPeer.ID, si)
+					}
+					delete(allPeerIDs, expPeer.ID)
+					if _, ok := allFetcherURIs[expPeer.URI]; !ok {
+						t.Errorf("missing peer %q (URI %q) from copy of fetchers values at step %d",
+							expPeer.ID, expPeer.URI, si)
+					}
+					delete(allFetcherURIs, expPeer.URI)
 				}
 				if step.includeSelf {
 					if _, ok := allPeers[selfID]; !ok {
@@ -273,6 +292,14 @@ func TestPeersIncremental(t *testing.T) {
 				}
 				if len(fetcherURIs) > 0 {
 					t.Errorf("unexpected peer(s)' URI(s) in fetcher-map at step %d: %v", si, fetcherURIs)
+				}
+				// Checks for peer IDs and fetchers from listPeers method.
+				if len(allPeerIDs) > 0 {
+					t.Errorf("unexpected peer(s) in copy of fetcher-map at step %d: %v", si, allPeerIDs)
+				}
+				if len(allFetcherURIs) > 0 {
+					t.Errorf("unexpected peer(s)' URI(s) in copy of fetcher-map at step %d: %v",
+						si, allFetcherURIs)
 				}
 			}
 		})
