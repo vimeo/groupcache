@@ -1,3 +1,5 @@
+//go:build !go1.20
+
 /*
 Copyright 2013 Google Inc.
 
