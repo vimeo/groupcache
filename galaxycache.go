@@ -613,6 +613,10 @@ func (g *Galaxy) load(ctx context.Context, key string, dest Codec) (value valWit
 }
 
 func (g *Galaxy) getLocally(ctx context.Context, key string, dest Codec) ([]byte, error) {
+	startTime := time.Now()
+	defer func() {
+		stats.RecordWithTags(ctx, nil, MGetterFuncLatencyMilliseconds.M(sinceInMilliseconds(startTime)))
+	}()
 	err := g.getter.Get(ctx, key, dest)
 	if err != nil {
 		return nil, err

@@ -55,6 +55,8 @@ var (
 
 	MCacheSize    = stats.Int64("galaxycache/cache_bytes", "The number of bytes used for storing Keys and Values in the cache", stats.UnitBytes)
 	MCacheEntries = stats.Int64("galaxycache/cache_entries", "The number of entries in the cache", stats.UnitDimensionless)
+
+	MGetterFuncLatencyMilliseconds = stats.Float64("galaxycache/getterfunc_latency", "Local getter function latency in milliseconds", stats.UnitMilliseconds)
 )
 
 var (
@@ -90,6 +92,8 @@ var AllViews = []*view.View{
 	{Measure: MRoundtripLatencyMilliseconds, TagKeys: []tag.Key{GalaxyKey}, Aggregation: defaultMillisecondsDistribution},
 	{Measure: MCacheSize, TagKeys: []tag.Key{GalaxyKey, CacheTypeKey}, Aggregation: view.LastValue()},
 	{Measure: MCacheEntries, TagKeys: []tag.Key{GalaxyKey, CacheTypeKey}, Aggregation: view.LastValue()},
+
+	{Measure: MGetterFuncLatencyMilliseconds, TagKeys: []tag.Key{GalaxyKey}, Aggregation: defaultMillisecondsDistribution},
 }
 
 func sinceInMilliseconds(start time.Time) float64 {
