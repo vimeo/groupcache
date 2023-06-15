@@ -19,10 +19,11 @@ package grpc
 import (
 	"context"
 
-	gc "github.com/vimeo/galaxycache"
-	pb "github.com/vimeo/galaxycache/galaxycachepb"
 	"go.opencensus.io/plugin/ocgrpc"
 	"go.opencensus.io/trace"
+
+	gc "github.com/vimeo/galaxycache"
+	pb "github.com/vimeo/galaxycache/galaxycachepb"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
@@ -75,7 +76,7 @@ func (g *grpcFetcher) Fetch(ctx context.Context, galaxy string, key string) ([]b
 	span.Annotatef(nil, "fetching from %s; connection state %s", g.address, g.conn.GetState())
 	resp, err := g.client.GetFromPeer(ctx, &pb.GetRequest{
 		Galaxy: galaxy,
-		Key:    key,
+		Key:    []byte(key),
 	})
 	if err != nil {
 		return nil, status.Errorf(status.Code(err), "Failed to fetch from peer over RPC [%q, %q]: %s", galaxy, g.address, err)

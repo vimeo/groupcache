@@ -124,7 +124,7 @@ func runTestPeerGRPCServer(ctx context.Context, t testing.TB, addresses []string
 func testKeys(n int) (keys []string) {
 	keys = make([]string, n)
 	for i := range keys {
-		keys[i] = strconv.Itoa(i)
+		keys[i] = strconv.Itoa(i) + "\270\201\000\001"
 	}
 	return
 }
