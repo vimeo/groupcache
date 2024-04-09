@@ -30,19 +30,22 @@ func (b backendGetterV2[C, T]) Get(ctx context.Context, key string, dest galaxyc
 	if bgErr != nil {
 		return bgErr
 	}
-	switch d := dest.(type) {
-	case *CodecV2[C, T]:
+	if d, ok := dest.(*CodecV2[C, T]); ok {
 		d.Set(out)
-	default:
-		vs, mErr := proto.Marshal(out)
-		if mErr != nil {
-			return fmt.Errorf("failed to marshal value as bytes: %w", mErr)
-		}
+		return nil
+	}
+	return b.setSlow(out, dest)
 
-		if uErr := dest.UnmarshalBinary(vs); uErr != nil {
-			return fmt.Errorf("destination codec (type %T) Unmarshal failed: %w", dest, uErr)
-		}
+}
+
+func (b backendGetterV2[C, T]) setSlow(out T, dest galaxycache.Codec) error {
+	vs, mErr := proto.Marshal(out)
+	if mErr != nil {
+		return fmt.Errorf("failed to marshal value as bytes: %w", mErr)
 	}
 
+	if uErr := dest.UnmarshalBinary(vs); uErr != nil {
+		return fmt.Errorf("destination codec (type %T) Unmarshal failed: %w", dest, uErr)
+	}
 	return nil
 }
