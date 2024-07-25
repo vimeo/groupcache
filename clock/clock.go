@@ -75,19 +75,18 @@ func (c *Cache[K, V]) Add(key K, val V) {
 			value: val,
 		})
 		c.indices[key] = len(c.buf) - 1
-		c.clockhand = (c.clockhand + 1) % len(c.buf)
-		return
+	} else {
+		// Full, evict by reference bit then replace
+		for c.touches[c.clockhand].Load() > 0 {
+			c.touches[c.clockhand].Add(-1)
+			c.clockhand += 1 % len(c.buf)
+		}
+		c.Evict(c.buf[c.clockhand].key)
+		c.buf.insertAt(c.clockhand, key, val)
+		c.indices[key] = c.clockhand
+		c.touches[c.clockhand].Add(1)
 	}
-	// Full, evict by reference bit then replace
-	hand := c.clockhand
-	for c.touches[hand].Load() > 0 {
-		c.touches[hand].Add(-1)
-		hand = (hand + 1) % len(c.buf)
-	}
-	c.Evict(c.buf[hand].key)
-	c.buf.insertAt(hand, key, val)
-	c.indices[key] = hand
-	c.clockhand = hand
+	c.clockhand = (c.clockhand + 1) % len(c.buf)
 }
 
 // Get returns the value for a given key, if present.
